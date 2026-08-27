@@ -136,13 +136,60 @@ check("할인율이 클수록 점수도 크다",
 check("리뷰 많으면 가점", store.score_broadcast({"review_count": 20000})[0] >
       store.score_broadcast({"review_count": 5})[0])
 
+print("\n7d) 가격은 '변동 시에만' 기록한다 (저장소 비대화 방지)")
+cx = store.connect()
+same = dict(app); same["appid"] = 800
+store.save(cx, same, "신작")                       # 1회차: 첫 기록
+n1 = cx.execute("SELECT COUNT(*) FROM prices WHERE appid=800").fetchone()[0]
+store.save(cx, same, "신작")                       # 2회차: 같은 가격
+n2 = cx.execute("SELECT COUNT(*) FROM prices WHERE appid=800").fetchone()[0]
+# 같은 날 두 번 바뀌면 PK(appid,on_date) 때문에 한 행이 갱신된다(의도된 동작).
+# '행이 늘어나는지'는 날짜가 다를 때 봐야 한다 → 기존 행을 어제로 옮겨서 확인.
+cx.execute("UPDATE prices SET on_date='2026-08-01' WHERE appid=800")
+moved = dict(same); moved["price_final"] = 25000   # 3회차: 다른 날 + 가격 변동
+store.save(cx, moved, "신작")
+n3 = cx.execute("SELECT COUNT(*) FROM prices WHERE appid=800").fetchone()[0]
+cx.commit()
+check("첫 기록은 남는다", n1 == 1, f"{n1}행")
+check("가격 같으면 행이 늘지 않는다", n2 == 1, f"{n2}행")
+check("날짜가 바뀌고 가격도 변하면 행이 늘어난다", n3 == 2, f"{n3}행")
+r = cx.execute("SELECT price_first, price_last FROM games WHERE appid=800").fetchone()
+check("관측 첫/마지막 날은 기록된다", bool(r["price_first"] and r["price_last"]), str(tuple(r)))
+# 관측 기간은 '행 개수'가 아니라 '날짜 폭'
+check("관측기간=날짜폭", store.observed_days("2026-01-01", "2026-03-01") == 60,
+      str(store.observed_days("2026-01-01", "2026-03-01")))
+check("같은 날이면 1일", store.observed_days("2026-01-01", "2026-01-01") == 1)
+check("날짜 없으면 0", store.observed_days(None, None) == 0)
+# 행 2개뿐인데 60일 지켜봤으면 '역대최저'를 신뢰해야 한다 (예전 로직은 2일로 봤음)
+cx.execute("UPDATE games SET price_first='2026-01-01', price_last='2026-06-01' WHERE appid=800")
+cx.commit()
+g800 = next(x for x in store.all_games(cx) if x["appid"] == 800)
+check("행 2개라도 날짜폭이 길면 신뢰", g800["atl_trustworthy"] is True,
+      f'{g800["days_tracked"]}일 / 이력 {len(g800["history"])}행')
+cx.close()
+
 print("\n8) 차트")
-sp = build.sparkline(g2["history"])
+sp = build.sparkline(g2["history"], g2.get("price_last"))
 check("스파크라인 SVG", sp.startswith("<svg") and "polyline" in sp)
 check("이력 없으면 평선", "polyline" not in build.sparkline([]))
-ch = build.detail_chart(g2["history"], g2["lowest_seen"])
+check("변동 없으면 평선(없는 기복을 그리지 않음)",
+      "polyline" not in build.sparkline(
+          [{"on_date": "2026-01-01", "price_final": 100},
+           {"on_date": "2026-06-01", "price_final": 100}]))
+ch = build.detail_chart(g2["history"], g2["lowest_seen"], g2.get("price_last"))
 check("상세 차트", "<svg" in ch and 'class="tip"' in ch)
 check("눈금값 중복 없음", len(build.nice_ticks(1000, 1000.4)) == len(set(build.nice_ticks(1000, 1000.4))))
+# x축이 날짜에 비례해야 한다: 공백이 긴 구간은 화면에서도 넓어야 함
+h_gap = [{"on_date": "2026-01-01", "price_final": 10000, "price_initial": 10000, "discount_pct": 0},
+         {"on_date": "2026-01-02", "price_final": 9000, "price_initial": 10000, "discount_pct": 10},
+         {"on_date": "2026-12-01", "price_final": 8000, "price_initial": 10000, "discount_pct": 20}]
+c_gap = build.detail_chart(h_gap, 8000)
+xs = [float(p.split(",")[0]) for p in
+      c_gap.split('<polyline points="')[1].split('"')[0].split()]
+d_early, d_late = xs[2] - xs[0], xs[-1] - xs[2]
+check("x축이 날짜에 비례 (1일 간격 < 11개월 간격)", d_late > d_early * 20,
+      f"1일={d_early:.1f}px, 11개월={d_late:.1f}px")
+check("계단식으로 그린다(사선 아님)", len(xs) == 2 * len(h_gap) - 1, f"{len(xs)}점")
 
 print("\n9) 사이트 생성")
 conn.close()
@@ -184,6 +231,38 @@ check("이미지 없으면 머리글자 자리표시", 'class="ph"' in build.sho
 d1 = open(os.path.join(config.SITE_DIR, "game", "9.html"), encoding="utf-8").read()
 check("이력 1건이면 빈 그래프 대신 안내문", 'class="waiting"' in d1 and "<svg" not in
       d1.split('원화 가격 추이')[1].split('</div>')[0])
+
+print("\n9c) 검색 유입 준비물 (사이트맵 / canonical / OG / 랜딩)")
+check("robots.txt 생성", os.path.exists(os.path.join(config.SITE_DIR, "robots.txt")))
+sm_path = os.path.join(config.SITE_DIR, "sitemap.xml")
+check("sitemap.xml 생성", os.path.exists(sm_path))
+for spec in build.LANDINGS:
+    p = os.path.join(config.SITE_DIR, f"{spec['slug']}.html")
+    check(f"랜딩 {spec['slug']}.html", os.path.exists(p))
+kd = open(os.path.join(config.SITE_DIR, "korean-demo.html"), encoding="utf-8").read()
+check("랜딩 제목이 키워드를 담는다", "스팀 한국어 데모" in kd)
+check("랜딩에도 헤더/네비 있음", 'class="jump"' in kd)
+check("상세 페이지 og:image 는 스팀 표지", 'property="og:image"' in
+      open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read())
+d730 = open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read()
+check("상세 제목에 가격이 들어간다", "33,000원" in d730.split("</title>")[0])
+check("하위 폴더에서 상위 경로가 ../ 로 나간다", 'href="../index.html' in d730)
+# SITE_URL 을 주면 절대 URL 이 나와야 한다
+os.environ["SITE_URL"] = "https://square8.github.io/steamdeal"
+import importlib
+importlib.reload(config); importlib.reload(build)
+build.main()
+sm = open(sm_path, encoding="utf-8").read()
+idx2 = open(idx, encoding="utf-8").read()
+check("사이트맵에 절대 URL", "https://square8.github.io/steamdeal/index.html" in sm, )
+check("사이트맵에 랜딩 포함", "korean-demo.html" in sm)
+check("사이트맵에 게임 상세 포함", "game/730.html" in sm)
+check("성인 게임은 사이트맵에서 제외", "game/700.html" not in sm)
+check("canonical 절대 URL", 'rel="canonical" href="https://' in idx2)
+check("robots 에 사이트맵 주소", "Sitemap: https://" in
+      open(os.path.join(config.SITE_DIR, "robots.txt"), encoding="utf-8").read())
+del os.environ["SITE_URL"]
+importlib.reload(config); importlib.reload(build)
 
 print("\n10) XSS")
 conn = store.connect()

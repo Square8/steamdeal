@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS games (
     adult         INTEGER DEFAULT 0,   -- 성적 콘텐츠. 기본 화면에서 감춘다
     review_count  INTEGER DEFAULT 0,   -- 인지도 대리 지표
     developer     TEXT,
+    -- 가격을 '관측한' 첫/마지막 날. 가격 행은 변동 시에만 쌓기 때문에
+    -- 관측 기간을 이력 행 개수로 셀 수 없다. 그래서 따로 기록한다.
+    price_first   TEXT,
+    price_last    TEXT,
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL,
     checked_at    TEXT NOT NULL    -- 마지막 상세조회 시각 (회전 갱신 기준)
@@ -63,11 +67,20 @@ def _migrate(conn) -> None:
         "has_demo": "INTEGER DEFAULT 0", "demo_appid": "INTEGER",
         "is_free": "INTEGER DEFAULT 0", "checked_at": "TEXT",
         "adult": "INTEGER DEFAULT 0", "review_count": "INTEGER DEFAULT 0",
-        "developer": "TEXT",
+        "developer": "TEXT", "price_first": "TEXT", "price_last": "TEXT",
     }
     for col, decl in add.items():
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {decl}")
+    # 예전 방식(매일 1행)으로 쌓인 DB 에서 관측 구간을 복원한다.
+    # 새 칼럼이 방금 추가됐다면 값이 NULL 이므로 기존 prices 에서 채워준다.
+    conn.execute("""
+        UPDATE games SET
+          price_first = COALESCE(price_first,
+            (SELECT MIN(on_date) FROM prices WHERE prices.appid = games.appid)),
+          price_last  = COALESCE(price_last,
+            (SELECT MAX(on_date) FROM prices WHERE prices.appid = games.appid))
+        WHERE price_first IS NULL OR price_last IS NULL""")
     conn.commit()
 
 
@@ -100,16 +113,27 @@ def save(conn, app: dict, tag: str | None = None) -> None:
     )
     # 가격이 있는 것만 이력에 남긴다 (무료/출시예정은 가격이 없다)
     if app["price_final"] > 0:
+        # 매 실행마다 한 행씩 쌓으면(200개 × 하루 2번) 2년에 14만 행 / 8.8MB 가 되고,
+        # 이 파일을 하루 두 번 git 에 커밋하므로 저장소 이력이 계속 불어난다.
+        # 그래서 '가격이 변했을 때만' 새 행을 남긴다. 관측 기간은 price_first/last 로 따로 센다.
+        prev = conn.execute(
+            "SELECT price_final, price_initial, discount_pct FROM prices "
+            "WHERE appid=? ORDER BY on_date DESC LIMIT 1", (app["appid"],)).fetchone()
+        cur = (app["price_final"], app["price_initial"], app["discount_pct"])
+        changed = prev is None or tuple(prev) != cur
+        if changed:
+            conn.execute(
+                """INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(appid,on_date) DO UPDATE SET
+                     price_final=excluded.price_final,
+                     price_initial=excluded.price_initial,
+                     discount_pct=excluded.discount_pct""",
+                (app["appid"], today, *cur))
+        # 변동이 없어도 '오늘 확인했다'는 사실은 기록해야 관측 기간이 늘어난다.
         conn.execute(
-            """INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct)
-               VALUES (?,?,?,?,?)
-               ON CONFLICT(appid,on_date) DO UPDATE SET
-                 price_final=excluded.price_final,
-                 price_initial=excluded.price_initial,
-                 discount_pct=excluded.discount_pct""",
-            (app["appid"], today, app["price_final"],
-             app["price_initial"], app["discount_pct"]),
-        )
+            "UPDATE games SET price_first=COALESCE(price_first,?), price_last=? "
+            "WHERE appid=?", (today, today, app["appid"]))
 
 
 def stale_appids(conn, limit: int) -> list[int]:
@@ -117,6 +141,18 @@ def stale_appids(conn, limit: int) -> list[int]:
     기존 게임 이력이 얼어붙는 문제를 막는다."""
     return [r["appid"] for r in conn.execute(
         "SELECT appid FROM games ORDER BY COALESCE(checked_at,'') ASC LIMIT ?", (limit,))]
+
+
+def observed_days(first: str | None, last: str | None) -> int:
+    """가격을 지켜본 날짜 폭(양끝 포함). 가격 행 개수와 다르다."""
+    if not first or not last:
+        return 0
+    try:
+        f = date.fromisoformat(first)
+        l = date.fromisoformat(last)
+    except ValueError:
+        return 0
+    return max((l - f).days + 1, 1)
 
 
 def all_games(conn) -> list[dict]:
@@ -137,10 +173,21 @@ def all_games(conn) -> list[dict]:
             # 정가는 스팀이 준 실제 값을 쓴다 (관측 최고가로 추정하지 않는다)
             g["price_initial"] = cur["price_initial"] or cur["price_final"]
             g["lowest_seen"] = low
-            g["days_tracked"] = len(hist)
+            # 관측 기간 = 실제로 지켜본 날짜 폭. 이력 '행 개수'가 아니다.
+            # (가격 변동 시에만 행을 남기므로, 행 개수로 세면 1년 지켜봐도 3일로 나온다)
+            #
+            # 두 근거 중 넓은 쪽을 쓴다:
+            #   price_first/last  = 변동이 없던 날까지 포함한 관측 구간 (더 정확)
+            #   이력의 첫~마지막   = 그 날에 확실히 관측했다는 증거 (더 안전)
+            # price_first/last 가 비어 있거나 낡은 DB(마이그레이션 직후, 외부에서
+            # prices 만 채운 경우)에서 관측 기간이 1일로 축소되는 것을 막는다.
+            g["days_tracked"] = max(
+                observed_days(g.get("price_first"), g.get("price_last")),
+                observed_days(hist[0]["on_date"], hist[-1]["on_date"]),
+                1)
             # 관측 기간이 짧으면 '역대 최저'라고 말하지 않는다 (거짓이 될 수 있으므로)
             g["at_lowest"] = bool(low and cur["price_final"] <= low)
-            g["atl_trustworthy"] = len(hist) >= config.MIN_DAYS_FOR_ATL
+            g["atl_trustworthy"] = g["days_tracked"] >= config.MIN_DAYS_FOR_ATL
         else:
             g.update({"price_final": 0, "discount_pct": 0, "price_initial": 0,
                       "lowest_seen": 0, "days_tracked": 0,

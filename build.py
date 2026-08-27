@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 import config
 import store
@@ -58,69 +58,104 @@ def nice_ticks(lo: float, hi: float, target: int = 4) -> list[int]:
     return best[1]
 
 
-def sparkline(hist: list[dict], w=88, h=40) -> str:
-    """목록용 미니 추이. 형태만 보여주는 보조 표시이고, 실제 수치는 옆 칼럼에 숫자로 있다."""
-    pts = [p["price_final"] for p in hist if p["price_final"] > 0]
-    if len(pts) < 2:
+def _series(hist: list[dict], end_date: str | None):
+    """이력을 (날짜서수, 가격) 목록으로. 가격 행은 '변동 시점'만 있으므로
+    마지막 가격을 관측 마지막 날까지 수평으로 이어준다 (그게 실제로 유지된 가격이다)."""
+    pts = []
+    for h in hist:
+        if h["price_final"] <= 0:
+            continue
+        try:
+            pts.append((date.fromisoformat(h["on_date"]).toordinal(), h["price_final"]))
+        except (ValueError, TypeError):
+            continue
+    if not pts:
+        return []
+    if end_date:
+        try:
+            eo = date.fromisoformat(end_date).toordinal()
+            if eo > pts[-1][0]:
+                pts.append((eo, pts[-1][1]))     # 마지막 가격이 오늘까지 유지됨
+        except ValueError:
+            pass
+    return pts
+
+
+def _step_path(pts, X, Y):
+    """계단식 경로. 가격은 다음 변동까지 그대로 유지되므로
+    점을 사선으로 잇는 것은 사실과 다르다 (서서히 내린 것처럼 보임)."""
+    d = [f"{X(pts[0][0]):.1f},{Y(pts[0][1]):.1f}"]
+    for i in range(1, len(pts)):
+        d.append(f"{X(pts[i][0]):.1f},{Y(pts[i-1][1]):.1f}")   # 수평 유지
+        d.append(f"{X(pts[i][0]):.1f},{Y(pts[i][1]):.1f}")     # 변동 순간 수직
+    return " ".join(d)
+
+
+def sparkline(hist: list[dict], end_date: str | None = None, w=88, h=40) -> str:
+    """목록용 미니 추이. 형태만 보여주는 보조 표시이고, 수치는 옆에 숫자로 있다."""
+    pts = _series(hist, end_date)
+    if len(pts) < 2 or len({p[1] for p in pts}) < 2:
+        # 변동이 없으면 '변동 없음'을 평선으로. 없는 기복을 그리지 않는다.
         return (f'<svg class="spark" viewBox="0 0 {w} {h}" aria-hidden="true">'
                 f'<line x1="0" y1="{h/2}" x2="{w}" y2="{h/2}" stroke="var(--grid)" '
                 f'stroke-width="2" stroke-linecap="round"/></svg>')
-    lo, hi = min(pts), max(pts)
+    t0, t1 = pts[0][0], pts[-1][0]
+    tspan = (t1 - t0) or 1
+    lo = min(p[1] for p in pts)
+    hi = max(p[1] for p in pts)
     span = (hi - lo) or 1
     pad = 3
-    step = w / (len(pts) - 1)
 
-    def xy(i, v):
-        return i * step, pad + (1 - (v - lo) / span) * (h - 2 * pad)
+    def X(t):
+        return (t - t0) / tspan * w
 
-    coords = [xy(i, v) for i, v in enumerate(pts)]
-    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
+    def Y(v):
+        return pad + (1 - (v - lo) / span) * (h - 2 * pad)
+
+    line = _step_path(pts, X, Y)
     area = f"{line} {w:.1f},{h} 0,{h}"
-    ex, ey = coords[-1]
+    ex, ey = X(pts[-1][0]), Y(pts[-1][1])
     return (
         f'<svg class="spark" viewBox="0 0 {w} {h}" aria-hidden="true">'
         f'<polygon points="{area}" fill="var(--brand-soft)"/>'
         f'<polyline points="{line}" fill="none" stroke="var(--brand)" stroke-width="2" '
         f'stroke-linejoin="round" stroke-linecap="round"/>'
-        # 끝점(현재가)을 강조. 표면색 링으로 선과 분리한다.
         f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3" fill="var(--brand)" '
         f'stroke="var(--surface)" stroke-width="2"/>'
         f'</svg>'
     )
 
 
-def detail_chart(hist: list[dict], atl: int) -> str:
-    """상세 페이지 가격 추이. 단일 시리즈라 범례가 없고 제목이 시리즈를 지칭한다.
-    역대 최저가는 기준선(점선, 저채도)으로 표시한다."""
-    pts = [(p["on_date"], p["price_final"]) for p in hist if p["price_final"] > 0]
+def detail_chart(hist: list[dict], atl: int, end_date: str | None = None) -> str:
+    """상세 가격 추이. x축은 날짜에 비례한다 —
+    점을 균등 간격으로 놓으면 '6개월 공백'과 '하루 간격'이 똑같이 보여서 거짓이 된다."""
+    pts = _series(hist, end_date)
     if len(pts) < 2:
-        return ('<p class="sub">가격 이력이 아직 하루치뿐이다. '
-                '며칠 더 모이면 추이가 그려진다.</p>')
+        return ('<div class="waiting">가격 추적을 시작했습니다.<br>'
+                '가격이 한 번이라도 바뀌면 이 자리에 추이가 그려집니다.</div>')
 
     W, H = 720, 240
-    ML, MR, MT, MB = 58, 14, 14, 28
+    ML, MR, MT, MB = 58, 14, 16, 30
     iw, ih = W - ML - MR, H - MT - MB
+    t0, t1 = pts[0][0], pts[-1][0]
+    tspan = (t1 - t0) or 1
     vals = [v for _, v in pts]
     lo, hi = min(vals), max(vals)
     if hi == lo:
-        # 가격이 한 번도 변하지 않은 게임. 선이 정확히 가운데 오도록 위아래로 벌린다.
         pad_v = max(hi * 0.1, 1)
-        lo_a, hi_a = max(0, lo - pad_v), hi + pad_v
     else:
         pad_v = (hi - lo) * 0.12
-        lo_a, hi_a = max(0, lo - pad_v), hi + pad_v
-    step = iw / (len(pts) - 1)
+    lo_a, hi_a = max(0, lo - pad_v), hi + pad_v
 
-    def X(i):
-        return ML + i * step
+    def X(t):
+        return ML + (t - t0) / tspan * iw
 
     def Y(v):
         return MT + (1 - (v - lo_a) / (hi_a - lo_a)) * ih
 
-    line = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, (_, v) in enumerate(pts))
-    area = f"{line} {X(len(pts)-1):.1f},{MT+ih:.1f} {ML:.1f},{MT+ih:.1f}"
+    line = _step_path(pts, X, Y)
+    area = f"{line} {X(t1):.1f},{MT+ih:.1f} {ML:.1f},{MT+ih:.1f}"
 
-    # y 눈금 (recessive grid, 읽기 좋은 값)
     ticks = []
     for v in nice_ticks(lo_a, hi_a):
         y = Y(v)
@@ -128,10 +163,8 @@ def detail_chart(hist: list[dict], atl: int) -> str:
             f'<line x1="{ML}" y1="{y:.1f}" x2="{W-MR}" y2="{y:.1f}" '
             f'stroke="var(--grid)" stroke-width="1"/>'
             f'<text x="{ML-8}" y="{y+4:.1f}" text-anchor="end" font-size="11" '
-            f'fill="var(--ink-3)">{v:,}</text>'
-        )
+            f'fill="var(--ink-3)">{v:,}</text>')
 
-    # 역대 최저가 기준선
     atl_line = ""
     if atl and lo_a <= atl <= hi_a:
         ay = Y(atl)
@@ -141,23 +174,23 @@ def detail_chart(hist: list[dict], atl: int) -> str:
             # 데이터 위에 겹쳐도 읽히도록 표면색 후광을 두른다
             f'<text x="{W-MR}" y="{ay-7:.1f}" text-anchor="end" font-size="11" '
             f'fill="var(--ink-3)" stroke="var(--surface)" stroke-width="3.5" '
-            f'paint-order="stroke" stroke-linejoin="round">역대 최저 {atl:,}원</text>'
-        )
+            f'paint-order="stroke" stroke-linejoin="round">추적 중 최저 {atl:,}원</text>')
 
-    # x축 라벨: 처음/끝만 (모든 점에 숫자를 달지 않는다)
+    d0 = date.fromordinal(t0).isoformat()
+    d1 = date.fromordinal(t1).isoformat()
     xlabels = (
-        f'<text x="{ML}" y="{H-8}" font-size="11" fill="var(--ink-3)">{pts[0][0][5:]}</text>'
-        f'<text x="{W-MR}" y="{H-8}" text-anchor="end" font-size="11" '
-        f'fill="var(--ink-3)">{pts[-1][0][5:]}</text>'
-    )
+        f'<text x="{ML}" y="{H-9}" font-size="11" fill="var(--ink-3)">{d0[2:]}</text>'
+        f'<text x="{W-MR}" y="{H-9}" text-anchor="end" font-size="11" '
+        f'fill="var(--ink-3)">{d1[2:]}</text>')
 
-    ex, ey = X(len(pts) - 1), Y(pts[-1][1])
-    data = json.dumps([{"d": d, "v": v, "x": round(X(i), 1), "y": round(Y(v), 1)}
-                       for i, (d, v) in enumerate(pts)], ensure_ascii=False)
+    ex, ey = X(t1), Y(pts[-1][1])
+    data = json.dumps([{"d": date.fromordinal(t).isoformat(), "v": v,
+                        "x": round(X(t), 1), "y": round(Y(v), 1)}
+                       for t, v in pts], ensure_ascii=False)
 
     return f"""<div class="chartwrap">
 <svg class="chart" viewBox="0 0 {W} {H}" role="img"
-     aria-label="가격 추이 꺾은선 그래프. {pts[0][0]} {pts[0][1]:,}원부터 {pts[-1][0]} {pts[-1][1]:,}원까지.">
+     aria-label="가격 추이 계단 그래프. {d0} {pts[0][1]:,}원부터 {d1} {pts[-1][1]:,}원까지, 변동 {len(pts)-1}회.">
   {''.join(ticks)}
   {atl_line}
   <polygon points="{area}" fill="var(--brand-soft)"/>
@@ -214,30 +247,59 @@ def detail_chart(hist: list[dict], atl: int) -> str:
 
 # ---------------------------------------------------------------- 페이지 골격
 
-def page(title: str, body: str, updated: str, nav: bool = True) -> str:
-    jump = ("""<nav class="jump">
-    <a href="./index.html#pick">방송 후보</a>
-    <a href="./index.html#demo">데모</a>
-    <a href="./index.html#new">신작</a>
-    <a href="./index.html#soon">출시예정</a>
-    <a href="./index.html#sale">할인</a>
-    <a href="./index.html#all">전체</a>
+DEFAULT_DESC = ("한국어를 지원하는 스팀 신작·데모·출시예정 게임을 매일 자동으로 모읍니다. "
+                "원화 가격과 가격 변동 이력을 함께 기록합니다.")
+
+
+def abs_url(rel: str) -> str:
+    """sitemap·canonical·og:url 은 절대 URL 이어야 한다.
+    SITE_URL 이 없으면(로컬 테스트) 상대 경로를 그대로 둔다."""
+    base = (config.SITE_URL or "").rstrip("/")
+    return f"{base}/{rel.lstrip('./')}" if base else rel
+
+
+def page(title: str, body: str, updated: str, nav: bool = True,
+         desc: str = "", canonical: str = "", og_image: str = "",
+         depth: int = 0) -> str:
+    """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
+    up = "../" * depth
+    jump = (f"""<nav class="jump">
+    <a href="{up}index.html#pick">방송 후보</a>
+    <a href="{up}korean-demo.html">한국어 데모</a>
+    <a href="{up}korean-new.html">한국어 신작</a>
+    <a href="{up}index.html#soon">출시예정</a>
+    <a href="{up}under-10000.html">1만원 이하</a>
+    <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
+    desc = desc or DEFAULT_DESC
+    can = (f'<link rel="canonical" href="{esc(abs_url(canonical))}">'
+           if canonical else "")
+    og_img = (f'<meta property="og:image" content="{esc(og_image)}">'
+              f'<meta name="twitter:card" content="summary_large_image">'
+              if og_image else '<meta name="twitter:card" content="summary">')
+    og_u = (f'<meta property="og:url" content="{esc(abs_url(canonical))}">'
+            if canonical else "")
     return f"""<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
-<meta name="description" content="한국어를 지원하는 스팀 신작·데모·출시예정 게임을 매일 자동으로 모아 보여줍니다. 원화 가격과 가격 추이를 함께 기록합니다.">
+<meta name="description" content="{esc(desc)}">
+{can}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="스팀딜 레이더">
+<meta property="og:locale" content="ko_KR">
 <meta property="og:title" content="{esc(title)}">
-<meta property="og:description" content="한국어 지원 스팀 신작·데모·출시예정을 매일 자동으로.">
+<meta property="og:description" content="{esc(desc)}">
+{og_u}
+{og_img}
 {theme.FONTS}
 <style>{theme.CSS}</style>
 </head>
 <body>
 <header class="top"><div class="topin">
-  <a class="logo" href="./index.html">
+  <a class="logo" href="{up}index.html">
     <b>스팀<i>딜</i> 레이더</b>
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
@@ -322,7 +384,7 @@ def card(g: dict) -> str:
             f'<span class="score-n">{score}</span>'
             f'<span class="bar" role="img" aria-label="방송 적합도 {score}점 중 100점">'
             f'<i style="width:{score}%"></i></span></div>'
-            if score else sparkline(g.get("history") or []))
+            if score else sparkline(g.get("history") or [], g.get("price_last")))
     return f"""<a class="card" href="./game/{g['appid']}.html"
    data-n="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
    data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
@@ -542,7 +604,11 @@ def build_index(games: list[dict], updated: str) -> str:
 }})();
 </script>
 """
-    return page("스팀딜 레이더 — 한국어 지원 스팀 신작·데모·할인", body, updated)
+    return page("스팀딜 레이더 — 한국어 지원 스팀 신작 · 데모 · 할인",
+                body, updated, canonical="index.html",
+                og_image=(top.get("header_image") or ""),
+                desc=(f"한국어를 지원하는 스팀 신작·데모·출시예정 {len(cands)}개를 "
+                      f"매일 두 번 자동으로 모읍니다. 원화 가격과 변동 이력도 함께."))
 
 
 # ---------------------------------------------------------------- 상세
@@ -590,22 +656,26 @@ def build_detail(g: dict, updated: str) -> str:
 </div>""" if why else "")
 
     hist = g.get("history") or []
+    days = g.get("days_tracked") or 0
     if len(hist) >= 2:
+        # 이력은 '가격이 바뀐 날'만 담긴다. 표에도 그렇게 적어야 오해가 없다.
         rows = "".join(
             f'<tr><td>{esc(h["on_date"])}</td><td>{h["price_final"]:,}원</td>'
             f'<td>{("-" + str(h["discount_pct"]) + "%") if h["discount_pct"] else "—"}</td></tr>'
             for h in reversed(hist))
-        chart_inner = (detail_chart(hist, g.get("lowest_seen") or 0) +
-                       f"""<details><summary>표로 보기</summary>
+        chart_inner = (detail_chart(hist, g.get("lowest_seen") or 0, g.get("price_last")) +
+                       f"""<details><summary>가격이 바뀐 날 {len(hist)}건 보기</summary>
     <div class="tablewrap"><table><thead>
-    <tr><th>날짜</th><th>가격</th><th>할인</th></tr></thead>
+    <tr><th>바뀐 날</th><th>가격</th><th>할인</th></tr></thead>
     <tbody>{rows}</tbody></table></div></details>""")
-        sub = "점선은 추적 기간 중 최저가입니다. 그래프에 마우스를 올리면 날짜별 가격이 나옵니다."
+        sub = (f"{days}일 지켜보는 동안 {len(hist) - 1}번 바뀌었습니다. "
+               f"가격은 다음 변동까지 유지되므로 계단으로 그립니다.")
     else:
         # 빈 그래프를 보여주는 대신 왜 비었는지 말한다
         chart_inner = ('<div class="waiting">가격 추적을 시작했습니다.<br>'
-                       '며칠 더 모이면 이 자리에 추이 그래프가 그려집니다.</div>')
-        sub = "하루 두 번 자동으로 기록됩니다."
+                       '가격이 한 번이라도 바뀌면 이 자리에 추이가 그려집니다.</div>')
+        sub = (f"{days}일째 지켜보는 중이고, 아직 가격이 바뀌지 않았습니다."
+               if days > 1 else "하루 두 번 자동으로 확인합니다.")
     chart = f"""<div class="panel">
   <h3>원화 가격 추이</h3>
   <p class="sub">{sub}</p>
@@ -643,7 +713,105 @@ def build_detail(g: dict, updated: str) -> str:
 
 {chart}
 """
-    return page(g["name"], body, updated)
+    # 제목에 가격을 넣으면 검색결과에서 클릭할 이유가 생긴다.
+    if g.get("is_free"):
+        pt = f'{g["name"]} — 무료'
+    elif g.get("price_final"):
+        pt = f'{g["name"]} — {g["price_final"]:,}원'
+        if g.get("discount_pct"):
+            pt += f' ({g["discount_pct"]}% 할인)'
+    else:
+        pt = f'{g["name"]} — 출시예정' if g.get("coming_soon") else g["name"]
+
+    bits = []
+    if g.get("korean"):
+        bits.append("한국어 지원")
+    if g.get("has_demo") or g.get("app_type") == "demo":
+        bits.append("데모 있음")
+    if g.get("release_text"):
+        bits.append(f'{g["release_text"]} 출시')
+    d = f'{g["name"]} 스팀 원화 가격과 변동 이력.' + (" " + " · ".join(bits) if bits else "")
+
+    return page(pt, body, updated, canonical=f"game/{g['appid']}.html",
+                og_image=(g.get("header_image") or ""), desc=d, depth=1)
+
+
+# ---------------------------------------------------------------- 랜딩(검색 유입용)
+
+# 우리 데이터만 정직하게 답할 수 있는 질문들.
+# '스팀 최저가' 같은 거대 키워드는 선행 6개를 이길 수 없어서 쓰지 않는다.
+LANDINGS = [
+    dict(slug="korean-demo",
+         title="스팀 한국어 데모 — 지금 무료로 해볼 수 있는 게임",
+         h1="한국어 지원 데모",
+         desc="한국어를 지원하고 데모를 무료로 받을 수 있는 스팀 게임 목록. 매일 두 번 자동 갱신.",
+         note="사기 전에 무료로 먼저 해볼 수 있고, 한국어까지 되는 게임만 모았습니다.",
+         pick=lambda g: g.get("korean") and (g.get("has_demo") or g.get("app_type") == "demo"),
+         sort=lambda g: -(g.get("review_count") or 0)),
+    dict(slug="korean-new",
+         title="스팀 한국어 지원 신작 — 최근 나온 게임",
+         h1="한국어 지원 신작",
+         desc="최근 스팀에 출시된 게임 중 한국어를 지원하는 것만 골라 매일 갱신합니다.",
+         note="최근 출시 순입니다.",
+         pick=lambda g: g.get("korean") and g.get("tag") == "신작" and not g.get("coming_soon"),
+         sort=lambda g: (g.get("release_date") or "", g.get("name") or ""), rev=True),
+    dict(slug="korean-soon",
+         title="스팀 출시예정 한국어 게임 — 곧 나오는 것",
+         h1="곧 나오는 한국어 게임",
+         desc="아직 출시되지 않았지만 한국어를 지원할 예정인 스팀 게임 목록.",
+         note="출시일이 가까운 순입니다. 출시 전에 찜해두면 좋습니다.",
+         pick=lambda g: g.get("korean") and g.get("coming_soon"),
+         sort=lambda g: (g.get("release_date") or "9999", g.get("name") or "")),
+    dict(slug="under-10000",
+         title="스팀 1만원 이하 한국어 게임",
+         h1="1만원 이하 한국어 게임",
+         desc="현재 스팀 원화 가격이 1만원 이하이고 한국어를 지원하는 게임 목록.",
+         note="현재 판매가 기준입니다. 낮은 가격 순.",
+         pick=lambda g: (g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000),
+         sort=lambda g: g.get("price_final") or 0),
+]
+
+
+def build_landing(spec: dict, games: list[dict], updated: str) -> str:
+    items = sorted([g for g in games if not g.get("adult") and spec["pick"](g)],
+                   key=spec["sort"], reverse=spec.get("rev", False))
+    grid = ('<div class="grid">' + "".join(card(g) for g in items) + "</div>"
+            if items else
+            '<div class="grid"><div class="none">'
+            '아직 조건에 맞는 게임이 수집되지 않았습니다. 다음 갱신에서 채워집니다.'
+            '</div></div>')
+    body = f"""
+<section id="top">
+  <div class="sec-head"><h2>{esc(spec['h1'])}</h2>
+    <span class="cnt">{len(items)}개</span>
+    <a class="more" href="./index.html">전체 보기 →</a></div>
+  <p class="sec-note">{esc(spec['note'])}</p>
+  {grid}
+</section>
+"""
+    return page(spec["title"], body, updated,
+                canonical=f"{spec['slug']}.html", desc=spec["desc"],
+                og_image=(items[0].get("header_image") if items else ""))
+
+
+def build_sitemap(paths: list[str], updated: str) -> str:
+    if not config.SITE_URL:
+        # 절대 URL 없이는 유효한 사이트맵을 만들 수 없다. 빈 파일보다 낫게 표시만 남긴다.
+        return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>\n'
+    day = updated[:10]
+    urls = "".join(
+        f"  <url><loc>{esc(abs_url(p))}</loc><lastmod>{day}</lastmod>"
+        f"<changefreq>daily</changefreq>"
+        f"<priority>{'1.0' if p == 'index.html' else ('0.8' if '/' not in p else '0.6')}</priority>"
+        f"</url>\n" for p in paths)
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f"{urls}</urlset>\n")
+
+
+def build_robots() -> str:
+    sm = f"\nSitemap: {abs_url('sitemap.xml')}" if config.SITE_URL else ""
+    return f"User-agent: *\nAllow: /\n{sm}\n"
 
 
 def main() -> int:
@@ -661,20 +829,37 @@ def main() -> int:
     updated = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
     os.makedirs(os.path.join(config.SITE_DIR, "game"), exist_ok=True)
 
-    with open(os.path.join(config.SITE_DIR, "index.html"), "w", encoding="utf-8") as f:
-        f.write(build_index(games, updated))
+    def write(rel: str, text: str) -> None:
+        with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    write("index.html", build_index(games, updated))
+    paths = ["index.html"]
+
+    for spec in LANDINGS:
+        write(f"{spec['slug']}.html", build_landing(spec, games, updated))
+        paths.append(f"{spec['slug']}.html")
+
+    # 성인 게임 상세는 만들되 사이트맵에 넣지 않는다 (검색에 내보내지 않음)
     for g in games:
-        p = os.path.join(config.SITE_DIR, "game", f"{g['appid']}.html")
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(build_detail(g, updated))
+        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, updated))
+        if not g.get("adult"):
+            paths.append(f"game/{g['appid']}.html")
+
+    write("sitemap.xml", build_sitemap(paths, updated))
+    write("robots.txt", build_robots())
     # GitHub Pages 가 _ 로 시작하는 경로를 Jekyll 로 처리하지 않게
     open(os.path.join(config.SITE_DIR, ".nojekyll"), "w").close()
 
     cands = len(store.broadcast_candidates(games))
     demos = sum(1 for g in games if g.get("has_demo") or g.get("app_type") == "demo")
     adult = sum(1 for g in games if g.get("adult"))
-    log.info("생성 완료 — 게임 %d개, 방송후보 %d개, 데모 %d개, 성인 %d개(기본 숨김) → %s",
-             len(games), cands, demos, adult, config.SITE_DIR)
+    if not config.SITE_URL:
+        log.warning("SITE_URL 이 비어 있어 사이트맵/canonical 이 절대 URL 이 아니다 "
+                    "(로컬 테스트면 정상, Actions 면 환경변수 확인)")
+    log.info("생성 완료 — 게임 %d개(성인 %d 숨김), 방송후보 %d, 데모 %d, "
+             "랜딩 %d, 사이트맵 %d개 URL → %s",
+             len(games), adult, cands, demos, len(LANDINGS), len(paths), config.SITE_DIR)
     return 0
 
 

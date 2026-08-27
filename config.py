@@ -14,8 +14,11 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE_DIR = os.environ.get("SITE_DIR") or os.path.join(ROOT, "site")
 DB_PATH = os.environ.get("DB_PATH") or os.path.join(ROOT, "data", "steam.sqlite3")
 
-SITE_NAME = "스팀 방송 레이더"
+SITE_NAME = "스팀딜 레이더"
 SITE_TAGLINE = "신작 · 데모 · 출시예정을 매일 자동으로"
+# 절대 URL(사이트맵·canonical·og:url)에 쓴다. GitHub Actions 에서 주입한다.
+# 비어 있으면 상대 경로로만 동작한다 (로컬 테스트용).
+SITE_URL = os.environ.get("SITE_URL", "")
 
 # ---- 스팀 API ----
 CC = "kr"
