@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS games (
     has_demo      INTEGER DEFAULT 0,
     demo_appid    INTEGER,
     is_free       INTEGER DEFAULT 0,
+    adult         INTEGER DEFAULT 0,   -- 성적 콘텐츠. 기본 화면에서 감춘다
+    review_count  INTEGER DEFAULT 0,   -- 인지도 대리 지표
+    developer     TEXT,
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL,
     checked_at    TEXT NOT NULL    -- 마지막 상세조회 시각 (회전 갱신 기준)
@@ -59,6 +62,8 @@ def _migrate(conn) -> None:
         "release_text": "TEXT", "release_date": "TEXT",
         "has_demo": "INTEGER DEFAULT 0", "demo_appid": "INTEGER",
         "is_free": "INTEGER DEFAULT 0", "checked_at": "TEXT",
+        "adult": "INTEGER DEFAULT 0", "review_count": "INTEGER DEFAULT 0",
+        "developer": "TEXT",
     }
     for col, decl in add.items():
         if col not in have:
@@ -71,8 +76,9 @@ def save(conn, app: dict, tag: str | None = None) -> None:
     conn.execute(
         """INSERT INTO games (appid,name,app_type,tag,header_image,description,genres,
                               korean,coming_soon,release_text,release_date,
-                              has_demo,demo_appid,is_free,first_seen,last_seen,checked_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                              has_demo,demo_appid,is_free,adult,review_count,developer,
+                              first_seen,last_seen,checked_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(appid) DO UPDATE SET
              name=excluded.name, app_type=excluded.app_type,
              header_image=excluded.header_image, description=excluded.description,
@@ -80,6 +86,8 @@ def save(conn, app: dict, tag: str | None = None) -> None:
              coming_soon=excluded.coming_soon, release_text=excluded.release_text,
              release_date=excluded.release_date, has_demo=excluded.has_demo,
              demo_appid=excluded.demo_appid, is_free=excluded.is_free,
+             adult=excluded.adult, review_count=excluded.review_count,
+             developer=excluded.developer,
              last_seen=excluded.last_seen, checked_at=excluded.checked_at,
              -- 태그는 처음 발견된 것을 유지한다 (신작으로 잡힌 게 나중에 '할인'으로 덮이면
              -- 언제 새로 나왔는지 알 수 없게 되므로)
@@ -87,7 +95,8 @@ def save(conn, app: dict, tag: str | None = None) -> None:
         (app["appid"], app["name"], app["app_type"], tag, app["header_image"],
          app["short_description"], app["genres"], app["korean"], app["coming_soon"],
          app["release_text"], app["release_date"], app["has_demo"], app["demo_appid"],
-         1 if app["is_free"] else 0, today, today, today),
+         1 if app["is_free"] else 0, app.get("adult", 0), app.get("review_count", 0),
+         app.get("developer", ""), today, today, today),
     )
     # 가격이 있는 것만 이력에 남긴다 (무료/출시예정은 가격이 없다)
     if app["price_final"] > 0:
@@ -136,15 +145,71 @@ def all_games(conn) -> list[dict]:
             g.update({"price_final": 0, "discount_pct": 0, "price_initial": 0,
                       "lowest_seen": 0, "days_tracked": 0,
                       "at_lowest": False, "atl_trustworthy": False})
+        g["score"], g["why"] = score_broadcast(g)
         out.append(g)
     return out
 
 
-def broadcast_candidates(games: list[dict]) -> list[dict]:
+def score_broadcast(g: dict) -> tuple[int, list[str]]:
+    """방송 적합도 점수(0~100)와 그 근거.
+
+    일부러 '역대 최저가와의 거리' 는 넣지 않았다. 그 지표는 수집 60일이 넘어야
+    의미가 생기는데(MIN_DAYS_FOR_ATL) 지금은 이력이 며칠뿐이라, 넣으면 근거 없는
+    숫자가 커 보이게 될 뿐이다. 아래 항목은 전부 수집 첫날부터 사실인 것들이다.
+
+    가중치가 잘게 나뉘어 있는 이유: 만점이 흔하면 점수가 아무 정보도 주지 않는다.
+    실제로 처음엔 항목이 굵어서 한국어 지원 데모 인디게임이면 전부 100점이 나왔다.
+    """
+    pts, why = 0, []
+    if g.get("has_demo") or g.get("app_type") == "demo":
+        pts += 28
+        why.append("데모로 먼저 해볼 수 있음")
+    if g.get("korean"):
+        pts += 18
+        why.append("한국어 지원")
+    if g.get("coming_soon"):
+        pts += 16
+        why.append("아직 출시 전 — 선점 가능")
+    elif g.get("tag") == "신작":
+        pts += 12
+        why.append("최근 출시된 신작")
+
+    price = g.get("price_final") or 0
+    if g.get("is_free"):
+        pts += 14
+        why.append("무료")
+    elif not price:
+        pass                                  # 가격 미정은 점수 없음
+    elif price <= 10000:
+        pts += 12
+        why.append(f"{price:,}원 — 부담 없는 가격")
+    elif price <= 20000:
+        pts += 9
+    elif price <= 40000:
+        pts += 5
+
+    off = g.get("discount_pct") or 0
+    if off:
+        pts += min(round(off * 0.14), 14)     # 50% → 7점, 90% → 13점
+        why.append(f"{off}% 할인 중")
+
+    # 리뷰가 없는 신작은 '정보가 없다'는 뜻이지 나쁘다는 뜻이 아니므로 감점하지 않는다.
+    rc = g.get("review_count") or 0
+    for need, add in ((10000, 10), (1000, 7), (100, 4)):
+        if rc >= need:
+            pts += add
+            why.append(f"리뷰 {rc:,}개")
+            break
+    return min(pts, 100), why
+
+
+def broadcast_candidates(games: list[dict], include_adult: bool = False) -> list[dict]:
     """방송 후보: 한국어 지원 + 가격 조건 + (데모 있음 또는 신작/출시예정).
-    기준은 config 에서 조절한다."""
+    기준은 config 에서 조절한다. 점수 높은 순으로 돌려준다."""
     out = []
     for g in games:
+        if not include_adult and g.get("adult"):
+            continue
         if config.REQUIRE_KOREAN and not g.get("korean"):
             continue
         price = g.get("price_final") or 0
@@ -154,9 +219,4 @@ def broadcast_candidates(games: list[dict]) -> list[dict]:
                        or g.get("tag") in ("신작", "출시예정") or g.get("is_free"))
         if interesting:
             out.append(g)
-    # 데모 있는 것 → 출시예정 → 신작 순으로 위에 오게
-    def rank(g):
-        return (0 if (g.get("has_demo") or g.get("app_type") == "demo") else 1,
-                0 if g.get("tag") == "출시예정" else 1,
-                g.get("name") or "")
-    return sorted(out, key=rank)
+    return sorted(out, key=lambda g: (-score_broadcast(g)[0], g.get("name") or ""))

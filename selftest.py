@@ -70,11 +70,16 @@ print("\n4) 저장 + 회전 갱신 대상")
 conn = store.connect()
 store.save(conn, app, "신작")
 store.save(conn, a2, "출시예정")
+# 히어로가 후보 하나를 가져가도 섹션이 비지 않는지 보려면 데모 게임이 최소 2개 필요하다
+app_b = dict(app)
+app_b.update(appid=731, name="테스트 게임 B", price_final=12000,
+             price_initial=12000, discount_pct=0, review_count=50)
+store.save(conn, app_b, "신작")
 conn.commit()
-check("2건 저장", conn.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 2)
-check("가격 있는 것만 이력에 남음",
-      conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 1)
-check("stale 목록 반환", len(store.stale_appids(conn, 10)) == 2)
+check("3건 저장", conn.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 3)
+check("가격 있는 것만 이력에 남음",   # 730, 731 만. 무료(9) 는 제외
+      conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 2)
+check("stale 목록 반환", len(store.stale_appids(conn, 10)) == 3)
 
 print("\n5) 정가는 스팀 값을 쓴다 (관측 최고가로 추정하지 않음)")
 games = store.all_games(conn)
@@ -99,6 +104,38 @@ names = [c["name"] for c in cands]
 check("한국어+데모 게임은 후보", "테스트 게임" in names, str(names))
 check("한국어 미지원은 제외", "NoKR" not in names, str(names))
 
+print("\n7b) 성인 콘텐츠 판정")
+check("descriptor id 3 은 성인", steam.is_adult({"content_descriptors": {"ids": [3]}}, []) == 1)
+check("폭력(2)만 있으면 성인 아님",
+      steam.is_adult({"content_descriptors": {"ids": [2]}}, []) == 0)
+check("장르 문자열로도 감지", steam.is_adult({}, ["Sexual Content"]) == 1)
+check("일반 게임은 성인 아님", steam.is_adult({}, ["액션", "인디"]) == 0)
+adult_app = dict(app); adult_app["appid"] = 700
+adult_app["name"] = "성인 테스트"; adult_app["adult"] = 1
+c2 = store.connect(); store.save(c2, adult_app, "신작"); c2.commit()
+ag = store.all_games(c2)
+check("성인 게임은 기본 후보에서 제외",
+      "성인 테스트" not in [x["name"] for x in store.broadcast_candidates(ag)])
+check("옵션을 켜면 포함",
+      "성인 테스트" in [x["name"] for x in store.broadcast_candidates(ag, include_adult=True)])
+c2.close()
+
+print("\n7c) 방송 점수")
+s_demo, why = store.score_broadcast(
+    {"has_demo": 1, "korean": 1, "tag": "신작", "price_final": 9000, "discount_pct": 20})
+s_bare, _ = store.score_broadcast({"korean": 0, "price_final": 70000})
+check("데모+한국어+신작+저가+할인은 고득점", s_demo >= 60, f"{s_demo}점")
+check("근거가 함께 나온다", len(why) >= 4, str(why))
+check("조건 없으면 0점", s_bare == 0, f"{s_bare}점")
+check("점수는 100 초과 안 함", s_demo <= 100, f"{s_demo}점")
+# 점수가 만점에 몰리면 아무 정보도 주지 못한다 → 흔한 조합이 100 이 되지 않아야 한다
+check("흔한 조합은 만점이 아니다", s_demo < 100, f"{s_demo}점")
+check("할인율이 클수록 점수도 크다",
+      store.score_broadcast({"discount_pct": 90})[0] >
+      store.score_broadcast({"discount_pct": 20})[0])
+check("리뷰 많으면 가점", store.score_broadcast({"review_count": 20000})[0] >
+      store.score_broadcast({"review_count": 5})[0])
+
 print("\n8) 차트")
 sp = build.sparkline(g2["history"])
 check("스파크라인 SVG", sp.startswith("<svg") and "polyline" in sp)
@@ -115,12 +152,38 @@ idx = os.path.join(config.SITE_DIR, "index.html")
 h = open(idx, encoding="utf-8").read()
 check("index 생성", os.path.exists(idx))
 check("방송 후보 섹션", "이번 주 방송 후보" in h)
-check("데모 섹션", "데모 플레이 가능" in h)
+check("데모 섹션", "데모로 먼저 해볼 수 있는 게임" in h)
+check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘 가장 방송할 만한" in h)
 check("3중 테마 스코프", all(x in h for x in
       [":root{", ':root:not([data-theme="light"])', ':root[data-theme="dark"]']))
 check("칩에 글자 포함(색 단독 아님)", "데모</span>" in h)
 check("필터 컨트롤", 'data-f="demo"' in h and 'data-f="kr"' in h)
+check("정렬 컨트롤", 'id="sort"' in h and 'value="cheap"' in h)
+check("성인 포함 토글", 'id="adult"' in h)
+check("점수 막대에 숫자 병기", 'class="score-n"' in h)
+check("개발자용 문구 노출 없음", "config.py" not in h)
 check("상세 페이지 생성", os.path.exists(os.path.join(config.SITE_DIR, "game", "730.html")))
+
+print("\n9b) 중복 노출 / 이미지 자리표시 / 빈 그래프 안내")
+import re as _re
+# 히어로에 쓴 게임이 바로 아래 '방송 후보' 그리드에 또 나오지 않아야 한다
+hero_block = h.split('<section id="pick"')[0]
+pick_block = h.split('<section id="pick"')[1].split("</section>")[0]
+hero_ids = set(_re.findall(r'./game/(\d+)\.html', hero_block))
+pick_ids = set(_re.findall(r'./game/(\d+)\.html', pick_block))
+check("히어로 게임이 아래 섹션에서 중복되지 않음",
+      not (hero_ids & pick_ids), f"겹침={hero_ids & pick_ids}")
+check("데모가 있으면 데모 섹션이 비지 않음",
+      "데모가 있는 게임이 아직 수집되지 않았습니다" not in h)
+# hidden 속성이 실제로 먹는지. .card 가 display:flex 라서 이 규칙이 없으면
+# 검색·필터·성인숨김이 전부 무효가 된다 (실제로 났던 버그)
+check("[hidden] 규칙이 있어 필터가 실제로 숨긴다",
+      "[hidden]{display:none !important}" in h)
+noimg = {"appid": 4242, "name": "표지없음", "history": []}
+check("이미지 없으면 머리글자 자리표시", 'class="ph"' in build.shot(noimg))
+d1 = open(os.path.join(config.SITE_DIR, "game", "9.html"), encoding="utf-8").read()
+check("이력 1건이면 빈 그래프 대신 안내문", 'class="waiting"' in d1 and "<svg" not in
+      d1.split('원화 가격 추이')[1].split('</div>')[0])
 
 print("\n10) XSS")
 conn = store.connect()

@@ -79,6 +79,29 @@ def discover() -> dict[int, str]:
 
 _KO_DATE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
+# 스팀 content_descriptor 중 성적 콘텐츠에 해당하는 id.
+# 스팀이 공식 문서로 이 매핑을 공개하지 않아 관측에 기반한 값이며, 바뀔 수 있다.
+# 그래서 id 만 믿지 않고 장르/태그 문자열도 같이 본다 (아래 is_adult).
+ADULT_DESCRIPTOR_IDS = {3, 4}
+_ADULT_WORDS = (
+    "sexual content", "nudity", "hentai", "adults only",
+    "성적", "성인", "노출",
+)
+
+
+def is_adult(d: dict, genres: list[str]) -> int:
+    """성인용 성적 콘텐츠 여부. 기본 화면에서 감추는 데 쓴다.
+    폭력/고어(descriptor 2)나 단순 required_age>=18 은 여기 넣지 않는다 —
+    괜찮은 게임이 많아서 감추면 오히려 놓치게 된다."""
+    desc = d.get("content_descriptors") or {}
+    ids = desc.get("ids")
+    if isinstance(ids, list) and any(
+            isinstance(i, int) and i in ADULT_DESCRIPTOR_IDS for i in ids):
+        return 1
+    notes = str(desc.get("notes") or "").lower()
+    blob = (" ".join(genres) + " " + notes).lower()
+    return 1 if any(w in blob for w in _ADULT_WORDS) else 0
+
 
 def parse_release(date_text: str | None) -> str | None:
     """'2026년 8월 26일' → '2026-08-26'. 못 읽으면 None (원문은 따로 보관)."""
@@ -112,6 +135,16 @@ def fetch_app(appid: int) -> dict | None:
               if isinstance(g, dict)]
     demos = d.get("demos") or []
 
+    # 리뷰 수 = 인지도 대리 지표. appdetails 안에 있어서 추가 요청이 필요 없다.
+    # (평가 등급 텍스트 '매우 긍정적' 은 appreviews 라는 별도 엔드포인트에만 있어서
+    #  요청 수가 두 배가 된다. 지금은 넣지 않고, 필요하면 후보에 한해 따로 붙인다.)
+    rec = d.get("recommendations") or {}
+    try:
+        review_count = int(rec.get("total") or 0)
+    except (TypeError, ValueError):
+        review_count = 0
+    devs = [x for x in (d.get("developers") or []) if isinstance(x, str)]
+
     return {
         "appid": appid,
         "name": d.get("name") or f"App {appid}",
@@ -131,4 +164,8 @@ def fetch_app(appid: int) -> dict | None:
         "genres": ", ".join(genres)[:120],
         "has_demo": 1 if demos else 0,
         "demo_appid": (demos[0].get("appid") if demos and isinstance(demos[0], dict) else None),
+        # --- 화면 정리용 ---
+        "adult": is_adult(d, genres),
+        "review_count": review_count,
+        "developer": (devs[0][:60] if devs else ""),
     }
