@@ -221,6 +221,31 @@ summary{
 summary:hover{color:var(--ink)}
 summary:focus-visible{outline:2px solid var(--series); outline-offset:2px}
 
+/* ---- 성격 칩: 색이 아니라 글자가 뜻을 전달한다 ---- */
+.chip-tag{
+  display:inline-block; vertical-align:2px; margin-left:6px;
+  padding:1px 5px; border-radius:2px; border:1px solid var(--line);
+  font-family:"JetBrains Mono",monospace; font-size:10px; font-weight:700;
+  letter-spacing:.02em; white-space:nowrap; color:var(--ink-2);
+}
+.chip-tag.demo{background:var(--series-soft); color:var(--series); border-color:transparent}
+.chip-tag.soon{background:var(--raised); color:var(--ink-2); border-color:transparent}
+.chip-tag.new{background:var(--deal-soft); color:var(--deal); border-color:transparent}
+.chip-tag.free{background:var(--deal-soft); color:var(--deal); border-color:transparent}
+.chip-tag.low{background:var(--raised); color:var(--ink-2); border-color:transparent}
+.chip-tag.nokr{opacity:.7}
+.sub-line{
+  display:block; margin-top:2px; color:var(--ink-3);
+  font-family:"JetBrains Mono",monospace; font-size:10.5px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+h2 .side{
+  font-family:"Gothic A1",sans-serif; font-size:11px; font-weight:400;
+  letter-spacing:0; text-transform:none; color:var(--ink-3);
+}
+.row{align-items:start}
+.row .spark,.row .num,.row .off{align-self:center}
+
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 """
 

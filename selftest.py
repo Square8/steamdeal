@@ -1,122 +1,138 @@
-"""가짜 가격 데이터로 수집→저장→역대최저 계산→사이트 생성 전 구간 검증.
+"""가짜 데이터로 수집→저장→방송후보 선정→사이트 생성 전 구간 검증.
 스팀 API 없이 기계가 정상인지 확인한다."""
-import os, sys, tempfile, re
-TMP = tempfile.mkdtemp(prefix="steamdeal_test_")
+import os, sys, tempfile, datetime as dt
+TMP = tempfile.mkdtemp(prefix="steamradar_test_")
 os.environ["DB_PATH"] = os.path.join(TMP, "t.sqlite3")
 os.environ["SITE_DIR"] = os.path.join(TMP, "site")
 
 import config, store, build, steam
+import requests
+
 FAILS = []
 def check(label, cond, detail=""):
     print(f"  {'PASS' if cond else 'FAIL'}  {label}" + (f"  ({detail})" if detail else ""))
     if not cond: FAILS.append(label)
 
-print("1) 스팀 응답 파싱 (센트→원 변환)")
-import json
 class FakeResp:
     status_code = 200
     def __init__(self, d): self._d = d
     def json(self): return self._d
-sample = {"730": {"success": True, "data": {
-    "type": "game", "name": "Counter-Strike 2", "is_free": False,
+
+def with_fake(payload, fn):
+    orig = requests.get
+    requests.get = lambda *a, **k: FakeResp(payload)
+    try: return fn()
+    finally: requests.get = orig
+
+print("1) appdetails 파싱")
+payload = {"730": {"success": True, "data": {
+    "type": "game", "name": "테스트 게임", "is_free": False,
     "price_overview": {"initial": 6600000, "final": 3300000, "discount_percent": 50},
-    "header_image": "http://x/h.jpg", "short_description": "설명"}}}
-import requests
-orig = requests.get
-requests.get = lambda *a, **k: FakeResp(sample)
-try:
-    app = steam.fetch_app(730)
-finally:
-    requests.get = orig
-check("게임 정보 파싱", app is not None)
-check("최종가 원 단위 변환", app["price_final"] == 33000, str(app["price_final"]))
-check("정가 원 단위 변환", app["price_initial"] == 66000, str(app["price_initial"]))
-check("할인율", app["discount_pct"] == 50, str(app["discount_pct"]))
+    "header_image": "http://x/h.jpg", "short_description": "설명",
+    "release_date": {"coming_soon": False, "date": "2026년 8월 26일"},
+    "supported_languages": "English<strong>*</strong>, Korean, Japanese",
+    "genres": [{"description": "액션"}, {"description": "인디"}],
+    "demos": [{"appid": 731, "description": ""}]}}}
+app = with_fake(payload, lambda: steam.fetch_app(730))
+check("파싱 성공", app is not None)
+check("가격 원 단위(센트→원)", app["price_final"] == 33000, str(app["price_final"]))
+check("정가 원 단위", app["price_initial"] == 66000, str(app["price_initial"]))
+check("한국어 지원 감지", app["korean"] == 1)
+check("데모 감지", app["has_demo"] == 1 and app["demo_appid"] == 731)
+check("장르 추출", app["genres"] == "액션, 인디", app["genres"])
+check("한국어 출시일 파싱", app["release_date"] == "2026-08-26", str(app["release_date"]))
+check("출시예정 아님", app["coming_soon"] == 0)
 
-print("\n2) 무료 게임 / 게임 아닌 것 제외")
-requests.get = lambda *a, **k: FakeResp({"9": {"success": True, "data": {
-    "type": "dlc", "name": "DLC", "price_overview": {"final": 100, "initial": 100,
-    "discount_percent": 0}}}})
-try: check("type!=game 은 None", steam.fetch_app(9) is None)
-finally: requests.get = orig
+print("\n2) 한국어 미지원 / 출시예정 / DLC")
+p2 = {"9": {"success": True, "data": {"type": "game", "name": "NoKR", "is_free": True,
+    "release_date": {"coming_soon": True, "date": "2027년 출시 예정"},
+    "supported_languages": "English", "genres": [], "demos": []}}}
+a2 = with_fake(p2, lambda: steam.fetch_app(9))
+check("한국어 미지원 감지", a2["korean"] == 0)
+check("출시예정 감지", a2["coming_soon"] == 1)
+check("파싱 불가 날짜는 None", a2["release_date"] is None)
+check("무료 감지", a2["is_free"] is True)
+p3 = {"5": {"success": True, "data": {"type": "dlc", "name": "DLC"}}}
+check("DLC 는 제외", with_fake(p3, lambda: steam.fetch_app(5)) is None)
 
-print("\n3) appid 자동 수집 (중첩 구조 훑기)")
-ids = steam._walk_for_appids({"specials": {"items": [{"id": 730}, {"id": "570"}]},
-                              "top_sellers": {"items": [{"id": 271590}]}})
-check("중첩 dict/list 에서 3개 추출", sorted(set(ids)) == [570, 730, 271590], str(sorted(set(ids))))
+print("\n3) 발견 목록에서 버킷 태그 유지")
+feat = {"new_releases": {"items": [{"id": 111}, {"id": "222"}]},
+        "coming_soon": {"items": [{"id": 333}]},
+        "specials": {"items": [{"id": 444}]}}
+found = with_fake(feat, lambda: steam.discover())
+check("신작 태그", found.get(111) == "신작", str(found.get(111)))
+check("문자열 id 도 처리", found.get(222) == "신작")
+check("출시예정 태그", found.get(333) == "출시예정")
+check("할인 태그", found.get(444) == "할인")
+check("시드가 포함됨", all(a in found for a in config.SEED_APPIDS))
 
-print("\n4) 저장 + 역대 최저가 계산")
+print("\n4) 저장 + 회전 갱신 대상")
 conn = store.connect()
-hist = [(70000, 0), (50000, 28), (35000, 50), (42000, 40)]
-import datetime as dt
-for i, (final, pct) in enumerate(hist):
-    d = (dt.date(2026, 8, 1) + dt.timedelta(days=i)).isoformat()
-    conn.execute("INSERT INTO games (appid,name,header_image,description,first_seen,last_seen)"
-                 " VALUES (730,'Counter-Strike 2','','설명',?,?) ON CONFLICT(appid) DO UPDATE SET last_seen=?",
-                 (d, d, d))
-    conn.execute("INSERT INTO prices VALUES (730,?,?,70000,?)", (d, final, pct))
+store.save(conn, app, "신작")
+store.save(conn, a2, "출시예정")
 conn.commit()
+check("2건 저장", conn.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 2)
+check("가격 있는 것만 이력에 남음",
+      conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 1)
+check("stale 목록 반환", len(store.stale_appids(conn, 10)) == 2)
+
+print("\n5) 정가는 스팀 값을 쓴다 (관측 최고가로 추정하지 않음)")
 games = store.all_games(conn)
-g = games[0]
-check("이력 4일", g["days_tracked"] == 4, str(g["days_tracked"]))
-check("역대 최저가 = 35,000", g["all_time_low"] == 35000, str(g["all_time_low"]))
-check("현재가 = 42,000", g["price_final"] == 42000, str(g["price_final"]))
-check("현재는 역대최저 아님", g["is_all_time_low"] is False)
+g = next(x for x in games if x["appid"] == 730)
+check("정가 66,000 유지", g["price_initial"] == 66000, str(g["price_initial"]))
+check("현재가 33,000", g["price_final"] == 33000, str(g["price_final"]))
 
-# 오늘 가격을 역대최저로 떨어뜨리면 플래그가 켜지는가
-d2 = (dt.date(2026, 8, 1) + dt.timedelta(days=4)).isoformat()
-conn.execute("INSERT INTO prices VALUES (730,?,30000,70000,57)", (d2,))
+print("\n6) 역대최저 표기 정직성")
+check("관측 1일은 신뢰 안 함", g["atl_trustworthy"] is False, f'{g["days_tracked"]}일')
+for i in range(1, config.MIN_DAYS_FOR_ATL + 2):
+    d = (dt.date(2026, 1, 1) + dt.timedelta(days=i)).isoformat()
+    conn.execute("INSERT OR REPLACE INTO prices VALUES (730,?,40000,66000,39)", (d,))
 conn.commit()
-g2 = store.all_games(conn)[0]
-check("최저가 갱신 시 플래그 ON", g2["is_all_time_low"] is True)
-check("역대최저 갱신 = 30,000", g2["all_time_low"] == 30000, str(g2["all_time_low"]))
+g2 = next(x for x in store.all_games(conn) if x["appid"] == 730)
+check(f"관측 {config.MIN_DAYS_FOR_ATL}일 넘으면 신뢰", g2["atl_trustworthy"] is True,
+      f'{g2["days_tracked"]}일')
+check("최저가 계산", g2["lowest_seen"] == 33000, str(g2["lowest_seen"]))
 
-print("\n5) 차트 생성")
+print("\n7) 방송 후보 선정")
+cands = store.broadcast_candidates(store.all_games(conn))
+names = [c["name"] for c in cands]
+check("한국어+데모 게임은 후보", "테스트 게임" in names, str(names))
+check("한국어 미지원은 제외", "NoKR" not in names, str(names))
+
+print("\n8) 차트")
 sp = build.sparkline(g2["history"])
 check("스파크라인 SVG", sp.startswith("<svg") and "polyline" in sp)
-check("끝점 강조 원 포함", "<circle" in sp)
-one = build.sparkline([{"on_date":"2026-08-01","price_final":1000,"discount_pct":0}])
-check("데이터 1건이면 평선 폴백", "<svg" in one and "polyline" not in one)
-ch = build.detail_chart(g2["history"], g2["all_time_low"])
-check("상세 차트 SVG", "<svg" in ch and "polyline" in ch)
-check("역대최저 기준선(점선)", "stroke-dasharray" in ch)
-check("호버용 크로스헤어/툴팁", 'class="cross"' in ch and 'class="tip"' in ch)
-check("접근성 aria-label", 'aria-label="가격 추이' in ch)
-check("이력 1건이면 차트 대신 안내문", "<svg" not in build.detail_chart(
-    [{"on_date":"2026-08-01","price_final":1000,"discount_pct":0}], 1000))
+check("이력 없으면 평선", "polyline" not in build.sparkline([]))
+ch = build.detail_chart(g2["history"], g2["lowest_seen"])
+check("상세 차트", "<svg" in ch and 'class="tip"' in ch)
+check("눈금값 중복 없음", len(build.nice_ticks(1000, 1000.4)) == len(set(build.nice_ticks(1000, 1000.4))))
 
-print("\n6) 사이트 생성")
+print("\n9) 사이트 생성")
 conn.close()
 rc = build.main()
-check("build.main() 정상 종료", rc == 0, f"rc={rc}")
+check("build.main() 정상", rc == 0, f"rc={rc}")
 idx = os.path.join(config.SITE_DIR, "index.html")
-det = os.path.join(config.SITE_DIR, "game", "730.html")
-check("index.html 생성", os.path.exists(idx))
-check("상세 페이지 생성", os.path.exists(det))
 h = open(idx, encoding="utf-8").read()
-check("3개 테마 스코프 정의", all(x in h for x in
+check("index 생성", os.path.exists(idx))
+check("방송 후보 섹션", "이번 주 방송 후보" in h)
+check("데모 섹션", "데모 플레이 가능" in h)
+check("3중 테마 스코프", all(x in h for x in
       [":root{", ':root:not([data-theme="light"])', ':root[data-theme="dark"]']))
-check("역대최저 배지에 아이콘+텍스트 동시 사용", "역대최저</span>" in h and "<svg" in h)
-check("검색/필터 컨트롤", 'id="q"' in h and 'data-f="atl"' in h)
-check("lang=ko", '<html lang="ko">' in h)
-d = open(det, encoding="utf-8").read()
-check("상세: 표로 보기(테이블 뷰) 제공", "표로 보기" in d and "<table>" in d)
-check("상세: 스팀 상점 링크", "store.steampowered.com/app/730" in d)
-check("XSS 이스케이프", "<script>alert" not in h)
+check("칩에 글자 포함(색 단독 아님)", "데모</span>" in h)
+check("필터 컨트롤", 'data-f="demo"' in h and 'data-f="kr"' in h)
+check("상세 페이지 생성", os.path.exists(os.path.join(config.SITE_DIR, "game", "730.html")))
 
-print("\n7) 이름에 HTML 특수문자가 있어도 깨지지 않는가")
+print("\n10) XSS")
 conn = store.connect()
-conn.execute("INSERT INTO games VALUES (999,'<b>Bad</b> & \"Game\"','','x','2026-08-01','2026-08-01')")
-conn.execute("INSERT INTO prices VALUES (999,'2026-08-01',1000,2000,50)")
-conn.execute("INSERT INTO prices VALUES (999,'2026-08-02',900,2000,55)")
-conn.commit(); conn.close()
+bad = dict(app); bad["appid"] = 999; bad["name"] = '<b>X</b> & "Y"'
+store.save(conn, bad, "신작"); conn.commit(); conn.close()
 build.main()
 h2 = open(idx, encoding="utf-8").read()
-check("태그가 이스케이프됨", "&lt;b&gt;Bad&lt;/b&gt;" in h2)
-check("원본 태그가 살아있지 않음", "<b>Bad</b>" not in h2)
+check("태그 이스케이프", "&lt;b&gt;X&lt;/b&gt;" in h2)
+check("원본 태그 없음", "<b>X</b>" not in h2)
 
 print()
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
-print("전 구간 통과 — 수집/저장/역대최저계산/차트/사이트생성 기계는 정상")
+print("전 구간 통과 — 파싱/저장/회전/방송후보/차트/사이트 기계는 정상")
 print(f"(테스트 산출물: {config.SITE_DIR})")

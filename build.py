@@ -245,142 +245,215 @@ def page(title: str, body: str, updated: str) -> str:
 </html>"""
 
 
-def row_html(g: dict) -> str:
-    badge = theme.BADGE_ATL if g["is_all_time_low"] else ""
-    off = f'-{g["discount_pct"]}%' if g["discount_pct"] else ""
+def chips_for(g: dict) -> str:
+    """게임의 성격을 작은 칩으로. 색만으로 뜻을 전하지 않도록 항상 글자를 쓴다."""
+    out = []
+    if g.get("app_type") == "demo" or g.get("has_demo"):
+        out.append('<span class="chip-tag demo">데모</span>')
+    if g.get("coming_soon"):
+        out.append('<span class="chip-tag soon">출시예정</span>')
+    elif g.get("tag") == "신작":
+        out.append('<span class="chip-tag new">신작</span>')
+    if g.get("is_free"):
+        out.append('<span class="chip-tag free">무료</span>')
+    if not g.get("korean"):
+        out.append('<span class="chip-tag nokr">한국어X</span>')
+    return "".join(out)
+
+
+def price_cell(g: dict) -> str:
+    if g.get("is_free"):
+        return '<div class="num"><div class="now">무료</div></div>'
+    if not g.get("price_final"):
+        return '<div class="num"><div class="now">—</div></div>'
     was = (f'<div class="was">{g["price_initial"]:,}원</div>'
-           if g["price_initial"] > g["price_final"] else "")
+           if g.get("price_initial", 0) > g["price_final"] else "")
+    return f'<div class="num"><div class="now">{g["price_final"]:,}원</div>{was}</div>'
+
+
+def row_html(g: dict) -> str:
+    off = f'-{g["discount_pct"]}%' if g.get("discount_pct") else ""
+    # 관측 기간이 충분할 때만 '역대최저'라고 말한다. 짧으면 일수를 밝힌다.
+    low_mark = ""
+    if g.get("at_lowest") and g.get("days_tracked", 0) > 1:
+        low_mark = (theme.BADGE_ATL if g.get("atl_trustworthy")
+                    else f'<span class="chip-tag low">{g["days_tracked"]}일 최저</span>')
+    rel = esc(g.get("release_text") or "")
     return f"""<a class="row" href="./game/{g['appid']}.html"
-   data-name="{esc(g['name']).lower()}" data-atl="{1 if g['is_all_time_low'] else 0}"
-   data-off="{g['discount_pct']}">
-  <div class="name">{esc(g['name'])}{badge}</div>
+   data-name="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
+   data-soon="{g.get('coming_soon') or 0}" data-kr="{g.get('korean') or 0}"
+   data-off="{g.get('discount_pct') or 0}" data-atl="{1 if g.get('at_lowest') else 0}">
+  <div class="name">{esc(g['name'])}{chips_for(g)}{low_mark}
+    <span class="sub-line">{rel}{(' · ' + esc(g['genres'])) if g.get('genres') else ''}</span>
+  </div>
   {sparkline(g['history'])}
-  <div class="num"><div class="now">{won(g['price_final'])}</div>{was}</div>
+  {price_cell(g)}
   <div class="off">{off}</div>
 </a>"""
 
 
 def build_index(games: list[dict], updated: str) -> str:
-    atl = [g for g in games if g["is_all_time_low"]]
-    on_sale = sorted([g for g in games if g["discount_pct"] > 0],
+    import store as _store
+    cands = _store.broadcast_candidates(games)
+    demos = [g for g in cands if g.get("has_demo") or g.get("app_type") == "demo"]
+    soon = [g for g in games if g.get("coming_soon")]
+    fresh = [g for g in games if g.get("tag") == "신작"]
+    on_sale = sorted([g for g in games if g.get("discount_pct")],
                      key=lambda g: -g["discount_pct"])
-    days = max((g["days_tracked"] for g in games), default=0)
+    days = max((g.get("days_tracked", 0) for g in games), default=0)
 
     tiles = "".join(
         f'<div class="tile"><div class="k">{k}</div><div class="v">{v}</div></div>'
         for k, v in [
+            ("방송 후보", f'{len(cands):,}<small>개</small>'),
+            ("데모 가능", f'{len(demos):,}<small>개</small>'),
+            ("출시예정", f'{len(soon):,}<small>개</small>'),
             ("추적 게임", f"{len(games):,}"),
-            ("역대 최저가", f'{len(atl):,}<small>개</small>'),
-            ("할인 중", f'{len(on_sale):,}<small>개</small>'),
             ("수집 일수", f'{days:,}<small>일</small>'),
         ]
     )
 
-    atl_list = ("".join(row_html(g) for g in
-                sorted(atl, key=lambda g: -g["discount_pct"])[:30])
-                or '<div class="empty">지금 역대 최저가인 게임이 없다. 할인 시즌을 기다리자.</div>')
-
-    sale_list = ("".join(row_html(g) for g in on_sale[:40])
-                 or '<div class="empty">할인 중인 게임이 아직 수집되지 않았다.</div>')
-
-    all_list = "".join(row_html(g) for g in sorted(games, key=lambda g: g["name"]))
+    def block(items, empty):
+        return ('<div class="list">' + "".join(row_html(g) for g in items) + '</div>'
+                if items else f'<div class="list"><div class="empty">{empty}</div></div>')
 
     body = f"""
 <div class="tiles">{tiles}</div>
 
-<h2>지금 역대 최저가</h2>
-<p class="hint">추적 시작 이후 기록된 가장 낮은 가격에 도달한 게임. 여기 있으면 지금이 사기 좋은 때다.</p>
-<div class="list">{atl_list}</div>
+<h2>이번 주 방송 후보</h2>
+<p class="hint">한국어를 지원하고, 데모가 있거나 새로 나왔거나 곧 나오는 게임. 기준은 config.py 에서 바꿀 수 있다.</p>
+{block(cands[:40], "아직 후보가 없다. collect.py 를 한 번 더 돌리면 채워진다.")}
 
-<h2>할인율 순</h2>
-<p class="hint">할인율이 크다고 역대 최저는 아니다. 위 목록과 겹치는지 확인하자.</p>
-<div class="list">{sale_list}</div>
+<h2>데모 플레이 가능</h2>
+<p class="hint">사기 전에 방송으로 먼저 해볼 수 있는 것들.</p>
+{block(demos[:30], "데모가 있는 게임이 아직 수집되지 않았다.")}
 
-<h2>전체 추적 목록</h2>
+<h2>곧 나옴</h2>
+{block(soon[:30], "출시예정 목록이 아직 비어 있다.")}
+
+<h2>새로 나옴</h2>
+{block(fresh[:30], "신작 목록이 아직 비어 있다.")}
+
+<h2>할인 중 <span class="side">(부수 기능)</span></h2>
+<p class="hint">가격은 매일 같이 기록된다. 최저가 판단은 관측 {config.MIN_DAYS_FOR_ATL}일이 넘어야 신뢰할 수 있다.</p>
+{block(on_sale[:30], "할인 중인 게임이 아직 없다.")}
+
+<h2>전체</h2>
 <div class="controls">
   <input type="search" id="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
   <button class="chip" data-f="all" aria-pressed="true">전체</button>
-  <button class="chip" data-f="atl" aria-pressed="false">역대 최저만</button>
-  <button class="chip" data-f="sale" aria-pressed="false">할인 중만</button>
+  <button class="chip" data-f="demo" aria-pressed="false">데모</button>
+  <button class="chip" data-f="soon" aria-pressed="false">출시예정</button>
+  <button class="chip" data-f="kr" aria-pressed="false">한국어</button>
+  <button class="chip" data-f="sale" aria-pressed="false">할인</button>
 </div>
-<div class="list" id="all">{all_list}</div>
+<div class="list" id="all">{"".join(row_html(g) for g in games)}</div>
 
 <script>
 (function(){{
-  var q = document.getElementById('q');
-  var chips = document.querySelectorAll('.chip');
-  var rows = Array.prototype.slice.call(document.querySelectorAll('#all .row'));
-  var filter = 'all';
+  var q=document.getElementById('q'), chips=document.querySelectorAll('.chip');
+  var rows=Array.prototype.slice.call(document.querySelectorAll('#all .row'));
+  var f='all';
   function apply(){{
-    var term = (q.value || '').trim().toLowerCase();
+    var t=(q.value||'').trim().toLowerCase();
     rows.forEach(function(r){{
-      var okName = !term || r.dataset.name.indexOf(term) !== -1;
-      var okF = filter === 'all'
-        || (filter === 'atl' && r.dataset.atl === '1')
-        || (filter === 'sale' && parseInt(r.dataset.off,10) > 0);
-      r.hidden = !(okName && okF);
+      var okName=!t||r.dataset.name.indexOf(t)!==-1;
+      var okF = f==='all'
+        || (f==='demo' && r.dataset.demo==='1')
+        || (f==='soon' && r.dataset.soon==='1')
+        || (f==='kr'   && r.dataset.kr==='1')
+        || (f==='sale' && parseInt(r.dataset.off,10)>0);
+      r.hidden=!(okName&&okF);
     }});
   }}
-  q.addEventListener('input', apply);
+  q.addEventListener('input',apply);
   chips.forEach(function(c){{
-    c.addEventListener('click', function(){{
-      chips.forEach(function(x){{ x.setAttribute('aria-pressed', String(x === c)); }});
-      filter = c.dataset.f; apply();
+    c.addEventListener('click',function(){{
+      chips.forEach(function(x){{x.setAttribute('aria-pressed',String(x===c));}});
+      f=c.dataset.f; apply();
     }});
   }});
 }})();
 </script>
 """
-    return page(f"{config.SITE_NAME}", body, updated)
+    return page(config.SITE_NAME, body, updated)
 
 
 def build_detail(g: dict, updated: str) -> str:
-    badge = theme.BADGE_ATL if g["is_all_time_low"] else ""
+    low_mark = ""
+    if g.get("at_lowest") and g.get("days_tracked", 0) > 1:
+        low_mark = (theme.BADGE_ATL if g.get("atl_trustworthy")
+                    else f'<span class="chip-tag low">{g["days_tracked"]}일 최저</span>')
     img = (f'<img src="{esc(g["header_image"])}" alt="" loading="lazy">'
-           if g["header_image"] else "")
-    strike = (f'<span class="strike">{g["price_initial"]:,}원</span>'
-              if g["price_initial"] > g["price_final"] else "")
-    pct = f'<span class="pct">-{g["discount_pct"]}%</span>' if g["discount_pct"] else ""
+           if g.get("header_image") else "")
 
-    rows = "".join(
+    if g.get("is_free"):
+        price_block = '<span class="big">무료</span>'
+    elif g.get("price_final"):
+        strike = (f'<span class="strike">{g["price_initial"]:,}원</span>'
+                  if g.get("price_initial", 0) > g["price_final"] else "")
+        pct = f'<span class="pct">-{g["discount_pct"]}%</span>' if g.get("discount_pct") else ""
+        price_block = f'<span class="big">{g["price_final"]:,}원</span>{strike}{pct}'
+    else:
+        price_block = '<span class="big">가격 미정</span>'
+
+    facts = []
+    if g.get("release_text"):
+        facts.append(("출시", esc(g["release_text"]) +
+                      (" (출시예정)" if g.get("coming_soon") else "")))
+    if g.get("genres"):
+        facts.append(("장르", esc(g["genres"])))
+    facts.append(("한국어", "지원" if g.get("korean") else "미지원"))
+    if g.get("has_demo") or g.get("app_type") == "demo":
+        demo_id = g.get("demo_appid") or g["appid"]
+        facts.append(("데모", f'<a href="https://store.steampowered.com/app/{demo_id}/?cc=kr" '
+                              f'target="_blank" rel="noopener">스팀에서 데모 받기 →</a>'))
+    if g.get("days_tracked"):
+        low = f'{g["lowest_seen"]:,}원' if g.get("lowest_seen") else "—"
+        label = "역대 최저" if g.get("atl_trustworthy") else f'추적 {g["days_tracked"]}일 최저'
+        facts.append((label, low))
+    fact_rows = "".join(
+        f'<tr><th>{esc(k)}</th><td>{v}</td></tr>' for k, v in facts)
+
+    hist_rows = "".join(
         f'<tr><td>{esc(h["on_date"])}</td><td>{h["price_final"]:,}원</td>'
         f'<td>{("-" + str(h["discount_pct"]) + "%") if h["discount_pct"] else "—"}</td></tr>'
         for h in reversed(g["history"])
     )
+    chart = (f"""<div class="chartbox">
+  <h3>원화 가격 추이</h3>
+  <p class="sub">점선은 추적 기간 중 최저가. 그래프에 마우스를 올리면 날짜별 가격이 나온다.</p>
+  {detail_chart(g['history'], g.get('lowest_seen') or 0)}
+  <details><summary>표로 보기</summary>
+    <div class="tablewrap"><table><thead><tr><th>날짜</th><th>가격</th><th>할인</th></tr></thead>
+    <tbody>{hist_rows}</tbody></table></div>
+  </details>
+</div>""" if g["history"] else "")
 
     body = f"""
-<a class="back" href="./../index.html">← 전체 목록</a>
+<a class="back" href="./../index.html">← 목록으로</a>
 <div class="hero">
   {img}
   <div class="meta">
-    <h1>{esc(g['name'])}{badge}</h1>
-    <p class="desc">{esc(g['description'])}</p>
-    <div class="price-now">
-      <span class="big">{won(g['price_final'])}</span>{strike}{pct}
-    </div>
-    <div class="updated">역대 최저 {won(g['all_time_low'])} · {g['days_tracked']}일 추적</div>
+    <h1>{esc(g['name'])}{chips_for(g)}{low_mark}</h1>
+    <p class="desc">{esc(g.get('description'))}</p>
+    <div class="price-now">{price_block}</div>
   </div>
 </div>
 
 <div class="chartbox">
-  <h3>{esc(g['name'])} 원화 가격 추이</h3>
-  <p class="sub">점선은 추적 시작 이후 역대 최저가. 그래프에 마우스를 올리면 날짜별 가격이 나온다.</p>
-  {detail_chart(g['history'], g['all_time_low'])}
-  <details>
-    <summary>표로 보기</summary>
-    <div class="tablewrap">
-      <table><thead><tr><th>날짜</th><th>가격</th><th>할인</th></tr></thead>
-      <tbody>{rows}</tbody></table>
-    </div>
-  </details>
+  <h3>정보</h3>
+  <div class="tablewrap"><table>{fact_rows}</table></div>
 </div>
 
-<p class="updated" style="margin-top:18px">
+{chart}
+
+<p class="updated" style="margin-top:16px">
   <a href="https://store.steampowered.com/app/{g['appid']}/?cc=kr" target="_blank"
      rel="noopener">스팀 상점에서 보기 →</a>
 </p>
 """
-    return page(f"{g['name']} 가격 추이", body, updated)
+    return page(f"{g['name']}", body, updated)
 
 
 def main() -> int:
@@ -407,8 +480,11 @@ def main() -> int:
     # GitHub Pages 가 _ 로 시작하는 경로를 Jekyll 로 처리하지 않게
     open(os.path.join(config.SITE_DIR, ".nojekyll"), "w").close()
 
-    atl = sum(1 for g in games if g["is_all_time_low"])
-    log.info("생성 완료 — 게임 %d개, 역대최저 %d개 → %s", len(games), atl, config.SITE_DIR)
+    import store as _store
+    cands = len(_store.broadcast_candidates(games))
+    demos = sum(1 for g in games if g.get("has_demo") or g.get("app_type") == "demo")
+    log.info("생성 완료 — 게임 %d개, 방송후보 %d개, 데모 %d개 → %s",
+             len(games), cands, demos, config.SITE_DIR)
     return 0
 
 
