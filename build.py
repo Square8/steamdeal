@@ -279,6 +279,12 @@ def page(title: str, body: str, updated: str, nav: bool = True,
               if og_image else '<meta name="twitter:card" content="summary">')
     og_u = (f'<meta property="og:url" content="{esc(abs_url(canonical))}">'
             if canonical else "")
+    # 검색엔진 소유 확인 태그. 값이 없으면 태그 자체를 내보내지 않는다.
+    verify = ""
+    if config.GOOGLE_VERIFY:
+        verify += f'<meta name="google-site-verification" content="{esc(config.GOOGLE_VERIFY)}">'
+    if config.NAVER_VERIFY:
+        verify += f'<meta name="naver-site-verification" content="{esc(config.NAVER_VERIFY)}">'
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -286,6 +292,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
+{verify}
 {can}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="스팀딜 레이더">

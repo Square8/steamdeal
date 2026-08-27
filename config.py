@@ -20,6 +20,14 @@ SITE_TAGLINE = "신작 · 데모 · 출시예정을 매일 자동으로"
 # 비어 있으면 상대 경로로만 동작한다 (로컬 테스트용).
 SITE_URL = os.environ.get("SITE_URL", "")
 
+# ---- 검색엔진 소유 확인 ----
+# 구글 서치콘솔 / 네이버 서치어드바이저가 "이 사이트가 네 것인지" 확인하는 코드.
+# 각 사이트에서 'HTML 태그' 방식을 고르면 content="..." 안의 문자열을 주는데,
+# 그 문자열만 GitHub 저장소 Settings > Secrets and variables > Actions > Variables 에
+# 아래 이름으로 넣으면 된다. 비어 있으면 태그가 아예 나가지 않는다.
+GOOGLE_VERIFY = os.environ.get("GOOGLE_SITE_VERIFICATION", "").strip()
+NAVER_VERIFY = os.environ.get("NAVER_SITE_VERIFICATION", "").strip()
+
 # ---- 스팀 API ----
 CC = "kr"
 LANG = "korean"
