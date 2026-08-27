@@ -115,36 +115,50 @@ h2 + .hint{margin:7px 0 9px; color:var(--ink-3); font-size:12.5px}
 .chip[aria-pressed="true"]{background:var(--ink); border-color:var(--ink); color:var(--bg)}
 .chip:focus-visible{outline:2px solid var(--series); outline-offset:2px}
 
-/* ---- 시세 행: 촘촘하게, 카드 느낌 없이 ---- */
-.list{border:1px solid var(--line); border-radius:2px; background:var(--surface); overflow:hidden}
+/* ---- 게임 카드 그리드: 썸네일 + 설명이 있는 카드 ---- */
+.list{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:12px;
+}
 .row{
-  position:relative; display:grid;
-  grid-template-columns:1fr 88px 104px 62px; gap:10px; align-items:center;
-  padding:9px 14px 9px 16px; text-decoration:none;
-  border-bottom:1px solid var(--line);
+  position:relative; display:flex; flex-direction:column;
+  text-decoration:none; background:var(--surface);
+  border:1px solid var(--line); border-radius:6px; overflow:hidden;
+  transition:border-color .12s,transform .12s;
 }
-.row:last-child{border-bottom:0}
-.row:hover{background:var(--surface-2)}
-.row:focus-visible{outline:2px solid var(--series); outline-offset:-2px}
-/* 역대 최저 상태는 왼쪽 띠로도 표시 (색 하나에만 의존하지 않게 배지와 병행) */
-.row[data-atl="1"]::before{
-  content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
-  background:var(--deal-mark);
+.row:hover{border-color:var(--ink-3); transform:translateY(-1px)}
+.row:focus-visible{outline:2px solid var(--series); outline-offset:2px}
+.row[data-atl="1"]{border-color:var(--deal-mark)}
+.row .thumb{
+  display:block; width:100%; aspect-ratio:460/215; object-fit:cover;
+  background:var(--raised);
 }
+.row .thumb-empty{
+  background:linear-gradient(135deg,var(--raised),var(--surface-2));
+}
+.row .card-body{padding:10px 12px 12px; display:flex; flex-direction:column; gap:6px; flex:1}
 .row .name{
-  font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  letter-spacing:-.01em;
+  font-weight:600; overflow:hidden; text-overflow:ellipsis;
+  display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical;
+  letter-spacing:-.01em; line-height:1.35;
 }
-.row .spark{width:88px; height:24px; display:block}
-.row .num{text-align:right; white-space:nowrap; font-size:13.5px}
+.row .card-desc{
+  margin:0; color:var(--ink-2); font-size:12px; line-height:1.5;
+  overflow:hidden; text-overflow:ellipsis;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  min-height:2.2em;
+}
+.row .card-foot{
+  margin-top:auto; padding-top:8px; display:flex; align-items:center;
+  justify-content:space-between; gap:8px;
+}
+.row .spark{width:52px; height:22px; display:block; flex:none}
+.row .num{text-align:right; white-space:nowrap; font-size:13.5px; margin-left:auto}
 .row .now{font-weight:700}
-.row .was{color:var(--ink-3); font-size:11.5px; text-decoration:line-through; margin-top:1px}
-.row .off{text-align:right; font-size:12.5px; font-weight:700; color:var(--series)}
-@media (max-width:640px){
-  .row{grid-template-columns:1fr 80px; row-gap:4px; padding:10px 12px 10px 15px}
-  .row .spark{grid-column:2; grid-row:1}
-  .row .num,.row .off{grid-column:1/-1; text-align:left}
-  .row .off{color:var(--ink-3)}
+.row .was{color:var(--ink-3); font-size:11px; text-decoration:line-through; margin-top:1px}
+.row .off{text-align:right; font-size:12px; font-weight:700; color:var(--series); flex:none}
+@media (max-width:520px){
+  .list{grid-template-columns:1fr}
 }
 
 /* 아이콘 + 글자를 함께 쓰므로 색만으로 의미를 전달하지 않는다 */

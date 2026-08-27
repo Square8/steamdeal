@@ -274,21 +274,34 @@ def price_cell(g: dict) -> str:
 def row_html(g: dict) -> str:
     off = f'-{g["discount_pct"]}%' if g.get("discount_pct") else ""
     # 관측 기간이 충분할 때만 '역대최저'라고 말한다. 짧으면 일수를 밝힌다.
+    # (수집 1일차엔 모든 게임이 자기 자신의 유일한 기록이라 '최저'가 되어버리므로
+    #  days_tracked>1 을 반드시 같이 확인한다 — 배지 텍스트와 카드 강조 색을 항상 같은 조건으로 묶는다)
+    show_low = bool(g.get("at_lowest") and g.get("days_tracked", 0) > 1)
     low_mark = ""
-    if g.get("at_lowest") and g.get("days_tracked", 0) > 1:
+    if show_low:
         low_mark = (theme.BADGE_ATL if g.get("atl_trustworthy")
                     else f'<span class="chip-tag low">{g["days_tracked"]}일 최저</span>')
     rel = esc(g.get("release_text") or "")
+    thumb = (f'<img class="thumb" src="{esc(g["header_image"])}" alt="" loading="lazy">'
+             if g.get("header_image") else '<div class="thumb thumb-empty"></div>')
+    desc = esc(g.get("description") or "")
+    desc_html = f'<p class="card-desc">{desc}</p>' if desc else ""
     return f"""<a class="row" href="./game/{g['appid']}.html"
    data-name="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
    data-soon="{g.get('coming_soon') or 0}" data-kr="{g.get('korean') or 0}"
-   data-off="{g.get('discount_pct') or 0}" data-atl="{1 if g.get('at_lowest') else 0}">
-  <div class="name">{esc(g['name'])}{chips_for(g)}{low_mark}
-    <span class="sub-line">{rel}{(' · ' + esc(g['genres'])) if g.get('genres') else ''}</span>
+   data-off="{g.get('discount_pct') or 0}" data-atl="{1 if show_low else 0}">
+  {thumb}
+  <div class="card-body">
+    <div class="name">{esc(g['name'])}{chips_for(g)}{low_mark}
+      <span class="sub-line">{rel}{(' · ' + esc(g['genres'])) if g.get('genres') else ''}</span>
+    </div>
+    {desc_html}
+    <div class="card-foot">
+      {sparkline(g['history'])}
+      {price_cell(g)}
+      <div class="off">{off}</div>
+    </div>
   </div>
-  {sparkline(g['history'])}
-  {price_cell(g)}
-  <div class="off">{off}</div>
 </a>"""
 
 
