@@ -247,8 +247,8 @@ def detail_chart(hist: list[dict], atl: int, end_date: str | None = None) -> str
 
 # ---------------------------------------------------------------- 페이지 골격
 
-DEFAULT_DESC = ("한국어를 지원하는 스팀 신작·데모·출시예정 게임을 매일 자동으로 모읍니다. "
-                "원화 가격과 가격 변동 이력을 함께 기록합니다.")
+DEFAULT_DESC = ("한국어로 할 수 있는 스팀 신작·데모·출시예정 게임을 매일 두 번 자동으로 모읍니다. "
+                "원화 가격과 변동 이력도 함께 기록합니다.")
 
 
 def abs_url(rel: str) -> str:
@@ -263,14 +263,26 @@ def page(title: str, body: str, updated: str, nav: bool = True,
          depth: int = 0) -> str:
     """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
     up = "../" * depth
+    # 메뉴는 사이트가 실제로 잘하는 축(한국어 · 데모 · 신작 · 출시예정)을 먼저 둔다.
+    # 가격은 2일치뿐이라 앞세우면 가장 약한 데이터로 첫인상을 만들게 된다.
     jump = (f"""<nav class="jump">
-    <a href="{up}index.html#pick">방송 후보</a>
-    <a href="{up}korean-demo.html">한국어 데모</a>
-    <a href="{up}korean-new.html">한국어 신작</a>
-    <a href="{up}index.html#soon">출시예정</a>
+    <a href="{up}korean-demo.html">데모</a>
+    <a href="{up}korean-new.html">신작</a>
+    <a href="{up}korean-soon.html">출시예정</a>
     <a href="{up}under-10000.html">1만원 이하</a>
+    <a href="{up}index.html#sale">할인 중</a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
+    search = (f"""<form class="hsearch" role="search" onsubmit="return sq(this)">
+    <input type="search" name="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
+    <button type="submit" aria-label="검색">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+           aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L15 15"/></svg>
+    </button>
+  </form>
+  <script>function sq(f){{var v=(f.q.value||'').trim();
+    location.href='{up}index.html'+(v?'#q='+encodeURIComponent(v):'#all');
+    if(window.applyHash)window.applyHash();return false;}}</script>""" if nav else "")
     desc = desc or DEFAULT_DESC
     can = (f'<link rel="canonical" href="{esc(abs_url(canonical))}">'
            if canonical else "")
@@ -310,6 +322,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <b>스팀<i>딜</i> 레이더</b>
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
+  {search}
   {jump}
 </div></header>
 <div class="wrap">
@@ -317,7 +330,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <footer>
   <p class="updated">가격 기준 시각: {esc(updated)} KST</p>
   <p>가격은 스팀 공식 상점 API(한국 스토어·원화)에서 하루 두 번 자동 수집합니다. 표시 시점과 실제 가격이 다를 수 있으니 구매 전 스팀에서 확인하세요.</p>
-  <p>'역대 최저'는 이 사이트가 추적을 시작한 뒤 기록한 최저값이며, 스팀의 전체 가격 역사와 다를 수 있습니다.</p>
+  <p>최저가 표시는 가격을 {config.MIN_DAYS_FOR_LOW}일 이상 지켜본 게임에만 답니다. '역대 최저'는 {config.MIN_DAYS_FOR_ATL}일 이상 관측한 경우이며, 이 사이트가 추적을 시작한 뒤의 최저값이라 스팀의 전체 가격 역사와는 다를 수 있습니다.</p>
   <p>성적 콘텐츠가 포함된 게임은 기본 화면에서 숨겨집니다.</p>
 </footer>
 </div>
@@ -348,13 +361,20 @@ def chips_for(g: dict, show_atl: bool = True) -> str:
 
 
 def atl_label(g: dict) -> str:
-    """최저가 표기. 관측 하루뿐이면 아무 말도 하지 않는다 —
-    첫날엔 모든 게임이 자기 자신의 유일한 기록이라 전부 '최저'가 되어버린다."""
-    if not (g.get("at_lowest") and g.get("days_tracked", 0) > 1):
+    """최저가 표기.
+
+    관측 2일차의 "2일 최저"는 사실상 '수집한 뒤 가격이 안 바뀌었다'는 뜻인데,
+    초록 배지로 달면 진짜 역대최저처럼 읽힌다. 그래서 아예 달지 않는다.
+      30일 미만  → 배지 없음
+      30~59일    → "N일 최저" (기간을 밝힌 제한적 주장)
+      60일 이상  → "역대최저" (MIN_DAYS_FOR_ATL)
+    """
+    days = g.get("days_tracked", 0)
+    if not (g.get("at_lowest") and days >= config.MIN_DAYS_FOR_LOW):
         return ""
     if g.get("atl_trustworthy"):
         return theme.BADGE_ATL
-    return f'<span class="t atl">{g["days_tracked"]}일 최저</span>'
+    return f'<span class="t atl">{days}일 최저</span>'
 
 
 def shot(g: dict, ribbon: bool = True) -> str:
@@ -383,15 +403,22 @@ def price_html(g: dict) -> str:
 
 
 def card(g: dict) -> str:
-    """카드에는 고를 때 필요한 것만 남긴다: 표지 · 제목 · 성격 · 가격 · 점수."""
+    """카드에는 고를 때 필요한 것만 남긴다: 표지 · 제목 · 성격 · 가격.
+
+    0~100 합성 점수는 뺐다. 이름을 뭘로 바꾸든 한눈에 뜻이 안 잡히고,
+    할인 75%·리뷰 83만인 게임이 48점으로 나오면 고장난 숫자로 보인다.
+    점수는 목록 정렬에만 내부적으로 쓰고, 근거는 상세에서 문장으로 보여준다.
+    """
     score = g.get("score") or 0
     rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
           else esc(g.get("developer") or g.get("genres") or ""))
-    left = (f'<div class="score" title="방송 적합도 {score}점">'
-            f'<span class="score-n">{score}</span>'
-            f'<span class="bar" role="img" aria-label="방송 적합도 {score}점 중 100점">'
-            f'<i style="width:{score}%"></i></span></div>'
-            if score else sparkline(g.get("history") or [], g.get("price_last")))
+    hist = g.get("history") or []
+    # 가격이 실제로 변한 적이 있을 때만 추이를 그린다.
+    # 2일치 데이터에서 전부 평선을 그리면 아무 정보도 없는 장식이 된다.
+    left = (sparkline(hist, g.get("price_last"))
+            if len({h["price_final"] for h in hist if h["price_final"] > 0}) > 1
+            else (f'<span class="offtag">-{g["discount_pct"]}%</span>'
+                  if g.get("discount_pct") else ""))
     return f"""<a class="card" href="./game/{g['appid']}.html"
    data-n="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
    data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
@@ -426,7 +453,7 @@ def hero(g: dict) -> str:
                 f' target="_blank" rel="noopener">데모 받기</a>'
                 if (g.get("has_demo") or g.get("app_type") == "demo") else "")
     return f"""<section class="hero-sec" id="top">
-  <div class="eyebrow">오늘 가장 방송할 만한 것</div>
+  <div class="eyebrow">오늘의 한 편</div>
   <div class="hero">
     <a class="hero-img" href="./game/{g['appid']}.html" aria-label="{esc(g['name'])} 상세">
       {shot(g, ribbon=True)}
@@ -439,7 +466,7 @@ def hero(g: dict) -> str:
       <ul class="whylist">{why}</ul>
       <div class="hero-price">{big}</div>
       <div class="buyrow">
-        <a class="btn btn-p" href="./game/{g['appid']}.html">가격 추이 보기</a>
+        <a class="btn btn-p" href="./game/{g['appid']}.html">자세히 보기</a>
         {demo_btn}
         <a class="btn btn-s" href="https://store.steampowered.com/app/{g['appid']}/?cc=kr"
            target="_blank" rel="noopener">스팀 상점</a>
@@ -452,7 +479,10 @@ def hero(g: dict) -> str:
 # ---------------------------------------------------------------- 홈
 
 def section(sid: str, title: str, note: str, items: list[dict],
-            empty: str, rail: bool = False, cap: int = 12) -> str:
+            empty: str, rail: bool = False, cap: int = 8,
+            more_href: str = "#all", more_text: str = "전체에서 더 보기") -> str:
+    """홈 섹션. 상한은 8개다 — 120개를 세로로 다 쌓으면 모바일에서 2만 픽셀이 되고,
+    그러면 아래쪽 섹션은 아무도 못 본다. 나머지는 각자의 목록 페이지로 보낸다."""
     if not items:
         body = f'<div class="grid"><div class="none">{esc(empty)}</div></div>'
         cnt = ""
@@ -461,7 +491,7 @@ def section(sid: str, title: str, note: str, items: list[dict],
         body = f'<div class="{cls}">' + "".join(card(g) for g in items[:cap]) + "</div>"
         cnt = f'<span class="cnt">{len(items)}개</span>'
     note_html = f'<p class="sec-note">{esc(note)}</p>' if note else ""
-    more = ('<a class="more" href="#all">전체에서 더 보기 →</a>'
+    more = (f'<a class="more" href="{esc(more_href)}">{esc(more_text)} →</a>'
             if len(items) > cap else "")
     return f"""<section id="{sid}">
   <div class="sec-head"><h2>{esc(title)}</h2>{cnt}{more}</div>
@@ -499,33 +529,37 @@ def build_index(games: list[dict], updated: str) -> str:
     days = max((g.get("days_tracked", 0) for g in games), default=0)
     n_demo = sum(1 for g in safe if g.get("has_demo") or g.get("app_type") == "demo")
     n_soon = sum(1 for g in safe if g.get("coming_soon"))
+    n_kr = sum(1 for g in safe if g.get("korean"))
     tiles = "".join(
         f'<div class="tile"><div class="k">{k}</div><div class="v">{v}</div></div>'
         for k, v in [
-            ("방송 후보", f'{len(cands):,}<small>개</small>'),
+            ("한국어 지원", f'{n_kr:,}<small>개</small>'),
             ("데모 가능", f'{n_demo:,}<small>개</small>'),
             ("출시예정", f'{n_soon:,}<small>개</small>'),
-            ("추적 게임", f"{len(games):,}"),
+            ("추적 게임", f'{len(games):,}<small>개</small>'),
             ("수집 일수", f'{days:,}<small>일</small>'),
         ]
     )
 
-    atl_note = ("" if days > config.MIN_DAYS_FOR_ATL else
+    # 최저가 판정은 관측 30일부터 배지로 나가고 60일부터 '역대최저'가 된다.
+    # 그 전까지는 왜 최저가 표시가 없는지 밝혀두는 편이 낫다.
+    atl_note = ("" if days >= config.MIN_DAYS_FOR_LOW else
                 f'<p class="sec-note">가격 추적은 {days}일째입니다. '
-                f'"역대 최저" 판정은 {config.MIN_DAYS_FOR_ATL}일 이상 모여야 표시됩니다.</p>')
+                f'최저가 표시는 {config.MIN_DAYS_FOR_LOW}일, '
+                f'"역대 최저"는 {config.MIN_DAYS_FOR_ATL}일이 모여야 나옵니다.</p>')
 
     body = f"""
 {hero(top)}
 
-{section("pick", "이번 주 방송 후보", "한국어를 지원하고, 데모가 있거나 새로 나왔거나 곧 나오는 게임을 방송 적합도 순으로.", rest_cands, "아직 후보가 없습니다. 다음 수집에서 채워집니다.")}
+{section("pick", "오늘의 추천", "한국어를 지원하고, 데모가 있거나 새로 나왔거나 곧 나오는 게임.", rest_cands, "아직 후보가 없습니다. 다음 수집에서 채워집니다.", more_href="#all", more_text="전체 보기")}
 
-{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에, 방송으로 먼저.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", rail=True)}
+{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에 무료로 해볼 수 있는 것들.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", rail=True, more_href="korean-demo.html", more_text="한국어 데모 전체")}
 
-{section("new", "새로 나온 게임", "", fresh, "신작 목록이 아직 비어 있습니다.", rail=True)}
+{section("new", "새로 나온 게임", "", fresh, "신작 목록이 아직 비어 있습니다.", rail=True, more_href="korean-new.html", more_text="한국어 신작 전체")}
 
-{section("soon", "곧 나오는 게임", "출시 전에 미리 찜해두면 좋은 것들.", soon, "출시예정 목록이 아직 비어 있습니다.", rail=True)}
+{section("soon", "곧 나오는 게임", "출시 전에 미리 찜해두면 좋은 것들.", soon, "출시예정 목록이 아직 비어 있습니다.", rail=True, more_href="korean-soon.html", more_text="출시예정 전체")}
 
-{section("sale", "할인 중", "가격은 매일 기록됩니다.", on_sale, "할인 중인 게임이 아직 없습니다.")}
+{section("sale", "할인 중", "원화 가격을 하루 두 번 기록합니다.", on_sale, "할인 중인 게임이 아직 없습니다.", rail=True, more_href="#all", more_text="전체에서 더 보기")}
 {atl_note}
 
 <section id="all">
@@ -534,7 +568,7 @@ def build_index(games: list[dict], updated: str) -> str:
   <div class="tools">
     <input type="search" id="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
     <select id="sort" aria-label="정렬 기준">
-      <option value="score">방송 적합도순</option>
+      <option value="score">추천순</option>
       <option value="off">할인율순</option>
       <option value="cheap">낮은 가격순</option>
       <option value="name">이름순</option>
@@ -553,15 +587,20 @@ def build_index(games: list[dict], updated: str) -> str:
   <div class="grid" id="list">{"".join(card(g) for g in games)}
     <div class="none" id="noneMsg" hidden>조건에 맞는 게임이 없습니다.</div>
   </div>
+  <div class="morewrap" id="moreWrap" hidden>
+    <button class="morebtn" id="moreBtn" type="button">더 보기</button>
+  </div>
 </section>
 
 <div class="tiles">{tiles}</div>
 
 <script>
 (function(){{
+  var PAGE=24, shown=PAGE;
   var list=document.getElementById('list'), q=document.getElementById('q');
   var sort=document.getElementById('sort'), adult=document.getElementById('adult');
   var msg=document.getElementById('noneMsg'), cnt=document.getElementById('cnt');
+  var moreWrap=document.getElementById('moreWrap'), moreBtn=document.getElementById('moreBtn');
   var chips=document.querySelectorAll('.presets .chip');
   var cards=Array.prototype.slice.call(list.querySelectorAll('.card'));
   var f='all';
@@ -590,14 +629,19 @@ def build_index(games: list[dict], updated: str) -> str:
     }}
     return (+b.dataset.score)-(+a.dataset.score);
   }}
-  function apply(){{
+  function render(){{
     var vis=cards.filter(keep);
     cards.forEach(function(c){{ c.hidden=true; }});
-    vis.sort(cmp).forEach(function(c){{ c.hidden=false; list.appendChild(c); }});
+    vis.sort(cmp).forEach(function(c,i){{ if(i<shown) c.hidden=false; list.appendChild(c); }});
     list.appendChild(msg);
     msg.hidden = vis.length>0;
     cnt.textContent = vis.length+'개';
+    // 전부 그리지 않고 24개씩 늘린다. 검색은 숨은 카드까지 전부 대상으로 한다.
+    moreWrap.hidden = vis.length<=shown;
+    moreBtn.textContent = '더 보기 ('+Math.min(shown,vis.length)+' / '+vis.length+')';
   }}
+  function apply(){{ shown=PAGE; render(); }}
+  moreBtn.addEventListener('click',function(){{ shown+=PAGE; render(); }});
   q.addEventListener('input',apply);
   sort.addEventListener('change',apply);
   adult.addEventListener('change',apply);
@@ -607,15 +651,26 @@ def build_index(games: list[dict], updated: str) -> str:
       f=c.dataset.f; apply();
     }});
   }});
+
+  // 헤더 검색창이 넘겨준 #q=... 을 받아 목록에 반영하고 그 자리로 데려간다.
+  window.applyHash=function(){{
+    var h=location.hash||'';
+    if (h.indexOf('#q=')!==0) return;
+    try {{ q.value=decodeURIComponent(h.slice(3)); }} catch(e) {{ q.value=h.slice(3); }}
+    apply();
+    document.getElementById('all').scrollIntoView();
+  }};
+  window.addEventListener('hashchange', window.applyHash);
   apply();
+  window.applyHash();
 }})();
 </script>
 """
-    return page("스팀딜 레이더 — 한국어 지원 스팀 신작 · 데모 · 할인",
+    return page("스팀딜 레이더 — 한국어 지원 스팀 신작 · 데모 · 출시예정",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
-                desc=(f"한국어를 지원하는 스팀 신작·데모·출시예정 {len(cands)}개를 "
-                      f"매일 두 번 자동으로 모읍니다. 원화 가격과 변동 이력도 함께."))
+                desc=(f"스팀 게임 {len(games):,}개의 한국어 지원 여부와 원화 가격을 추적합니다. "
+                      f"한국어 데모 {n_demo}개, 출시예정 {n_soon}개를 매일 두 번 자동 갱신."))
 
 
 # ---------------------------------------------------------------- 상세
@@ -649,16 +704,23 @@ def build_detail(g: dict, updated: str) -> str:
                               f'target="_blank" rel="noopener" style="color:var(--brand)">'
                               f'스팀에서 데모 받기 →</a>'))
     if g.get("days_tracked"):
-        low = f'{g["lowest_seen"]:,}원' if g.get("lowest_seen") else "—"
-        label = "역대 최저" if g.get("atl_trustworthy") else f'추적 {g["days_tracked"]}일 최저'
-        facts.append((label, low))
+        d = g["days_tracked"]
+        if d < config.MIN_DAYS_FOR_LOW:
+            # 2일 관측으로 '2일 최저'라고 적으면 최저가 정보처럼 읽힌다.
+            # 이 단계에서 정직하게 말할 수 있는 사실은 '언제부터 봤는가' 뿐이다.
+            facts.append(("가격 추적 시작", f'{esc(g.get("price_first") or "—")} ({d}일째)'))
+        else:
+            low = f'{g["lowest_seen"]:,}원' if g.get("lowest_seen") else "—"
+            label = "역대 최저" if g.get("atl_trustworthy") else f"추적 {d}일 최저"
+            facts.append((label, low))
     fact_rows = "".join(f'<tr><th>{esc(k)}</th><td>{v}</td></tr>' for k, v in facts)
 
     why = "".join(f"<li>{esc(w)}</li>" for w in (g.get("why") or []))
+    # 합성 점수 대신 근거를 문장으로. 숫자 하나보다 이쪽이 검증 가능하다.
     why_panel = (f"""<div class="panel">
-  <h3>방송 적합도 {g.get('score', 0)}점</h3>
-  <p class="sub">데모 여부·한국어 지원·신작 여부·가격만으로 계산합니다.
-     '역대 최저가와의 차이'는 데이터가 충분히 쌓인 뒤에 반영합니다.</p>
+  <h3>이 게임을 고른 이유</h3>
+  <p class="sub">아래 항목은 스팀 상점 정보에서 그대로 확인한 사실입니다.
+     '역대 최저가와의 차이'는 가격 이력이 충분히 쌓인 뒤에 반영합니다.</p>
   <ul class="whylist">{why}</ul>
 </div>""" if why else "")
 
@@ -683,10 +745,18 @@ def build_detail(g: dict, updated: str) -> str:
                        '가격이 한 번이라도 바뀌면 이 자리에 추이가 그려집니다.</div>')
         sub = (f"{days}일째 지켜보는 중이고, 아직 가격이 바뀌지 않았습니다."
                if days > 1 else "하루 두 번 자동으로 확인합니다.")
-    chart = f"""<div class="panel">
+    if len(hist) >= 2:
+        chart = f"""<div class="panel">
   <h3>원화 가격 추이</h3>
   <p class="sub">{sub}</p>
   {chart_inner}
+</div>"""
+    else:
+        # 아직 보여줄 추이가 없다. 접어두고, 열면 왜 비었는지 설명한다.
+        chart = f"""<div class="panel">
+  <details><summary>원화 가격 추이 — {esc(sub)}</summary>
+  {chart_inner}
+  </details>
 </div>"""
 
     demo_id = g.get("demo_appid") or g["appid"]

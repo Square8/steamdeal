@@ -89,6 +89,18 @@ check("현재가 33,000", g["price_final"] == 33000, str(g["price_final"]))
 
 print("\n6) 역대최저 표기 정직성")
 check("관측 1일은 신뢰 안 함", g["atl_trustworthy"] is False, f'{g["days_tracked"]}일')
+# 관측 초기에 배지가 아예 안 나가야 한다.
+# "2일 최저"는 '수집 후 가격이 안 바뀌었다'는 뜻인데 초록 배지로 달면
+# 진짜 역대최저처럼 읽힌다 — 사이트 신뢰도를 가장 크게 깎던 표시였다.
+check("30일 미만이면 최저가 배지 없음",
+      build.atl_label({"at_lowest": True, "days_tracked": 2}) == "",
+      "2일 관측")
+check(f"{config.MIN_DAYS_FOR_LOW}일부터 기간을 밝힌 배지",
+      "35일 최저" in build.atl_label(
+          {"at_lowest": True, "days_tracked": 35, "atl_trustworthy": False}))
+check(f"{config.MIN_DAYS_FOR_ATL}일부터 역대최저 배지",
+      "역대최저" in build.atl_label(
+          {"at_lowest": True, "days_tracked": 70, "atl_trustworthy": True}))
 for i in range(1, config.MIN_DAYS_FOR_ATL + 2):
     d = (dt.date(2026, 1, 1) + dt.timedelta(days=i)).isoformat()
     conn.execute("INSERT OR REPLACE INTO prices VALUES (730,?,40000,66000,39)", (d,))
@@ -198,16 +210,19 @@ check("build.main() 정상", rc == 0, f"rc={rc}")
 idx = os.path.join(config.SITE_DIR, "index.html")
 h = open(idx, encoding="utf-8").read()
 check("index 생성", os.path.exists(idx))
-check("방송 후보 섹션", "이번 주 방송 후보" in h)
+check("추천 섹션", "오늘의 추천" in h)
 check("데모 섹션", "데모로 먼저 해볼 수 있는 게임" in h)
-check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘 가장 방송할 만한" in h)
+check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘의 추천" in h)
 check("3중 테마 스코프", all(x in h for x in
       [":root{", ':root:not([data-theme="light"])', ':root[data-theme="dark"]']))
 check("칩에 글자 포함(색 단독 아님)", "데모</span>" in h)
 check("필터 컨트롤", 'data-f="demo"' in h and 'data-f="kr"' in h)
 check("정렬 컨트롤", 'id="sort"' in h and 'value="cheap"' in h)
 check("성인 포함 토글", 'id="adult"' in h)
-check("점수 막대에 숫자 병기", 'class="score-n"' in h)
+check("카드에 합성 점수 없음", 'class="score-n"' not in h and 'class="bar"' not in h)
+check("헤더에 검색창", 'class="hsearch"' in h and 'name="q"' in h)
+check("전체 목록 더 보기 버튼", 'id="moreBtn"' in h)
+check("사이트 정체성이 방송이 아니라 발견", "방송 적합도" not in h and "방송 후보" not in h)
 check("개발자용 문구 노출 없음", "config.py" not in h)
 check("상세 페이지 생성", os.path.exists(os.path.join(config.SITE_DIR, "game", "730.html")))
 

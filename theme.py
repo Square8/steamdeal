@@ -24,7 +24,7 @@ CSS = """
 /* ---- 라이트(기본 정의) ---- */
 :root{
   --bg:#f2f5fa; --surface:#ffffff; --surface-2:#f7f9fc; --raised:#e9eef6;
-  --ink:#0b1220; --ink-2:#48546a; --ink-3:#78849a; --line:#dde4ef;
+  --ink:#0b1220; --ink-2:#48546a; --ink-3:#66707f; --line:#dde4ef;
   --brand:#1b63c4; --brand-ink:#ffffff; --brand-soft:rgba(27,99,196,.10);
   --deal:#3f6212; --deal-mark:#4d7c0f; --deal-soft:rgba(101,163,13,.16);
   --warn:#9a3412; --warn-soft:rgba(234,88,12,.14);
@@ -34,7 +34,7 @@ CSS = """
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#0b1220; --surface:#151e2e; --surface-2:#1a2436; --raised:#222e44;
-    --ink:#eef2f8; --ink-2:#a8b4c8; --ink-3:#76839a; --line:#243044;
+    --ink:#eef2f8; --ink-2:#a8b4c8; --ink-3:#8b98ae; --line:#243044;
     --brand:#4da3ff; --brand-ink:#06101f; --brand-soft:rgba(77,163,255,.16);
     --deal:#a3e635; --deal-mark:#a3e635; --deal-soft:rgba(163,230,53,.16);
     --warn:#fb923c; --warn-soft:rgba(251,146,60,.16);
@@ -44,7 +44,7 @@ CSS = """
 /* ---- 다크(직접 지정) ---- */
 :root[data-theme="dark"]{
   --bg:#0b1220; --surface:#151e2e; --surface-2:#1a2436; --raised:#222e44;
-  --ink:#eef2f8; --ink-2:#a8b4c8; --ink-3:#76839a; --line:#243044;
+  --ink:#eef2f8; --ink-2:#a8b4c8; --ink-3:#8b98ae; --line:#243044;
   --brand:#4da3ff; --brand-ink:#06101f; --brand-soft:rgba(77,163,255,.16);
   --deal:#a3e635; --deal-mark:#a3e635; --deal-soft:rgba(163,230,53,.16);
   --warn:#fb923c; --warn-soft:rgba(251,146,60,.16);
@@ -67,7 +67,7 @@ img{max-width:100%}
 .wrap{max-width:1180px; margin:0 auto; padding:0 18px 72px}
 
 /* 숫자는 Inter 등폭 숫자로 — 가격이 줄줄이 흔들리지 않게 */
-.num,.price,.big,.strike,.pct,.updated,.tile .v,td,.score-n,.rc{
+.num,.price,.big,.strike,.pct,.updated,.tile .v,td,.hsearch input{
   font-family:"Inter",ui-sans-serif,system-ui,sans-serif;
   font-variant-numeric:tabular-nums;
 }
@@ -97,6 +97,25 @@ nav.jump a{
 }
 nav.jump a:hover{background:var(--raised); color:var(--ink)}
 .updated{color:var(--ink-3); font-size:11.5px}
+
+/* 헤더 검색: 처음 온 사람이 검색 기능의 존재를 알 수 있어야 한다.
+   맨 아래에 있으면 아무도 못 찾는다. */
+.hsearch{display:flex; align-items:center; gap:0; position:relative}
+.hsearch input{
+  width:190px; padding:7px 32px 7px 12px; border-radius:9px; font-size:13px;
+  background:var(--surface); color:var(--ink); border:1px solid var(--line);
+  font-family:inherit;
+}
+.hsearch input::placeholder{color:var(--ink-3)}
+.hsearch input:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
+.hsearch button{
+  position:absolute; right:0; top:0; bottom:0; width:30px; display:grid;
+  place-items:center; background:none; border:0; cursor:pointer; color:var(--ink-3);
+  border-radius:0 9px 9px 0;
+}
+.hsearch button:hover{color:var(--brand)}
+.hsearch button:focus-visible{outline:2px solid var(--brand); outline-offset:-2px}
+.hsearch svg{width:14px; height:14px}
 
 /* ================= 히어로: 오늘 하나 ================= */
 .hero-sec{margin:26px 0 8px}
@@ -174,12 +193,10 @@ section{margin-top:34px; scroll-margin-top:76px}
 .sec-note{margin:2px 0 12px; color:var(--ink-3); font-size:12.5px}
 
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(214px,1fr)); gap:14px}
-/* 가로 스크롤 레일: 보조 섹션은 세로로 길어지지 않게 */
-.rail{
-  display:grid; grid-auto-flow:column; grid-auto-columns:236px; gap:14px;
-  overflow-x:auto; padding-bottom:10px; scroll-snap-type:x proximity;
-}
-.rail > *{scroll-snap-align:start}
+/* 보조 섹션. 데스크톱에서는 그냥 그리드다 —
+   가로 스크롤은 마우스 휠로 움직이지 않아서 잘린 카드가 그대로 안 보인 채 끝난다.
+   손가락으로 밀 수 있는 좁은 화면에서만 레일이 된다. */
+.rail{display:grid; grid-template-columns:repeat(auto-fill,minmax(214px,1fr)); gap:14px}
 
 /* ================= 카드 ================= */
 .card{
@@ -226,17 +243,9 @@ section{margin-top:34px; scroll-margin-top:76px}
 }
 .pct{color:var(--brand); font-weight:800; font-size:13px}
 
-/* 점수 막대: 숫자와 막대를 같이 (색만으로 전달 안 함) */
-.score{display:flex; align-items:center; gap:6px; min-width:0}
-.score-n{
-  font-size:12px; font-weight:800; color:var(--ink-2); letter-spacing:-.02em;
-}
-.bar{
-  width:44px; height:4px; border-radius:99px; background:var(--grid);
-  overflow:hidden; flex:none;
-}
-.bar i{display:block; height:100%; background:var(--brand); border-radius:99px}
-.spark{width:44px; height:20px; display:block; flex:none}
+.spark{width:52px; height:22px; display:block; flex:none}
+/* 가격 옆 할인율. 표지 위 리본은 스크롤 중에 눈에 덜 들어온다. */
+.offtag{font-family:"Inter",sans-serif; font-size:12.5px; font-weight:800; color:var(--brand)}
 
 /* ================= 상태 칩 (글자 필수) ================= */
 .t{
@@ -250,7 +259,7 @@ section{margin-top:34px; scroll-margin-top:76px}
 .t.new{background:var(--deal-soft); color:var(--deal)}
 .t.free{background:var(--deal-soft); color:var(--deal)}
 .t.atl{background:var(--deal-soft); color:var(--deal)}
-.t.nokr,.t.adult{background:var(--raised); color:var(--ink-3)}
+.t.nokr,.t.adult{background:var(--raised); color:var(--ink-2)}
 .badge{
   display:inline-flex; align-items:center; gap:3px; padding:1.5px 6px;
   border-radius:6px; background:var(--deal-soft); color:var(--deal);
@@ -282,6 +291,16 @@ section{margin-top:34px; scroll-margin-top:76px}
   grid-column:1/-1; padding:34px 16px; text-align:center;
   color:var(--ink-3); font-size:13.5px;
 }
+/* 전체 목록은 처음에 일부만 그린다. 120개를 한 번에 세로로 쌓으면
+   모바일에서 2만 픽셀이 되고 아무도 끝까지 내려가지 않는다. */
+.morewrap{display:flex; justify-content:center; margin-top:18px}
+.morebtn{
+  padding:10px 22px; border-radius:10px; cursor:pointer; font-family:inherit;
+  font-size:13.5px; font-weight:700;
+  background:var(--surface); color:var(--ink-2); border:1px solid var(--line);
+}
+.morebtn:hover{border-color:var(--ink-3); color:var(--ink)}
+.morebtn:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 
 /* ================= 통계 스트립 ================= */
 .tiles{
@@ -350,6 +369,7 @@ footer p{margin:0}
 table{width:100%; border-collapse:collapse; font-size:13px; margin-top:2px}
 th{
   text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);
+  width:1%;                      /* 이름 열은 내용 폭까지만. 값이 멀어지면 읽기 흐름이 끊긴다 */
   font-family:"Inter",sans-serif; font-size:9.5px; letter-spacing:.13em;
   text-transform:uppercase; color:var(--ink-3); font-weight:700; white-space:nowrap;
 }
@@ -371,11 +391,27 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 @media (max-width:560px){
   .wrap{padding:0 13px 60px}
   .grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:11px}
-  .rail{grid-auto-columns:186px}
+  .rail{
+    grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:186px;
+    overflow-x:auto; padding-bottom:10px; scroll-snap-type:x proximity;
+  }
+  .rail > *{scroll-snap-align:start}
   .hero-body{padding:17px 17px 16px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
-  nav.jump{order:3; width:100%; overflow-x:auto; padding-bottom:2px}
+  nav.jump{
+    order:3; width:100%; overflow-x:auto; padding-bottom:2px;
+    flex-wrap:nowrap;                 /* 줄바꿈하면 헤더가 두 줄이 된다 */
+    scrollbar-width:none;
+  }
+  nav.jump::-webkit-scrollbar{display:none}
+  nav.jump a{white-space:nowrap}
+  /* 헤더를 2줄로: [로고 | 검색] / [메뉴]. 태그라인은 폭을 다 먹어서 모바일에선 뺀다. */
+  .topin{padding:10px 13px; gap:10px}
+  .logo span{display:none}
+  .logo{margin-right:0; flex:none}
+  .hsearch{order:2; flex:1 1 auto; min-width:0}
+  .hsearch input{width:100%}
 }
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important; scroll-behavior:auto !important}

@@ -15,7 +15,7 @@ SITE_DIR = os.environ.get("SITE_DIR") or os.path.join(ROOT, "site")
 DB_PATH = os.environ.get("DB_PATH") or os.path.join(ROOT, "data", "steam.sqlite3")
 
 SITE_NAME = "스팀딜 레이더"
-SITE_TAGLINE = "신작 · 데모 · 출시예정을 매일 자동으로"
+SITE_TAGLINE = "한국어로 할 수 있는 게임을 가장 먼저"
 # 절대 URL(사이트맵·canonical·og:url)에 쓴다. GitHub Actions 에서 주입한다.
 # 비어 있으면 상대 경로로만 동작한다 (로컬 테스트용).
 SITE_URL = os.environ.get("SITE_URL", "")
@@ -67,5 +67,10 @@ BROADCAST_MAX_PRICE = 80000   # 이 가격 넘으면 후보에서 빼기 (0 = �
 # 스팀 대형 세일은 계절 주기(여름/겨울)라서, 한 사이클을 못 본 상태의
 # '역대 최저'는 거짓이 될 수 있다.
 MIN_DAYS_FOR_ATL = 60
+
+# 최저가 배지를 아예 달지 않는 문턱. 관측 2일차에 "2일 최저"를 초록 배지로 달면
+# 사실상 "수집 후 가격이 안 바뀌었다"는 뜻인데 진짜 역대최저처럼 보인다.
+# 30일은 스팀 주말/미드위크 세일이 최소 한 번은 지나가는 길이다.
+MIN_DAYS_FOR_LOW = 30
 
 SKIP_FREE_IN_PRICE = True   # 무료 게임은 가격 추적에서 제외 (방송 후보에는 포함)
