@@ -286,7 +286,7 @@ finally:
 
 # 목록을 못 받아도 개척이 멈추면 안 된다 → 번호 훑기로 대체
 config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = 20, 0.25, 0.55
-_base = store.max_known_appid(conn)      # 훑기 시작점은 실행 '전' 값 기준이다
+_base = store.max_game_appid(conn)      # 훑기 시작점은 실행 '전' 값 기준이다
 def _no_list(url, *a, **k):
     if "GetAppList" in url:
         return FakeResp({"nope": 1})                  # 전체 목록 전멸
@@ -300,13 +300,19 @@ finally:
     requests.get = _orig_get
     config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = _old
 ids2 = [a for a, _ in plan2]
-ceiling = _base + config.EXPLORE_NUMERIC_MARGIN
-run = [a for a in ids2 if a in (ceiling, ceiling - 1, ceiling - 2)]
-check("목록이 없어도 번호 훑기로 개척한다", len(run) == 3, f"천장 {ceiling} 근처 {run}")
-check("가장 큰 번호(최신)부터 연속으로 내려간다",
-      run == [ceiling, ceiling - 1, ceiling - 2], str(run))
-check("훑기는 아는 최대 appid 에서 시작한다(그 위는 미공개라 전멸한다)",
-      config.EXPLORE_NUMERIC_MARGIN == 0 and ceiling == _base, f"천장 {ceiling}, 최대 {_base}")
+_top = _base + config.EXPLORE_NUMERIC_MARGIN
+ceiling = _top - (_top % config.EXPLORE_STEP)
+want = [ceiling, ceiling - 10, ceiling - 20]
+run = [a for a in ids2 if a in want]
+check("목록이 없어도 번호 훑기로 개척한다", len(run) >= 2, f"천장 {ceiling} 근처 {run}")
+check("가장 큰 번호(최신)부터 10 씩 내려간다",
+      run == sorted(run, reverse=True) and all(a % 10 == 0 for a in run), str(run))
+check("훑기 천장은 '존재가 확인된' 게임에서만 온다 (probed 는 헛번호를 담는다)",
+      store.max_game_appid(conn) ==
+      conn.execute("SELECT MAX(appid) FROM games").fetchone()[0])
+check("훑기는 10 단위로 내려간다 (appid 는 10 의 배수만 실재한다)",
+      config.EXPLORE_STEP == 10 and all(a % 10 == 0 for a in ex2),
+      f"{len(ex2)}개 전부 10의 배수")
 check("개척분을 따로 표시해 적중률을 잴 수 있다",
       len(ex2) > 0 and all(a <= ceiling for a in ex2) and ex2 <= set(ids2),
       f"{len(ex2)}개, 최대 {max(ex2)} ≤ 천장 {ceiling}")

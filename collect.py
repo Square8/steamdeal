@@ -67,16 +67,22 @@ def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
                      len(pool), checked, 100 * checked / max(len(pool), 1), hit)
         else:
             # 전체 목록을 못 받아도 개척을 멈추지 않는다.
-            # appid 는 대체로 순차 배정이라 '큰 번호 = 최근'이므로, 우리가 아는
-            # 가장 큰 번호 위쪽부터 훑어 내려온다. 이름 사전탈락을 못 써서
-            # 헛호출이 늘지만 실패는 probed 에 남아 한 번씩만 낭비된다.
-            ceiling = store.max_known_appid(conn) + config.EXPLORE_NUMERIC_MARGIN
-            log.warning("전체 목록을 못 받아 번호 훑기로 개척한다 (%d 부터 내려감)", ceiling)
-            appid = ceiling
-            while n_explore < room and appid > 10:
-                if appid not in done and take(appid, None):
-                    n_explore += 1
-                appid -= 1
+            # appid 는 10 단위로 순차 배정되므로 '큰 번호 = 최근'이고, 10 의 배수만
+            # 실재한다. 존재가 확인된 최대 appid 에서 10 씩 내려간다.
+            # (1 씩 훑던 때는 호출의 90% 가 존재할 수 없는 번호로 갔다 — 적중률 1.8%)
+            step = max(config.EXPLORE_STEP, 1)
+            top = store.max_game_appid(conn) + config.EXPLORE_NUMERIC_MARGIN
+            ceiling = top - (top % step)
+            if ceiling <= step:
+                log.warning("아직 아는 게임이 없어 개척을 건너뛴다")
+            else:
+                log.warning("전체 목록을 못 받아 번호 훑기로 개척한다 "
+                            "(%d 부터 %d 씩 내려감)", ceiling, step)
+                appid = ceiling
+                while n_explore < room and appid > step:
+                    if appid not in done and take(appid, None):
+                        n_explore += 1
+                    appid -= step
 
     explore_ids = {a for a, _ in targets[len(targets) - n_explore:]} if n_explore else set()
     log.info("이번 실행 %d개 = 기존갱신 %d + 큐레이션 %d + 신규개척 %d",

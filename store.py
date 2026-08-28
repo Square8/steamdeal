@@ -186,14 +186,13 @@ def explore_stats(conn) -> tuple[int, int]:
     return int(r[0]), int(r[1])
 
 
-def max_known_appid(conn) -> int:
-    """지금까지 본 가장 큰 appid. 번호 훑기의 출발점이 된다.
-    큐레이션(featuredcategories)이 오늘 나온 신작을 주므로 이 값이 곧 '최신 경계'다."""
-    rows = [
-        conn.execute("SELECT COALESCE(MAX(appid),0) FROM games").fetchone()[0],
-        conn.execute("SELECT COALESCE(MAX(appid),0) FROM probed").fetchone()[0],
-    ]
-    return max(int(x or 0) for x in rows)
+def max_game_appid(conn) -> int:
+    """실제로 존재가 확인된 앱 중 가장 큰 appid. 번호 훑기의 출발점이다.
+
+    probed 는 보지 않는다 — 거기에는 존재하지 않는 번호까지 들어 있어서,
+    그걸 천장으로 쓰면 훑기가 빈 구간에 머물며 제자리걸음을 한다(실제로 두 번 그랬다).
+    큐레이션이 오늘 나온 신작을 물어다 주므로 이 값이 곧 '최신 경계'가 된다."""
+    return int(conn.execute("SELECT COALESCE(MAX(appid),0) FROM games").fetchone()[0] or 0)
 
 
 def stale_appids(conn, limit: int) -> list[int]:
