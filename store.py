@@ -106,8 +106,15 @@ def is_relevant(app: dict, tag: str | None) -> bool:
 
 
 def save(conn, app: dict, tag: str | None = None) -> bool:
-    """저장했으면 True. 보관 대상이 아니면 아무것도 하지 않고 False."""
-    if not is_relevant(app, tag):
+    """저장했으면 True. 보관 대상이 아니면 아무것도 하지 않고 False.
+
+    보관 필터는 '처음 들이는 게임'에만 건다. 이미 DB 에 있는 게임은 무조건 갱신한다 —
+    갱신 대상에는 tag 가 None 으로 오기 때문에(태그는 최초 발견 때만 붙는다),
+    필터를 그대로 걸면 예전에 '신작'으로 들어온 게임이 갱신 때마다 튕겨서
+    사이트에는 계속 보이는데 가격만 영원히 멈춘다. 실제로 66개가 그 상태였다."""
+    known = conn.execute("SELECT 1 FROM games WHERE appid=?",
+                         (app["appid"],)).fetchone() is not None
+    if not known and not is_relevant(app, tag):
         return False
     today = date.today().isoformat()
     conn.execute(

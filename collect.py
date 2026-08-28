@@ -20,8 +20,9 @@ import steam
 import store
 
 
-def _plan(conn, log) -> list[tuple[int, str | None]]:
-    """이번 실행에 부를 (appid, 태그) 목록. 위 세 몫을 순서대로 채운다."""
+def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
+    """(부를 목록, 그중 개척분 appid). 개척 적중률을 따로 재려면 구분이 필요하다 —
+    첫 배포에서 개척 440개 중 8개만 건진 걸 진행 로그로 역산해서야 알았다."""
     budget = config.MAX_APPS_PER_RUN
     targets: list[tuple[int, str | None]] = []
     seen: set[int] = set()
@@ -77,9 +78,10 @@ def _plan(conn, log) -> list[tuple[int, str | None]]:
                     n_explore += 1
                 appid -= 1
 
+    explore_ids = {a for a, _ in targets[len(targets) - n_explore:]} if n_explore else set()
     log.info("이번 실행 %d개 = 기존갱신 %d + 큐레이션 %d + 신규개척 %d",
              len(targets), n_refresh, n_featured, n_explore)
-    return targets
+    return targets, explore_ids
 
 
 def main() -> int:
@@ -88,21 +90,25 @@ def main() -> int:
     log = logging.getLogger("collect")
     conn = store.connect()
 
-    targets = _plan(conn, log)
+    targets, explore_ids = _plan(conn, log)
     if not targets:
         log.error("부를 대상이 없다. 스팀 API 응답을 확인할 것.")
         conn.close()
         return 1
 
     ok = failed = dropped = 0
+    ex_ok = ex_seen = 0          # 개척분만 따로. 적중률이 나쁘면 훑는 위치가 틀린 것이다
     for i, (appid, tag) in enumerate(targets, 1):
         app = steam.fetch_app(appid)
         # 실패도 기록한다 — 안 하면 다음 실행에서 같은 죽은 appid 를 또 부른다.
         store.mark_probed(conn, appid, app is not None)
+        is_ex = appid in explore_ids
+        ex_seen += is_ex
         if app is None:
             failed += 1
         elif store.save(conn, app, tag):
             ok += 1
+            ex_ok += is_ex
         else:
             dropped += 1        # 게임이지만 보관 대상 아님 (한국어X·데모X·구작)
         if i % 50 == 0:
@@ -111,6 +117,9 @@ def main() -> int:
                      i, len(targets), ok, dropped, failed)
     conn.commit()
 
+    if ex_seen:
+        log.info("개척 적중률 %d/%d (%.1f%%) — 낮으면 훑는 위치가 틀린 것이다",
+                 ex_ok, ex_seen, 100 * ex_ok / ex_seen)
     q = lambda s: conn.execute(s).fetchone()[0]
     log.info("완료 — 저장 %d, 무관 %d, 제외 %d | 누적 %d개 (한국어 %d, 데모 %d), 수집일수 %d일",
              ok, dropped, failed,

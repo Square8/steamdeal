@@ -249,7 +249,7 @@ def _route(url, *a, **k):
     return FakeResp({})
 requests.get = _route
 try:
-    plan = _collect._plan(conn, _lg.getLogger("t"))
+    plan, _ex = _collect._plan(conn, _lg.getLogger("t"))
 finally:
     requests.get = _orig_get
     config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = _old
@@ -295,7 +295,7 @@ def _no_list(url, *a, **k):
     return FakeResp({})
 requests.get = _no_list
 try:
-    plan2 = _collect._plan(conn, _lg.getLogger("t"))
+    plan2, ex2 = _collect._plan(conn, _lg.getLogger("t"))
 finally:
     requests.get = _orig_get
     config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = _old
@@ -305,6 +305,24 @@ run = [a for a in ids2 if a in (ceiling, ceiling - 1, ceiling - 2)]
 check("목록이 없어도 번호 훑기로 개척한다", len(run) == 3, f"천장 {ceiling} 근처 {run}")
 check("가장 큰 번호(최신)부터 연속으로 내려간다",
       run == [ceiling, ceiling - 1, ceiling - 2], str(run))
+check("훑기는 아는 최대 appid 에서 시작한다(그 위는 미공개라 전멸한다)",
+      config.EXPLORE_NUMERIC_MARGIN == 0 and ceiling == _base, f"천장 {ceiling}, 최대 {_base}")
+check("개척분을 따로 표시해 적중률을 잴 수 있다",
+      len(ex2) > 0 and all(a <= ceiling for a in ex2) and ex2 <= set(ids2),
+      f"{len(ex2)}개, 최대 {max(ex2)} ≤ 천장 {ceiling}")
+
+# 이미 DB 에 있는 게임은 보관 필터와 무관하게 계속 갱신되어야 한다.
+# (갱신 대상은 tag=None 으로 오므로 필터를 그냥 걸면 가격이 영원히 멈춘다 — 실제 66개 발생)
+_keep = dict(appid=990202, name="한국어없는신작", app_type="game", korean=0, has_demo=0,
+             coming_soon=0, is_free=0, header_image="", genres="", short_description="",
+             release_text="", release_date=None, demo_appid=None,
+             price_final=1000, price_initial=1000, discount_pct=0)
+check("최초에는 태그가 있어야 들어온다", store.save(conn, _keep, "신작") is True)
+check("한 번 들어온 게임은 태그 없이도 계속 갱신된다",
+      store.save(conn, {**_keep, "price_final": 900}, None) is True)
+check("갱신이 실제로 반영된다",
+      conn.execute("SELECT price_final FROM prices WHERE appid=990202 "
+                   "ORDER BY on_date DESC LIMIT 1").fetchone()[0] == 900)
 
 # 보관 범위: 개척은 넓게, 저장은 좁게 (안 그러면 게임 10만개 = 상세 10만장)
 base = dict(appid=1, name="x", app_type="game", korean=0, has_demo=0,
