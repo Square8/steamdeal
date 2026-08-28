@@ -1,4 +1,5 @@
 """정적 사이트 생성. GitHub Actions 가 수집 직후 이 파일을 실행한다."""
+import hashlib
 import html
 import json
 import logging
@@ -251,6 +252,12 @@ DEFAULT_DESC = ("한국어로 할 수 있는 스팀 신작·데모·출시예정
                 "원화 가격과 변동 이력도 함께 기록합니다.")
 
 
+# CSS 를 페이지마다 인라인하면 16.6KB 가 게임 수만큼 복제된다.
+# 실측: 게임 8,965개에서 사이트 221MB 중 152MB 가 CSS 중복분이었다.
+# 외부 파일 하나로 빼면 그게 사라지고, 방문자 브라우저도 한 번만 받는다.
+CSS_HASH = hashlib.sha1(theme.CSS.encode()).hexdigest()[:8]
+
+
 def abs_url(rel: str) -> str:
     """sitemap·canonical·og:url 은 절대 URL 이어야 한다.
     SITE_URL 이 없으면(로컬 테스트) 상대 경로를 그대로 둔다."""
@@ -314,7 +321,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 {og_u}
 {og_img}
 {theme.FONTS}
-<style>{theme.CSS}</style>
+<link rel="stylesheet" href="{up}style.css?v={CSS_HASH}">
 </head>
 <body>
 <header class="top"><div class="topin">
@@ -543,6 +550,17 @@ def build_index(games: list[dict], updated: str) -> str:
 
     # 최저가 판정은 관측 30일부터 배지로 나가고 60일부터 '역대최저'가 된다.
     # 그 전까지는 왜 최저가 표시가 없는지 밝혀두는 편이 낫다.
+    # 홈에 미리 그려두는 카드 수를 제한한다. 전량을 그리면 index.html 이
+    # 게임 9천개에서 6.9MB 가 되고(실측) 모바일에서 열리지 않는다.
+    # 상한을 넘으면 추천 점수 높은 순으로 자르고, 그 사실을 화면에 밝힌다.
+    shown_games = games
+    all_note = ""
+    if len(games) > config.MAX_INDEX_CARDS:
+        shown_games = sorted(games, key=lambda g: -(g.get("score") or 0))[:config.MAX_INDEX_CARDS]
+        all_note = (f'<p class="sec-note">추천 점수가 높은 {len(shown_games):,}개만 '
+                    f'미리 불러왔습니다(전체 {len(games):,}개). '
+                    f'조건별 전체 목록은 위 메뉴에서 볼 수 있습니다.</p>')
+
     atl_note = ("" if days >= config.MIN_DAYS_FOR_LOW else
                 f'<p class="sec-note">가격 추적은 {days}일째입니다. '
                 f'최저가 표시는 {config.MIN_DAYS_FOR_LOW}일, '
@@ -564,7 +582,8 @@ def build_index(games: list[dict], updated: str) -> str:
 
 <section id="all">
   <div class="sec-head"><h2>전체 게임에서 찾기</h2>
-    <span class="cnt" id="cnt">{len(games)}개</span></div>
+    <span class="cnt" id="cnt">{len(shown_games)}개</span></div>
+  {all_note}
   <div class="tools">
     <input type="search" id="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
     <select id="sort" aria-label="정렬 기준">
@@ -584,7 +603,7 @@ def build_index(games: list[dict], updated: str) -> str:
     <button class="chip" data-f="cheap" aria-pressed="false">1만원 이하</button>
     <button class="chip" data-f="off50" aria-pressed="false">50% 이상 할인</button>
   </div>
-  <div class="grid" id="list">{"".join(card(g) for g in games)}
+  <div class="grid" id="list">{"".join(card(g) for g in shown_games)}
     <div class="none" id="noneMsg" hidden>조건에 맞는 게임이 없습니다.</div>
   </div>
   <div class="morewrap" id="moreWrap" hidden>
@@ -910,6 +929,7 @@ def main() -> int:
         with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
             f.write(text)
 
+    write("style.css", theme.CSS)
     write("index.html", build_index(games, updated))
     paths = ["index.html"]
 

@@ -77,6 +77,45 @@ def discover() -> dict[int, str]:
     return out
 
 
+def _junk_name(name: str) -> bool:
+    """이름만 보고 게임이 아닌 것을 걸러낸다. appdetails 호출을 아끼기 위한 것이고,
+    확실한 것만 건다 — 애매하면 불러서 확인하는 쪽이 안전하다.
+    'Demo' 는 우리가 찾는 대상이라 절대 걸지 않는다."""
+    low = f" {name.lower()} "
+    return any(w in low for w in config.SKIP_NAME_WORDS)
+
+
+def all_appids() -> list[tuple[int, str]]:
+    """스팀 전체 appid 목록. 요청 1회, 키 불필요, 무료.
+    이름까지 주므로 사운드트랙 같은 것은 appdetails 를 부르기 전에 떨어뜨린다.
+
+    이 목록만으로는 한국어 지원·가격을 알 수 없다(그건 appdetails 뿐). 그래서
+    여기서 얻은 appid 를 매 실행 조금씩 소비하는 '개척 풀'로 쓴다."""
+    data = _get_json(config.APPLIST_URL)
+    apps = (((data or {}).get("applist") or {}).get("apps")) or []
+    if not isinstance(apps, list):
+        log.warning("GetAppList 응답 형태가 예상과 다르다")
+        return []
+    out = []
+    skipped = 0
+    for a in apps:
+        if not isinstance(a, dict):
+            continue
+        appid, name = a.get("appid"), a.get("name") or ""
+        if not isinstance(appid, int) or not (10 <= appid < 100_000_000):
+            continue
+        if not name.strip():
+            continue          # 이름 없는 항목은 대체로 비공개/삭제된 것
+        if _junk_name(name):
+            skipped += 1
+            continue
+        out.append((appid, name))
+    out.sort(key=lambda t: -t[0] if config.EXPLORE_NEWEST_FIRST else t[0])
+    log.info("전체 목록 %d개 → 후보 %d개 (이름으로 %d개 사전 탈락)",
+             len(apps), len(out), skipped)
+    return out
+
+
 _KO_DATE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
 # 스팀 content_descriptor 중 성적 콘텐츠에 해당하는 id.

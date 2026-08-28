@@ -1,6 +1,15 @@
 name: 가격 수집 및 사이트 배포
 
 on:
+  # 코드를 push 하면 바로 다시 빌드·배포한다.
+  # 이게 없으면 코드를 고쳐도 다음 예약 실행(하루 2번)까지 사이트가 안 바뀌고,
+  # 매번 Actions 탭에서 손으로 Run workflow 를 눌러야 한다.
+  # data/ 는 이 워크플로우 자신이 커밋하는 곳이라 제외한다(자기 자신 재실행 방지).
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'data/**'
+      - 'README.md'
   schedule:
     # GitHub Actions cron 은 UTC 기준. 한국시간 08:40 / 20:40 에 맞춤.
     - cron: '40 23 * * *'   # KST 08:40
@@ -35,7 +44,11 @@ jobs:
         id: pages
         uses: actions/configure-pages@v5
 
+      # push 로 온 실행은 수집을 건너뛰고 사이트만 다시 만든다(약 10초).
+      # 코드를 고쳐 올릴 때마다 스팀 API 를 800번 부르며 20분을 쓸 이유가 없다.
+      # 예약 실행과 수동 실행(Run workflow)에서는 정상적으로 수집한다.
       - name: 가격 수집
+        if: github.event_name != 'push'
         run: python collect.py
 
       - name: 사이트 생성

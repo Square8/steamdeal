@@ -203,6 +203,81 @@ check("x축이 날짜에 비례 (1일 간격 < 11개월 간격)", d_late > d_ear
       f"1일={d_early:.1f}px, 11개월={d_late:.1f}px")
 check("계단식으로 그린다(사선 아님)", len(xs) == 2 * len(h_gap) - 1, f"{len(xs)}점")
 
+print("\n8b) 신규 개척 (GetAppList 기반)")
+import collect as _collect
+
+# 이름 사전 탈락: 확실한 쓰레기만 걸고, 데모는 절대 걸지 않는다
+check("사운드트랙은 이름으로 탈락", steam._junk_name("Cool Game Soundtrack") is True)
+check("시즌패스도 탈락", steam._junk_name("Cool Game - Season Pass") is True)
+check("데모는 탈락시키지 않는다(우리가 찾는 대상)",
+      steam._junk_name("Cool Game Demo") is False)
+check("일반 게임 통과", steam._junk_name("붉은 사막의 상인") is False)
+
+applist = {"applist": {"apps": [
+    {"appid": 500, "name": "구작"},
+    {"appid": 3000, "name": "신작"},
+    {"appid": 2000, "name": "중간작 Soundtrack"},
+    {"appid": 2500, "name": "중간작"},
+    {"appid": 9, "name": "범위밖"},          # 10 미만은 제외
+    {"appid": 4000, "name": ""},              # 이름 없음 제외
+]}}
+pool = with_fake(applist, steam.all_appids)
+check("쓰레기/범위밖/무명 제외", [a for a, _ in pool] == [3000, 2500, 500],
+      str([a for a, _ in pool]))
+check("최신 appid 부터 개척한다('가장 먼저'가 이 사이트의 무기)",
+      pool[0][0] == 3000)
+
+# probed 표: 실패한 appid 를 다시 부르지 않는지
+store.mark_probed(conn, 111, True)
+store.mark_probed(conn, 222, False)
+check("확인한 appid 를 기억한다", store.probed_appids(conn) >= {111, 222})
+check("실패도 기록된다(재시도 방지)", 222 in store.probed_appids(conn))
+ch, hit = store.explore_stats(conn)
+check("개척 통계", ch >= 2 and hit >= 1, f"확인 {ch}, 적중 {hit}")
+
+# 예산 배분: 기존갱신 몫 확보 + 중복 없음 + 이미 확인한 것은 건너뜀
+import logging as _lg
+_old = (config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA)
+config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = 20, 0.25, 0.55
+_orig_get = requests.get
+def _route(url, *a, **k):
+    if "GetAppList" in url:
+        return FakeResp({"applist": {"apps": [
+            {"appid": 5000 + i, "name": f"개척{i}"} for i in range(40)]}})
+    if "featuredcategories" in url:
+        return FakeResp({"new_releases": {"items": [{"id": 4444}]}})
+    return FakeResp({})
+requests.get = _route
+try:
+    plan = _collect._plan(conn, _lg.getLogger("t"))
+finally:
+    requests.get = _orig_get
+    config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = _old
+ids = [a for a, _ in plan]
+check("예산을 넘지 않는다", len(plan) <= 20, f"{len(plan)}개")
+check("중복 호출 없음", len(ids) == len(set(ids)))
+check("큐레이션 발견분이 들어간다", 4444 in ids)
+explored = [a for a in ids if 5000 <= a < 5040]      # 이 시험의 개척 풀 범위
+check("미탐색 appid 로 남은 자리를 채운다", len(explored) > 0, f"{len(explored)}개 {explored[:4]}")
+check("개척도 최신부터", explored == sorted(explored, reverse=True), str(explored[:4]))
+check("이미 확인한 appid 는 개척 대상에서 빠진다", 222 not in ids and 111 not in ids)
+
+# 보관 범위: 개척은 넓게, 저장은 좁게 (안 그러면 게임 10만개 = 상세 10만장)
+base = dict(appid=1, name="x", app_type="game", korean=0, has_demo=0,
+            coming_soon=0, is_free=0)
+check("한국어 지원이면 보관", store.is_relevant({**base, "korean": 1}, None))
+check("데모 있으면 보관", store.is_relevant({**base, "has_demo": 1}, None))
+check("출시예정이면 보관", store.is_relevant({**base, "coming_soon": 1}, None))
+check("상점 큐레이션에 걸리면 보관", store.is_relevant(base, "신작"))
+check("한국어X·데모X·구작·태그X 는 버린다", store.is_relevant(base, None) is False)
+check("save() 가 버린 것에 False 를 준다",
+      store.save(conn, {**base, "appid": 990101, "header_image": "", "genres": "",
+                        "short_description": "", "release_text": "", "release_date": None,
+                        "demo_appid": None, "price_final": 0, "price_initial": 0,
+                        "discount_pct": 0}, None) is False)
+check("버린 게임은 DB 에 없다",
+      conn.execute("SELECT COUNT(*) FROM games WHERE appid=990101").fetchone()[0] == 0)
+
 print("\n9) 사이트 생성")
 conn.close()
 rc = build.main()
@@ -213,7 +288,14 @@ check("index 생성", os.path.exists(idx))
 check("추천 섹션", "오늘의 추천" in h)
 check("데모 섹션", "데모로 먼저 해볼 수 있는 게임" in h)
 check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘의 추천" in h)
-check("3중 테마 스코프", all(x in h for x in
+# CSS 는 style.css 로 분리됐다 (페이지마다 인라인하면 게임 수만큼 중복)
+_css = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
+check("style.css 로 분리됨", len(_css) > 5000 and "<style>" not in h)
+check("페이지가 style.css 를 불러온다", 'rel="stylesheet" href="style.css?v=' in h)
+check("하위 폴더에서도 CSS 경로가 맞다",
+      '"../style.css?v=' in open(os.path.join(config.SITE_DIR, "game", "730.html"),
+                                 encoding="utf-8").read())
+check("3중 테마 스코프", all(x in _css for x in
       [":root{", ':root:not([data-theme="light"])', ':root[data-theme="dark"]']))
 check("칩에 글자 포함(색 단독 아님)", "데모</span>" in h)
 check("필터 컨트롤", 'data-f="demo"' in h and 'data-f="kr"' in h)
@@ -240,7 +322,7 @@ check("데모가 있으면 데모 섹션이 비지 않음",
 # hidden 속성이 실제로 먹는지. .card 가 display:flex 라서 이 규칙이 없으면
 # 검색·필터·성인숨김이 전부 무효가 된다 (실제로 났던 버그)
 check("[hidden] 규칙이 있어 필터가 실제로 숨긴다",
-      "[hidden]{display:none !important}" in h)
+      "[hidden]{display:none !important}" in _css)
 noimg = {"appid": 4242, "name": "표지없음", "history": []}
 check("이미지 없으면 머리글자 자리표시", 'class="ph"' in build.shot(noimg))
 d1 = open(os.path.join(config.SITE_DIR, "game", "9.html"), encoding="utf-8").read()

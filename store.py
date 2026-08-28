@@ -41,6 +41,16 @@ CREATE TABLE IF NOT EXISTS prices (
     discount_pct  INTEGER NOT NULL,
     PRIMARY KEY (appid, on_date)
 );
+-- 한 번이라도 appdetails 를 부른 appid. 성공/실패 모두 남긴다.
+-- 스팀 전체 25만 개 중 대부분은 DLC·사운드트랙·삭제된 것이라 실패하는데,
+-- 그걸 기록하지 않으면 매 실행 같은 죽은 appid 를 다시 부르면서 예산을 태운다.
+-- 호출이 유일한 희소 자원(1.5초에 하나)이므로 이 표가 개척의 핵심이다.
+CREATE TABLE IF NOT EXISTS probed (
+    appid   INTEGER PRIMARY KEY,
+    ok      INTEGER NOT NULL DEFAULT 0,   -- 1 = 게임/데모로 저장됨
+    on_date TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_prices_appid ON prices(appid);
 CREATE INDEX IF NOT EXISTS idx_games_checked ON games(checked_at);
 """
@@ -84,7 +94,21 @@ def _migrate(conn) -> None:
     conn.commit()
 
 
-def save(conn, app: dict, tag: str | None = None) -> None:
+def is_relevant(app: dict, tag: str | None) -> bool:
+    """보관할 가치가 있는가. 개척은 넓게, 저장은 좁게 (config.KEEP_ONLY_RELEVANT).
+    한국어 없고 데모도 없고 출시예정도 아니고 큐레이션에도 안 걸린 옛 게임은
+    이 사이트 어느 화면에도 나가지 않으므로 보관하지 않는다."""
+    if not config.KEEP_ONLY_RELEVANT:
+        return True
+    return bool(app.get("korean") or app.get("has_demo")
+                or app.get("app_type") == "demo"
+                or app.get("coming_soon") or tag)
+
+
+def save(conn, app: dict, tag: str | None = None) -> bool:
+    """저장했으면 True. 보관 대상이 아니면 아무것도 하지 않고 False."""
+    if not is_relevant(app, tag):
+        return False
     today = date.today().isoformat()
     conn.execute(
         """INSERT INTO games (appid,name,app_type,tag,header_image,description,genres,
@@ -134,6 +158,25 @@ def save(conn, app: dict, tag: str | None = None) -> None:
         conn.execute(
             "UPDATE games SET price_first=COALESCE(price_first,?), price_last=? "
             "WHERE appid=?", (today, today, app["appid"]))
+    return True
+
+
+def mark_probed(conn, appid: int, ok: bool) -> None:
+    conn.execute(
+        "INSERT INTO probed (appid, ok, on_date) VALUES (?,?,?) "
+        "ON CONFLICT(appid) DO UPDATE SET ok=excluded.ok, on_date=excluded.on_date",
+        (appid, 1 if ok else 0, date.today().isoformat()))
+
+
+def probed_appids(conn) -> set[int]:
+    """이미 확인해 본 appid. 여기 있는 것은 다시 부르지 않는다."""
+    return {r[0] for r in conn.execute("SELECT appid FROM probed")}
+
+
+def explore_stats(conn) -> tuple[int, int]:
+    """(확인한 개수, 그중 게임/데모였던 개수). 개척 진행률 로그용."""
+    r = conn.execute("SELECT COUNT(*), COALESCE(SUM(ok),0) FROM probed").fetchone()
+    return int(r[0]), int(r[1])
 
 
 def stale_appids(conn, limit: int) -> list[int]:

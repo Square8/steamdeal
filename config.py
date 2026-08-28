@@ -35,11 +35,39 @@ REQUEST_DELAY = 1.5      # 스팀 appdetails 는 요청수 제한이 있다. 줄
 TIMEOUT = 20
 MAX_RETRY = 2
 
-# 한 실행에서 상세조회할 최대 게임 수 (스팀 rate limit + Actions 시간 고려)
-MAX_APPS_PER_RUN = 200
+# 한 실행에서 상세조회할 최대 게임 수.
+# REQUEST_DELAY(1.5초)를 지키므로 800개 = 약 20분. Actions 단일 잡 상한은 6시간이고
+# 공개 저장소는 실행 시간이 무료라서 여기를 늘리는 데 드는 돈은 없다.
+# 제약은 '속도'(스팀 rate limit → REQUEST_DELAY 로 이미 대응)가 아니라 '실행 시간'이다.
+MAX_APPS_PER_RUN = 800
 # 그중 '오래 갱신 안 된 기존 게임'에 최소한 배정할 몫.
 # 이게 없으면 신규 발견이 목록을 다 차지해서 기존 게임 이력이 얼어붙는다.
-REFRESH_QUOTA = 0.4      # 40% 는 기존 게임 갱신에 쓴다
+REFRESH_QUOTA = 0.25     # 25% 는 기존 게임 갱신에 쓴다
+
+# ---- 신규 개척 ----
+# featuredcategories 는 상점 첫 화면 큐레이션이라 페이징이 없다.
+# 그래서 그것만으로는 '알게 되는' 게임이 150~250개에서 영구히 멈춘다
+# (실측: 1일차 61개 → 2일차 120개 = 찾을 수 있는 걸 거의 다 찾은 것).
+#
+# GetAppList 는 스팀 전체 appid(약 25만)를 한 번에 무료로 준다. 다만 각 게임의
+# 한국어/가격을 알려면 appdetails 를 개별 호출해야 하고 그건 1.5초에 하나다
+# (25만 = 104일). 그래서 한 번에 다 가져오지 않고 매 실행 조금씩 개척한다.
+# DB 는 지워지지 않는 누적 자산이므로 이 방식이 성립한다.
+EXPLORE_QUOTA = 0.55     # 남은 예산의 대부분을 미탐색 appid 에 쓴다
+APPLIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+
+# 개척 순서: appid 내림차순 = 최근 등록된 것부터.
+# 이 사이트의 무기가 '가장 먼저'이므로 오래된 appid 부터 파면 방향이 어긋난다.
+EXPLORE_NEWEST_FIRST = True
+
+# appdetails 를 아끼기 위한 이름 기반 사전 탈락.
+# 호출이 유일한 희소 자원이라, 이름만 봐도 게임이 아닌 것은 부르지 않는다.
+# 주의: 'Demo' 는 우리가 찾는 대상이므로 절대 넣지 말 것.
+SKIP_NAME_WORDS = (
+    "soundtrack", "ost", " sdk", "dedicated server", "trailer", "teaser",
+    "artbook", "art book", "wallpaper", "digital deluxe upgrade",
+    "season pass", "bonus content", "upgrade pack", "playtest",
+)
 
 # ---- 발견 경로 ----
 # 어느 목록에서 나왔는지 태그를 유지한다 (신작인지 할인인지 구분해야 하므로)
@@ -74,3 +102,19 @@ MIN_DAYS_FOR_ATL = 60
 MIN_DAYS_FOR_LOW = 30
 
 SKIP_FREE_IN_PRICE = True   # 무료 게임은 가격 추적에서 제외 (방송 후보에는 포함)
+
+# ---- 무엇을 '보관'할지 ----
+# 개척은 넓게 하되 저장은 좁게 한다.
+# 스팀 전체를 다 보관하면 게임 10만 개 → 상세 페이지 10만 장이 되고,
+# 그건 GitHub Pages 빌드 시간과 DB 커밋 크기 양쪽에서 무너진다.
+#
+# 이 사이트가 보여주는 것은 '한국어로 할 수 있는 게임'이다. 그래서
+# 한국어 지원 / 데모 있음 / 출시예정 / 상점 큐레이션에 걸린 것만 남기고
+# 나머지(한국어 없고 데모도 없는 옛 게임)는 probed 에 표시만 하고 버린다.
+# 어차피 화면에 나가지 않는 것들이라 버려도 사이트가 잃는 게 없다.
+KEEP_ONLY_RELEVANT = True
+
+# 홈의 '전체에서 찾기' 격자에 서버가 미리 그려두는 카드 수 상한.
+# 무제한이면 게임 9천개에서 index.html 이 6.9MB 가 된다(실측). 그건 모바일에서
+# 열리지 않는다. 더 좁은 목록은 상단 메뉴의 랜딩 페이지가 담당한다.
+MAX_INDEX_CARDS = 400
