@@ -311,11 +311,11 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
   {jump}
-  <div class="updated">{esc(updated)} KST 갱신</div>
 </div></header>
 <div class="wrap">
 {body}
 <footer>
+  <p class="updated">가격 기준 시각: {esc(updated)} KST</p>
   <p>가격은 스팀 공식 상점 API(한국 스토어·원화)에서 하루 두 번 자동 수집합니다. 표시 시점과 실제 가격이 다를 수 있으니 구매 전 스팀에서 확인하세요.</p>
   <p>'역대 최저'는 이 사이트가 추적을 시작한 뒤 기록한 최저값이며, 스팀의 전체 가격 역사와 다를 수 있습니다.</p>
   <p>성적 콘텐츠가 포함된 게임은 기본 화면에서 숨겨집니다.</p>

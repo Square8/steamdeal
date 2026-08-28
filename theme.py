@@ -96,7 +96,7 @@ nav.jump a{
   color:var(--ink-2);
 }
 nav.jump a:hover{background:var(--raised); color:var(--ink)}
-.updated{color:var(--ink-3); font-size:11.5px; white-space:nowrap}
+.updated{color:var(--ink-3); font-size:11.5px}
 
 /* ================= 히어로: 오늘 하나 ================= */
 .hero-sec{margin:26px 0 8px}
@@ -376,7 +376,6 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
   nav.jump{order:3; width:100%; overflow-x:auto; padding-bottom:2px}
-  .updated{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important; scroll-behavior:auto !important}
