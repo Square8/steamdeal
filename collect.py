@@ -50,9 +50,9 @@ def _plan(conn, log) -> list[tuple[int, str | None]]:
     room = min(budget - len(targets), int(budget * config.EXPLORE_QUOTA))
     n_explore = 0
     if room > 0:
+        done = store.probed_appids(conn)
         pool = steam.all_appids()
         if pool:
-            done = store.probed_appids(conn)
             for appid, _name in pool:
                 if appid in done:
                     continue
@@ -65,7 +65,17 @@ def _plan(conn, log) -> list[tuple[int, str | None]]:
             log.info("개척 풀 %d개 중 %d개 확인 완료 (%.1f%%), 그중 게임/데모 %d개",
                      len(pool), checked, 100 * checked / max(len(pool), 1), hit)
         else:
-            log.warning("전체 목록을 못 받아 개척을 건너뛴다 (큐레이션 발견만 진행)")
+            # 전체 목록을 못 받아도 개척을 멈추지 않는다.
+            # appid 는 대체로 순차 배정이라 '큰 번호 = 최근'이므로, 우리가 아는
+            # 가장 큰 번호 위쪽부터 훑어 내려온다. 이름 사전탈락을 못 써서
+            # 헛호출이 늘지만 실패는 probed 에 남아 한 번씩만 낭비된다.
+            ceiling = store.max_known_appid(conn) + config.EXPLORE_NUMERIC_MARGIN
+            log.warning("전체 목록을 못 받아 번호 훑기로 개척한다 (%d 부터 내려감)", ceiling)
+            appid = ceiling
+            while n_explore < room and appid > 10:
+                if appid not in done and take(appid, None):
+                    n_explore += 1
+                appid -= 1
 
     log.info("이번 실행 %d개 = 기존갱신 %d + 큐레이션 %d + 신규개척 %d",
              len(targets), n_refresh, n_featured, n_explore)

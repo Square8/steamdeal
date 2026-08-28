@@ -91,8 +91,17 @@ def all_appids() -> list[tuple[int, str]]:
 
     이 목록만으로는 한국어 지원·가격을 알 수 없다(그건 appdetails 뿐). 그래서
     여기서 얻은 appid 를 매 실행 조금씩 소비하는 '개척 풀'로 쓴다."""
-    data = _get_json(config.APPLIST_URL)
-    apps = (((data or {}).get("applist") or {}).get("apps")) or []
+    data = None
+    for url in config.APPLIST_URLS:
+        data = _get_json(url)
+        if isinstance(data, dict) and data.get("applist"):
+            log.info("전체 목록 엔드포인트: %s", url)
+            break
+        data = None
+    if data is None:
+        log.warning("전체 목록 엔드포인트 후보 %d개가 모두 실패했다", len(config.APPLIST_URLS))
+        return []
+    apps = ((data.get("applist") or {}).get("apps")) or []
     if not isinstance(apps, list):
         log.warning("GetAppList 응답 형태가 예상과 다르다")
         return []

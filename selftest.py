@@ -262,6 +262,50 @@ check("미탐색 appid 로 남은 자리를 채운다", len(explored) > 0, f"{le
 check("개척도 최신부터", explored == sorted(explored, reverse=True), str(explored[:4]))
 check("이미 확인한 appid 는 개척 대상에서 빠진다", 222 not in ids and 111 not in ids)
 
+# 엔드포인트 후보를 순서대로 시도하는가 (첫 배포에서 v2/ 가 404 를 냈다)
+_orig_get = requests.get
+tried = []
+def _first_ok(url, *a, **k):
+    tried.append(url)
+    if "v0002" in url:
+        return FakeResp({"error": "nope"})            # 첫 후보 실패로 위장
+    return FakeResp({"applist": {"apps": [{"appid": 77, "name": "게임"}]}})
+requests.get = _first_ok
+try:
+    got = steam.all_appids()
+finally:
+    requests.get = _orig_get
+check("첫 후보가 실패하면 다음 후보로 넘어간다", got == [(77, "게임")], str(got))
+check("여러 URL 을 실제로 시도한다", len(tried) >= 2, f"{len(tried)}개 시도")
+
+requests.get = lambda *a, **k: FakeResp({"nope": 1})
+try:
+    check("모든 후보가 실패하면 빈 목록", steam.all_appids() == [])
+finally:
+    requests.get = _orig_get
+
+# 목록을 못 받아도 개척이 멈추면 안 된다 → 번호 훑기로 대체
+config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = 20, 0.25, 0.55
+_base = store.max_known_appid(conn)      # 훑기 시작점은 실행 '전' 값 기준이다
+def _no_list(url, *a, **k):
+    if "GetAppList" in url:
+        return FakeResp({"nope": 1})                  # 전체 목록 전멸
+    if "featuredcategories" in url:
+        return FakeResp({"new_releases": {"items": [{"id": 4444}]}})
+    return FakeResp({})
+requests.get = _no_list
+try:
+    plan2 = _collect._plan(conn, _lg.getLogger("t"))
+finally:
+    requests.get = _orig_get
+    config.MAX_APPS_PER_RUN, config.REFRESH_QUOTA, config.EXPLORE_QUOTA = _old
+ids2 = [a for a, _ in plan2]
+ceiling = _base + config.EXPLORE_NUMERIC_MARGIN
+run = [a for a in ids2 if a in (ceiling, ceiling - 1, ceiling - 2)]
+check("목록이 없어도 번호 훑기로 개척한다", len(run) == 3, f"천장 {ceiling} 근처 {run}")
+check("가장 큰 번호(최신)부터 연속으로 내려간다",
+      run == [ceiling, ceiling - 1, ceiling - 2], str(run))
+
 # 보관 범위: 개척은 넓게, 저장은 좁게 (안 그러면 게임 10만개 = 상세 10만장)
 base = dict(appid=1, name="x", app_type="game", korean=0, has_demo=0,
             coming_soon=0, is_free=0)

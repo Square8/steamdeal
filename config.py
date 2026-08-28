@@ -54,7 +54,22 @@ REFRESH_QUOTA = 0.25     # 25% 는 기존 게임 갱신에 쓴다
 # (25만 = 104일). 그래서 한 번에 다 가져오지 않고 매 실행 조금씩 개척한다.
 # DB 는 지워지지 않는 누적 자산이므로 이 방식이 성립한다.
 EXPLORE_QUOTA = 0.55     # 남은 예산의 대부분을 미탐색 appid 에 쓴다
-APPLIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+# 전체 목록 엔드포인트 후보. 첫 배포에서 v2/ 가 404 를 돌려줬다(실측).
+# 어느 형태가 살아 있는지 이 환경에서 검증할 수 없어서(프록시 차단) 하나에 걸지 않고
+# 순서대로 시도한다. 성공한 URL 을 로그에 남기므로 다음엔 바로 알 수 있다.
+APPLIST_URLS = [
+    "https://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json",
+    "https://api.steampowered.com/ISteamApps/GetAppList/v2/?format=json",
+    "https://api.steampowered.com/ISteamApps/GetAppList/v2",
+    "https://api.steampowered.com/ISteamApps/GetAppList/v1/?format=json",
+]
+
+# 위가 전부 실패해도 개척이 멈추면 안 된다.
+# 스팀 appid 는 대체로 순차 배정이라 '큰 번호 = 최근 등록'이다. 그래서 목록 없이도
+# 우리가 아는 가장 큰 appid 위쪽부터 번호를 훑어 내려오면 최신 게임을 만난다.
+# 이름 사전탈락을 못 써서 헛호출이 늘지만, 실패한 appid 는 probed 에 남아
+# 다시 부르지 않으므로 낭비는 1회씩뿐이다.
+EXPLORE_NUMERIC_MARGIN = 20000
 
 # 개척 순서: appid 내림차순 = 최근 등록된 것부터.
 # 이 사이트의 무기가 '가장 먼저'이므로 오래된 appid 부터 파면 방향이 어긋난다.
