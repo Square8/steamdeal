@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS games (
     adult         INTEGER DEFAULT 0,   -- 성적 콘텐츠. 기본 화면에서 감춘다
     review_count  INTEGER DEFAULT 0,   -- 인지도 대리 지표
     developer     TEXT,
+    -- '이게 무슨 게임인가'에 답하는 것들. appdetails 응답에 이미 들어 있어
+    -- 추가 호출 없이 얻는다. screenshots 는 줄바꿈으로 이어붙인 URL 목록.
+    screenshots   TEXT,
+    movie_mp4     TEXT,
+    movie_webm    TEXT,
+    movie_poster  TEXT,
     -- 가격을 '관측한' 첫/마지막 날. 가격 행은 변동 시에만 쌓기 때문에
     -- 관측 기간을 이력 행 개수로 셀 수 없다. 그래서 따로 기록한다.
     price_first   TEXT,
@@ -78,6 +84,8 @@ def _migrate(conn) -> None:
         "is_free": "INTEGER DEFAULT 0", "checked_at": "TEXT",
         "adult": "INTEGER DEFAULT 0", "review_count": "INTEGER DEFAULT 0",
         "developer": "TEXT", "price_first": "TEXT", "price_last": "TEXT",
+        "screenshots": "TEXT", "movie_mp4": "TEXT", "movie_webm": "TEXT",
+        "movie_poster": "TEXT",
     }
     for col, decl in add.items():
         if col not in have:
@@ -121,8 +129,9 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
         """INSERT INTO games (appid,name,app_type,tag,header_image,description,genres,
                               korean,coming_soon,release_text,release_date,
                               has_demo,demo_appid,is_free,adult,review_count,developer,
+                              screenshots,movie_mp4,movie_webm,movie_poster,
                               first_seen,last_seen,checked_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(appid) DO UPDATE SET
              name=excluded.name, app_type=excluded.app_type,
              header_image=excluded.header_image, description=excluded.description,
@@ -132,6 +141,8 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
              demo_appid=excluded.demo_appid, is_free=excluded.is_free,
              adult=excluded.adult, review_count=excluded.review_count,
              developer=excluded.developer,
+             screenshots=excluded.screenshots, movie_mp4=excluded.movie_mp4,
+             movie_webm=excluded.movie_webm, movie_poster=excluded.movie_poster,
              last_seen=excluded.last_seen, checked_at=excluded.checked_at,
              -- 태그는 처음 발견된 것을 유지한다 (신작으로 잡힌 게 나중에 '할인'으로 덮이면
              -- 언제 새로 나왔는지 알 수 없게 되므로)
@@ -140,7 +151,10 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
          app["short_description"], app["genres"], app["korean"], app["coming_soon"],
          app["release_text"], app["release_date"], app["has_demo"], app["demo_appid"],
          1 if app["is_free"] else 0, app.get("adult", 0), app.get("review_count", 0),
-         app.get("developer", ""), today, today, today),
+         app.get("developer", ""),
+         app.get("screenshots", ""), app.get("movie_mp4", ""),
+         app.get("movie_webm", ""), app.get("movie_poster", ""),
+         today, today, today),
     )
     # 가격이 있는 것만 이력에 남긴다 (무료/출시예정은 가격이 없다)
     if app["price_final"] > 0:

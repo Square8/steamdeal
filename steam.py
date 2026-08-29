@@ -125,6 +125,9 @@ def all_appids() -> list[tuple[int, str]]:
     return out
 
 
+MAX_SCREENSHOTS = 4      # 상세 페이지 스트립용. 늘리면 페이지가 무거워진다
+
+
 _KO_DATE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
 # 스팀 content_descriptor 중 성적 콘텐츠에 해당하는 id.
@@ -193,6 +196,34 @@ def fetch_app(appid: int) -> dict | None:
         review_count = 0
     devs = [x for x in (d.get("developers") or []) if isinstance(x, str)]
 
+    # 스크린샷·트레일러는 이 응답 안에 이미 들어 있다 — 추가 호출이 없다.
+    # 표지(header_image)는 460x215 배너라 대부분 로고와 제목뿐이어서
+    # '이게 무슨 게임인지'를 답하지 못한다. 실제 화면과 영상이 그 답을 한다.
+    # 스팀이 필드를 안 줄 수도 있으므로 전부 없으면 조용히 빈 값으로 둔다.
+    shots = []
+    for sc in (d.get("screenshots") or [])[:MAX_SCREENSHOTS]:
+        if not isinstance(sc, dict):
+            continue
+        u = sc.get("path_thumbnail") or sc.get("path_full")
+        if isinstance(u, str) and u.startswith("http"):
+            shots.append(u)
+
+    mp4 = webm = poster = ""
+    movies = [m for m in (d.get("movies") or []) if isinstance(m, dict)]
+    if movies:
+        # highlight 로 표시된 것이 대표 트레일러다. 없으면 첫 번째.
+        mv = next((m for m in movies if m.get("highlight")), movies[0])
+        # 480p 를 쓴다. max 는 용량이 커서 모바일에서 부담이다.
+        mp4 = str((mv.get("mp4") or {}).get("480") or "")
+        webm = str((mv.get("webm") or {}).get("480") or "")
+        poster = str(mv.get("thumbnail") or "")
+        if not mp4.startswith("http"):
+            mp4 = ""
+        if not webm.startswith("http"):
+            webm = ""
+        if not poster.startswith("http"):
+            poster = ""
+
     return {
         "appid": appid,
         "name": d.get("name") or f"App {appid}",
@@ -216,4 +247,9 @@ def fetch_app(appid: int) -> dict | None:
         "adult": is_adult(d, genres),
         "review_count": review_count,
         "developer": (devs[0][:60] if devs else ""),
+        # --- '이게 무슨 게임인가'에 답하는 것들 ---
+        "screenshots": "\n".join(shots),
+        "movie_mp4": mp4,
+        "movie_webm": webm,
+        "movie_poster": poster,
     }

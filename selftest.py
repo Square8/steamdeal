@@ -353,9 +353,13 @@ check("build.main() 정상", rc == 0, f"rc={rc}")
 idx = os.path.join(config.SITE_DIR, "index.html")
 h = open(idx, encoding="utf-8").read()
 check("index 생성", os.path.exists(idx))
-check("추천 섹션", "오늘의 추천" in h)
+# '오늘의 추천'은 나머지 섹션의 합집합이라 중복의 원인이었다(측정: 중복 7개가 전부
+# 이 섹션에서 나왔고, 빼면 0이 됨). 히어로가 같은 역할을 하므로 없앴다.
+check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천" not in h)
+check("첫 화면 명제", "매일 두 번 찾아드립니다" in h)
+check("명제 옆 숫자는 실제 값", 'class="facts"' in h and "<b>" in h)
 check("데모 섹션", "데모로 먼저 해볼 수 있는 게임" in h)
-check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘의 추천" in h)
+check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘의 한 편" in h)
 # CSS 는 style.css 로 분리됐다 (페이지마다 인라인하면 게임 수만큼 중복)
 _css = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
 check("style.css 로 분리됨", len(_css) > 5000 and "<style>" not in h)
@@ -379,12 +383,36 @@ check("상세 페이지 생성", os.path.exists(os.path.join(config.SITE_DIR, "g
 print("\n9b) 중복 노출 / 이미지 자리표시 / 빈 그래프 안내")
 import re as _re
 # 히어로에 쓴 게임이 바로 아래 '방송 후보' 그리드에 또 나오지 않아야 한다
-hero_block = h.split('<section id="pick"')[0]
-pick_block = h.split('<section id="pick"')[1].split("</section>")[0]
+hero_block = h.split('<section id="demo"')[0]
+demo_block = h.split('<section id="demo"')[1].split("</section>")[0]
 hero_ids = set(_re.findall(r'./game/(\d+)\.html', hero_block))
-pick_ids = set(_re.findall(r'./game/(\d+)\.html', pick_block))
+demo_ids = set(_re.findall(r'./game/(\d+)\.html', demo_block))
 check("히어로 게임이 아래 섹션에서 중복되지 않음",
-      not (hero_ids & pick_ids), f"겹침={hero_ids & pick_ids}")
+      not (hero_ids & demo_ids), f"겹침={hero_ids & demo_ids}")
+_nbig = h.count('class="card big"')
+check("핵심 섹션 첫 카드만 크게", _nbig == 1, f"{_nbig}장")
+# 할인 세기가 색으로 구분되는가 (숫자와 함께 쓰므로 색 단독 아님)
+check("할인 75%+ 는 다른 등급으로 표시", build.off_class(90) == "off-hi")
+check("50~74% 는 중간 등급", build.off_class(60) == "off-mid")
+check("49% 이하는 낮은 등급", build.off_class(25) == "off-lo")
+# 같은 말을 두 번 쓰지 않는다 (무료 게임이 '무료'를 왼쪽/가격 양쪽에 찍던 문제)
+# 무료 게임은 가격 칸이 이미 '무료'다. 왼쪽 할인 태그로 또 쓰면 같은 말이 두 번 나온다
+# (실측으로 6장이 그랬다). 칩의 '무료'는 스캔용이라 남긴다.
+_free = build.card({"appid": 1, "name": "테스트", "is_free": 1, "history": [],
+                    "price_final": 0, "discount_pct": 0})
+check("무료 게임에 중복 할인태그가 없다", "offtag" not in _free)
+check("무료 게임 하단은 구분선 없이 정리된다", "card-f bare" in _free)
+check("스크린샷이 있으면 상세에 게임 화면 절이 생긴다",
+      "게임 화면" in build.shots_strip({"name": "x", "screenshots": "http://a\nhttp://b"}))
+check("스크린샷이 없으면 빈 절을 만들지 않는다",
+      build.shots_strip({"name": "x", "screenshots": ""}) == "")
+check("트레일러가 없으면 표지로 떨어진다",
+      "<video" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}))
+check("트레일러가 있으면 영상, poster 는 항상 깔린다",
+      "<video" in build.media_main({"appid": 1, "name": "x", "header_image": "http://h",
+                                    "movie_mp4": "http://m.mp4", "movie_poster": "http://p"})
+      and 'poster="http://p"' in build.media_main(
+          {"appid": 1, "name": "x", "movie_mp4": "http://m.mp4", "movie_poster": "http://p"}))
 check("데모가 있으면 데모 섹션이 비지 않음",
       "데모가 있는 게임이 아직 수집되지 않았습니다" not in h)
 # hidden 속성이 실제로 먹는지. .card 가 display:flex 라서 이 규칙이 없으면

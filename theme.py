@@ -28,6 +28,7 @@ CSS = """
   --brand:#1b63c4; --brand-ink:#ffffff; --brand-soft:rgba(27,99,196,.10);
   --deal:#3f6212; --deal-mark:#4d7c0f; --deal-soft:rgba(101,163,13,.16);
   --warn:#9a3412; --warn-soft:rgba(234,88,12,.14);
+  --amber:#b45309; --amber-soft:rgba(180,83,9,.14);
   --grid:#e6ebf3; --shadow:0 1px 2px rgba(11,18,32,.06),0 8px 24px rgba(11,18,32,.06);
 }
 /* ---- 다크(시스템 설정) ---- */
@@ -38,6 +39,7 @@ CSS = """
     --brand:#4da3ff; --brand-ink:#06101f; --brand-soft:rgba(77,163,255,.16);
     --deal:#a3e635; --deal-mark:#a3e635; --deal-soft:rgba(163,230,53,.16);
     --warn:#fb923c; --warn-soft:rgba(251,146,60,.16);
+    --amber:#fbbf24; --amber-soft:rgba(251,191,36,.18);
     --grid:#1e2939; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
   }
 }
@@ -48,6 +50,7 @@ CSS = """
   --brand:#4da3ff; --brand-ink:#06101f; --brand-soft:rgba(77,163,255,.16);
   --deal:#a3e635; --deal-mark:#a3e635; --deal-soft:rgba(163,230,53,.16);
   --warn:#fb923c; --warn-soft:rgba(251,146,60,.16);
+  --amber:#fbbf24; --amber-soft:rgba(251,191,36,.18);
   --grid:#1e2939; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
 }
 
@@ -63,6 +66,8 @@ body{
   font-size:15px; line-height:1.55;
 }
 a{color:inherit; text-decoration:none}
+/* 한국어는 어절 중간에서 줄이 바뀌면 읽기가 나빠진다("데모/를"). 제목류에 keep-all. */
+h1,h2,h3,.lead h1,.hero-body h2,.dhero h1,.card-b .name,.sec-head h2{word-break:keep-all}
 img{max-width:100%}
 .wrap{max-width:1180px; margin:0 auto; padding:0 18px 72px}
 
@@ -125,6 +130,24 @@ nav.jump a:hover{background:var(--raised); color:var(--ink)}
   letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3);
 }
 .eyebrow::after{content:""; flex:1; height:1px; background:var(--line)}
+
+/* 첫 화면 한 줄 명제 + 숫자.
+   처음 온 사람은 2초 안에 '여기가 뭐 하는 곳인지' 알아야 한다.
+   숫자는 빌드 때 실제 값으로 채운다 (문구는 오해가 없게 명제와 숫자를 분리). */
+.lead{margin:26px 0 20px}
+.lead h1{
+  font-family:"Inter","Gothic A1",sans-serif; font-weight:800;
+  font-size:clamp(1.45rem, 3.4vw, 2.1rem); letter-spacing:-.04em; line-height:1.25;
+  margin:0 0 10px; text-wrap:balance;
+}
+.lead .facts{
+  display:flex; flex-wrap:wrap; gap:8px 18px; margin:0;
+  color:var(--ink-2); font-size:13.5px;
+}
+.lead .facts b{
+  font-family:"Inter",sans-serif; font-variant-numeric:tabular-nums;
+  color:var(--ink); font-weight:800;
+}
 .hero{
   display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:0;
   background:var(--surface); border:1px solid var(--line); border-radius:14px;
@@ -180,17 +203,19 @@ nav.jump a:hover{background:var(--raised); color:var(--ink)}
 .chip:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 
 /* ================= 섹션 / 그리드 ================= */
-section{margin-top:34px; scroll-margin-top:76px}
-.sec-head{display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:4px}
+/* 제목만 키우면 구획이 안 느껴진다. 섹션 사이 여백을 같이 넓힌다. */
+section{margin-top:4rem; scroll-margin-top:76px}
+.sec-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px}
 .sec-head h2{
-  font-family:"Inter","Gothic A1",sans-serif; font-weight:800; font-size:1.12rem;
-  margin:0; letter-spacing:-.025em;
+  font-family:"Inter","Gothic A1",sans-serif; font-weight:800;
+  font-size:clamp(1.3rem, 2vw, 1.5rem);
+  margin:0; letter-spacing:-.03em;
 }
 .sec-head .cnt{
   font-family:"Inter",sans-serif; font-size:12px; font-weight:700; color:var(--ink-3);
 }
 .sec-head .more{margin-left:auto; font-size:12.5px; color:var(--brand); font-weight:600}
-.sec-note{margin:2px 0 12px; color:var(--ink-3); font-size:12.5px}
+.sec-note{margin:2px 0 16px; color:var(--ink-3); font-size:13px}
 
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(214px,1fr)); gap:14px}
 /* 보조 섹션. 데스크톱에서는 그냥 그리드다 —
@@ -205,6 +230,13 @@ section{margin-top:34px; scroll-margin-top:76px}
   overflow:hidden; transition:transform .13s, border-color .13s, box-shadow .13s;
 }
 .card:hover{transform:translateY(-2px); border-color:var(--ink-3); box-shadow:var(--shadow)}
+/* 눈이 멈출 곳을 하나 만든다. 모든 섹션에 쓰면 다시 균일해져서 의미가 없다. */
+.card.big{grid-column:span 2; grid-row:span 1}
+.card.big .name{font-size:19px}
+.card.big .shot img,.card.big .ph{aspect-ratio:920/215}
+@media (max-width:700px){ .card.big{grid-column:span 1}
+  .card.big .name{font-size:15.5px}
+  .card.big .shot img,.card.big .ph{aspect-ratio:460/215} }
 .card:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .shot{position:relative; background:var(--raised)}
 .shot img{width:100%; aspect-ratio:460/215; object-fit:cover; display:block}
@@ -223,14 +255,15 @@ section{margin-top:34px; scroll-margin-top:76px}
 }
 .card-b{padding:11px 13px 13px; display:flex; flex-direction:column; gap:7px; flex:1}
 .card-b .name{
-  font-weight:700; font-size:14px; line-height:1.35; letter-spacing:-.015em;
+  font-weight:800; font-size:15.5px; line-height:1.3; letter-spacing:-.02em;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
   overflow:hidden;
 }
 .chips{display:flex; gap:4px; flex-wrap:wrap}
+/* 리뷰수·개발사는 3순위다. 제목과 같은 무게로 두면 스캔이 느려진다. */
 .tagline{
-  color:var(--ink-3); font-size:11.5px; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap;
+  color:var(--ink-3); font-size:11px; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; opacity:.85;
 }
 .card-f{
   margin-top:auto; padding-top:9px; border-top:1px solid var(--line);
@@ -244,18 +277,32 @@ section{margin-top:34px; scroll-margin-top:76px}
 .pct{color:var(--brand); font-weight:800; font-size:13px}
 
 .spark{width:52px; height:22px; display:block; flex:none}
-/* 가격 옆 할인율. 표지 위 리본은 스크롤 중에 눈에 덜 들어온다. */
-.offtag{font-family:"Inter",sans-serif; font-size:12.5px; font-weight:800; color:var(--brand)}
+
+/* 할인율은 '세기'가 한눈에 보여야 한다. 전부 같은 파랑이면 -90% 와 -25% 가 똑같아 보인다.
+   색만으로 전하지 않도록 숫자를 항상 같이 쓰고, 75% 이상만 굵게 키운다. */
+.offtag{font-family:"Inter",sans-serif; font-size:12.5px; font-weight:800}
+.off-lo{color:var(--ink-3)}                      /* 49% 이하 — 흔하다 */
+.off-mid{color:var(--brand)}                     /* 50~74% */
+.off-hi{color:var(--amber); font-size:13.5px}    /* 75% 이상 — 드물다 */
+.off-free{color:var(--deal)}                     /* 무료 배포 */
+/* 글자색은 테마별 대비를 맞춘 --brand-ink 를 쓴다 (고정 색이면 한쪽에서 미달) */
+.ribbon.r-hi{background:var(--amber); color:var(--brand-ink)}
+.ribbon.r-lo{background:var(--raised); color:var(--ink-2)}
+
+/* 할인이 없으면 구분선도 취소선도 없앤다. 다만 가격은 바닥에 정렬해서
+   정보가 적은 카드도 높이와 가격 위치가 어긋나지 않게 한다. */
+.card-f.bare{border-top:0; padding-top:0}
 
 /* ================= 상태 칩 (글자 필수) ================= */
 .t{
-  display:inline-block; padding:1.5px 6px; border-radius:6px;
-  font-family:"Inter","Gothic A1",sans-serif; font-size:10.5px; font-weight:800;
+  display:inline-block; padding:2.5px 7px; border-radius:6px;
+  font-family:"Inter","Gothic A1",sans-serif; font-size:11.5px; font-weight:800;
   letter-spacing:.01em; white-space:nowrap;
   background:var(--raised); color:var(--ink-2);
 }
 .t.demo{background:var(--brand-soft); color:var(--brand)}
-.t.soon{background:var(--warn-soft); color:var(--warn)}
+/* 출시예정은 경고가 아니라 상태다. 주황은 할인 강도 전용으로 비워둔다. */
+.t.soon{background:var(--raised); color:var(--ink-2)}
 .t.new{background:var(--deal-soft); color:var(--deal)}
 .t.free{background:var(--deal-soft); color:var(--deal)}
 .t.atl{background:var(--deal-soft); color:var(--deal)}
@@ -263,7 +310,7 @@ section{margin-top:34px; scroll-margin-top:76px}
 .badge{
   display:inline-flex; align-items:center; gap:3px; padding:1.5px 6px;
   border-radius:6px; background:var(--deal-soft); color:var(--deal);
-  font-family:"Inter",sans-serif; font-size:10.5px; font-weight:800;
+  font-family:"Inter",sans-serif; font-size:11.5px; font-weight:800;
   white-space:nowrap;
 }
 .badge svg{width:9px; height:9px; flex:none}
@@ -323,11 +370,24 @@ footer{
 }
 footer p{margin:0}
 
+/* ================= 상세: '이게 무슨 게임인가'에 답하는 부분 ================= */
+.dmedia{border-radius:12px; overflow:hidden; border:1px solid var(--line);
+  background:var(--raised)}
+.dmedia .shot{border:0; border-radius:0}
+.dvid{display:block; width:100%; height:auto; aspect-ratio:16/9;
+  background:#000; object-fit:cover}
+/* 스크린샷 스트립. 좁은 화면에서는 손가락으로 밀 수 있게 가로 스크롤. */
+.shots{display:grid; grid-template-columns:repeat(4,1fr); gap:9px}
+.shots img{
+  width:100%; aspect-ratio:16/9; object-fit:cover; display:block;
+  border-radius:9px; border:1px solid var(--line); background:var(--raised);
+}
+
 /* ================= 상세 ================= */
 .back{display:inline-block; margin:20px 0 14px; color:var(--ink-3); font-size:13px}
 .back:hover{color:var(--ink)}
 .dhero{
-  display:grid; grid-template-columns:minmax(0,320px) minmax(0,1fr); gap:22px;
+  display:grid; grid-template-columns:minmax(0,520px) minmax(0,1fr); gap:24px;
   align-items:start;
 }
 .dhero .shot{border-radius:12px; overflow:hidden; border:1px solid var(--line)}
@@ -387,6 +447,8 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-img{aspect-ratio:460/215; min-height:0}
   .dhero{grid-template-columns:1fr}
   .dhero .shot{max-width:420px}
+  .dmedia{max-width:560px}
+  .shots{grid-template-columns:repeat(2,1fr)}
 }
 @media (max-width:560px){
   .wrap{padding:0 13px 60px}

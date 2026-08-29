@@ -387,8 +387,9 @@ def atl_label(g: dict) -> str:
 
 def shot(g: dict, ribbon: bool = True) -> str:
     """표지 이미지. 없으면 검은 빈칸 대신 머리글자 자리표시를 쓴다."""
-    rib = (f'<span class="ribbon">-{g["discount_pct"]}%</span>'
-           if ribbon and g.get("discount_pct") else "")
+    pct = g.get("discount_pct") or 0
+    rib = (f'<span class="ribbon {"r-hi" if pct >= 75 else "r-lo"}">-{pct}%</span>'
+           if ribbon and pct else "")
     if g.get("header_image"):
         inner = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지" '
                  f'loading="lazy" decoding="async">')
@@ -396,6 +397,16 @@ def shot(g: dict, ribbon: bool = True) -> str:
         initial = esc((g.get("name") or "?").strip()[:2].upper())
         inner = f'<div class="ph" aria-hidden="true">{initial}</div>'
     return f'<div class="shot">{inner}{rib}</div>'
+
+
+def off_class(pct: int) -> str:
+    """할인 '세기'를 세 단계로. 전부 같은 파랑이면 -90% 와 -25% 가 똑같아 보인다.
+    색만으로 전하지 않도록 숫자를 항상 함께 쓴다."""
+    if pct >= 75:
+        return "off-hi"
+    if pct >= 50:
+        return "off-mid"
+    return "off-lo"
 
 
 def price_html(g: dict) -> str:
@@ -410,7 +421,7 @@ def price_html(g: dict) -> str:
             f'{was}</div>')
 
 
-def card(g: dict) -> str:
+def card(g: dict, big: bool = False) -> str:
     """카드에는 고를 때 필요한 것만 남긴다: 표지 · 제목 · 성격 · 가격.
 
     0~100 합성 점수는 뺐다. 이름을 뭘로 바꾸든 한눈에 뜻이 안 잡히고,
@@ -423,11 +434,18 @@ def card(g: dict) -> str:
     hist = g.get("history") or []
     # 가격이 실제로 변한 적이 있을 때만 추이를 그린다.
     # 2일치 데이터에서 전부 평선을 그리면 아무 정보도 없는 장식이 된다.
-    left = (sparkline(hist, g.get("price_last"))
-            if len({h["price_final"] for h in hist if h["price_final"] > 0}) > 1
-            else (f'<span class="offtag">-{g["discount_pct"]}%</span>'
-                  if g.get("discount_pct") else ""))
-    return f"""<a class="card" href="./game/{g['appid']}.html"
+    off = g.get("discount_pct") or 0
+    if len({h["price_final"] for h in hist if h["price_final"] > 0}) > 1:
+        left = sparkline(hist, g.get("price_last"))
+    elif g.get("is_free"):
+        left = ""          # 가격 칸이 이미 '무료'다. 같은 말을 두 번 쓰지 않는다.
+    elif off:
+        left = f'<span class="offtag {off_class(off)}">-{off}%</span>'
+    else:
+        left = ""
+    # 왼쪽이 비면 구분선도 없앤다. 빈 줄이 반복되면 그 자체가 잡음이 된다.
+    fcls = "card-f" if left else "card-f bare"
+    return f"""<a class="card{' big' if big else ''}" href="./game/{g['appid']}.html"
    data-n="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
    data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
    data-kr="{g.get('korean') or 0}" data-adult="{g.get('adult') or 0}"
@@ -438,7 +456,7 @@ def card(g: dict) -> str:
     <div class="name">{esc(g['name'])}</div>
     {chips_for(g)}
     <div class="tagline">{rc}</div>
-    <div class="card-f">{left}{price_html(g)}</div>
+    <div class="{fcls}">{left}{price_html(g)}</div>
   </div>
 </a>"""
 
@@ -488,7 +506,8 @@ def hero(g: dict) -> str:
 
 def section(sid: str, title: str, note: str, items: list[dict],
             empty: str, rail: bool = False, cap: int = 8,
-            more_href: str = "#all", more_text: str = "전체에서 더 보기") -> str:
+            more_href: str = "#all", more_text: str = "전체에서 더 보기",
+            feature: bool = False) -> str:
     """홈 섹션. 상한은 8개다 — 120개를 세로로 다 쌓으면 모바일에서 2만 픽셀이 되고,
     그러면 아래쪽 섹션은 아무도 못 본다. 나머지는 각자의 목록 페이지로 보낸다."""
     if not items:
@@ -496,7 +515,10 @@ def section(sid: str, title: str, note: str, items: list[dict],
         cnt = ""
     else:
         cls = "rail" if rail else "grid"
-        body = f'<div class="{cls}">' + "".join(card(g) for g in items[:cap]) + "</div>"
+        # feature: 첫 카드만 2칸으로. 모든 섹션에 쓰면 다시 균일해져서 의미가 없다.
+        picked = items[:cap]
+        cards = "".join(card(g, big=(feature and i == 0)) for i, g in enumerate(picked))
+        body = f'<div class="{cls}">{cards}</div>' 
         cnt = f'<span class="cnt">{len(items)}개</span>'
     note_html = f'<p class="sec-note">{esc(note)}</p>' if note else ""
     more = (f'<a class="more" href="{esc(more_href)}">{esc(more_text)} →</a>'
@@ -505,6 +527,23 @@ def section(sid: str, title: str, note: str, items: list[dict],
   <div class="sec-head"><h2>{esc(title)}</h2>{cnt}{more}</div>
   {note_html}
   {body}
+</section>"""
+
+
+def lead(games: list[dict], safe: list[dict]) -> str:
+    """첫 화면 명제 + 숫자.
+
+    처음 온 사람은 2초 안에 '여기가 뭐 하는 곳인지' 알아야 한다.
+    숫자를 문장 안에 넣으면 "스팀 게임이 78개뿐"으로 읽히므로 명제와 숫자를 분리한다.
+    """
+    n_demo = sum(1 for g in safe if g.get("korean")
+                 and (g.get("has_demo") or g.get("app_type") == "demo"))
+    n_sale = sum(1 for g in safe if (g.get("discount_pct") or 0) > 0)
+    facts = [("추적 중인 게임", len(games)), ("한국어 데모", n_demo), ("오늘 할인 중", n_sale)]
+    fh = "".join(f"<span>{esc(k)} <b>{v:,}</b></span>" for k, v in facts)
+    return f"""<section class="lead" id="top">
+  <h1>한국어 스팀 신작과 데모를 매일 두 번 찾아드립니다.</h1>
+  <p class="facts">{fh}</p>
 </section>"""
 
 
@@ -522,7 +561,6 @@ def build_index(games: list[dict], updated: str) -> str:
     def rest(pool):
         return [g for g in pool if g["appid"] != top["appid"]]
 
-    rest_cands = rest(cands)
     demos = sorted(rest([g for g in safe
                          if g.get("has_demo") or g.get("app_type") == "demo"]),
                    key=lambda g: -(g.get("review_count") or 0))   # 인기 있는 데모 먼저
@@ -568,11 +606,11 @@ def build_index(games: list[dict], updated: str) -> str:
                 f'"역대 최저"는 {config.MIN_DAYS_FOR_ATL}일이 모여야 나옵니다.</p>')
 
     body = f"""
+{lead(games, safe)}
+
 {hero(top)}
 
-{section("pick", "오늘의 추천", "한국어를 지원하고, 데모가 있거나 새로 나왔거나 곧 나오는 게임.", rest_cands, "아직 후보가 없습니다. 다음 수집에서 채워집니다.", more_href="#all", more_text="전체 보기")}
-
-{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에 무료로 해볼 수 있는 것들.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", rail=True, more_href="korean-demo.html", more_text="무료 데모 전체")}
+{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에 무료로 해볼 수 있는 것들.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", more_href="korean-demo.html", more_text="무료 데모 전체", feature=True)}
 
 {section("new", "새로 나온 게임", "", fresh, "신작 목록이 아직 비어 있습니다.", rail=True, more_href="korean-new.html", more_text="신작 전체")}
 
@@ -695,6 +733,43 @@ def build_index(games: list[dict], updated: str) -> str:
 
 # ---------------------------------------------------------------- 상세
 
+def media_main(g: dict) -> str:
+    """상세 페이지 대표 미디어. 트레일러가 있으면 영상, 없으면 표지.
+
+    표지(460x215 배너)는 대부분 로고와 제목뿐이라 '이게 무슨 게임인가'에 답하지 못한다.
+    영상·스크린샷이 그 답을 한다. 다만 스팀 CDN 이 외부 재생을 막을 수도 있으므로
+    poster 를 항상 깔아두고, 영상이 없거나 못 틀면 표지가 그대로 보이게 한다."""
+    poster = g.get("movie_poster") or g.get("header_image") or ""
+    mp4, webm = g.get("movie_mp4") or "", g.get("movie_webm") or ""
+    if not (mp4 or webm):
+        return f'<div class="dmedia">{shot(g, ribbon=False)}</div>'
+    src = ""
+    if webm:
+        src += f'<source src="{esc(webm)}" type="video/webm">'
+    if mp4:
+        src += f'<source src="{esc(mp4)}" type="video/mp4">'
+    alt = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지">'
+           if g.get("header_image") else "")
+    return f"""<div class="dmedia">
+  <video class="dvid" playsinline muted loop controls preload="none"
+         poster="{esc(poster)}" aria-label="{esc(g['name'])} 트레일러">
+    {src}{alt}
+  </video>
+</div>"""
+
+
+def shots_strip(g: dict) -> str:
+    """스크린샷 스트립. 실제 게임 화면이라 한 줄 설명보다 빠르게 이해된다."""
+    urls = [u for u in (g.get("screenshots") or "").split("\n") if u.strip()]
+    if not urls:
+        return ""
+    imgs = "".join(
+        f'<img src="{esc(u)}" alt="{esc(g["name"])} 스크린샷 {i}" '
+        f'loading="lazy" decoding="async">'
+        for i, u in enumerate(urls, 1))
+    return f'<div class="panel"><h3>게임 화면</h3><div class="shots">{imgs}</div></div>'
+
+
 def build_detail(g: dict, updated: str) -> str:
     if g.get("is_free"):
         price_block = '<span class="big">무료</span>'
@@ -787,7 +862,7 @@ def build_detail(g: dict, updated: str) -> str:
     body = f"""
 <a class="back" href="./../index.html">← 목록으로</a>
 <div class="dhero">
-  {shot(g)}
+  {media_main(g)}
   <div>
     <h1>{esc(g['name'])}</h1>
     {chips_for(g)}
@@ -800,6 +875,8 @@ def build_detail(g: dict, updated: str) -> str:
     </div>
   </div>
 </div>
+
+{shots_strip(g)}
 
 {why_panel}
 
