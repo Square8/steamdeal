@@ -65,6 +65,8 @@ jobs:
 
       # 가격 이력(SQLite)은 저장소에 커밋해서 다음 실행까지 남긴다.
       # 이게 없으면 '역대 최저가'를 계산할 이력이 매번 사라진다.
+      # (CSV 로 바꿀까 검토했으나 측정 결과 불필요 — git 이 SQLite 도 잘 압축한다.
+      #  실측: 280KB DB 11회 커밋 → gc 후 저장소 전체 364KB)
       - name: 가격 이력 커밋
         run: |
           git config user.name "github-actions[bot]"
