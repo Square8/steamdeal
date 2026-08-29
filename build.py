@@ -273,6 +273,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     # 메뉴는 사이트가 실제로 잘하는 축(한국어 · 데모 · 신작 · 출시예정)을 먼저 둔다.
     # 가격은 2일치뿐이라 앞세우면 가장 약한 데이터로 첫인상을 만들게 된다.
     jump = (f"""<nav class="jump">
+    <a href="{up}korean-games.html">한국어</a>
     <a href="{up}korean-demo.html">데모</a>
     <a href="{up}korean-new.html">신작</a>
     <a href="{up}korean-soon.html">출시예정</a>
@@ -571,9 +572,9 @@ def build_index(games: list[dict], updated: str) -> str:
 
 {section("pick", "오늘의 추천", "한국어를 지원하고, 데모가 있거나 새로 나왔거나 곧 나오는 게임.", rest_cands, "아직 후보가 없습니다. 다음 수집에서 채워집니다.", more_href="#all", more_text="전체 보기")}
 
-{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에 무료로 해볼 수 있는 것들.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", rail=True, more_href="korean-demo.html", more_text="한국어 데모 전체")}
+{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에 무료로 해볼 수 있는 것들.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", rail=True, more_href="korean-demo.html", more_text="무료 데모 전체")}
 
-{section("new", "새로 나온 게임", "", fresh, "신작 목록이 아직 비어 있습니다.", rail=True, more_href="korean-new.html", more_text="한국어 신작 전체")}
+{section("new", "새로 나온 게임", "", fresh, "신작 목록이 아직 비어 있습니다.", rail=True, more_href="korean-new.html", more_text="신작 전체")}
 
 {section("soon", "곧 나오는 게임", "출시 전에 미리 찜해두면 좋은 것들.", soon, "출시예정 목록이 아직 비어 있습니다.", rail=True, more_href="korean-soon.html", more_text="출시예정 전체")}
 
@@ -837,32 +838,50 @@ def build_detail(g: dict, updated: str) -> str:
 # 우리 데이터만 정직하게 답할 수 있는 질문들.
 # '스팀 최저가' 같은 거대 키워드는 선행 6개를 이길 수 없어서 쓰지 않는다.
 LANDINGS = [
+    # 제목·설명은 '자동완성이 실제로 제안하는 표현'만 쓴다 (2026-08-29 실측).
+    #   수요 있음: 스팀 한국어 게임 / 스팀 한국어 지원 / 스팀 신작(추천) /
+    #             스팀 출시예정(게임) / 스팀 데모 추천 / 스팀 무료 데모 / 스팀 1만원 이하 게임
+    #   수요 없음: "스팀 한국어 데모"  ← 두 수식어를 겹친 조합만 죽었다.
+    #             사람들은 속성을 하나씩 검색한다.
+    # 그래서 제목은 단일 축 표현을 앞세우고, '한국어'는 부제·본문에서 말한다.
+    #
+    # slug 는 절대 바꾸지 않는다 — 바꾸면 쌓인 링크와 검색 순위가 날아간다.
+    # (그래서 korean-demo 라는 이름은 유지하되 제목만 고친다)
+    dict(slug="korean-games",
+         title="스팀 한국어 지원 게임 — 한국어로 할 수 있는 것 모음",
+         h1="한국어 지원 게임",
+         desc="한국어를 지원하는 스팀 게임을 매일 두 번 자동으로 모읍니다. "
+              "원화 가격과 데모 여부를 함께 봅니다.",
+         note="이 사이트가 추적 중인 게임 중 한국어를 지원하는 것 전부입니다. "
+              "리뷰가 많은 순.",
+         pick=lambda g: g.get("korean"),
+         sort=lambda g: -(g.get("review_count") or 0)),
     dict(slug="korean-demo",
-         title="스팀 한국어 데모 — 지금 무료로 해볼 수 있는 게임",
-         h1="한국어 지원 데모",
-         desc="한국어를 지원하고 데모를 무료로 받을 수 있는 스팀 게임 목록. 매일 두 번 자동 갱신.",
-         note="사기 전에 무료로 먼저 해볼 수 있고, 한국어까지 되는 게임만 모았습니다.",
+         title="스팀 무료 데모 추천 — 지금 받아서 해볼 수 있는 게임",
+         h1="무료 데모 추천",
+         desc="사기 전에 무료로 해볼 수 있는 스팀 데모 목록. 한국어를 지원하는 것만 골랐습니다.",
+         note="전부 한국어를 지원합니다. 리뷰가 많은 순.",
          pick=lambda g: g.get("korean") and (g.get("has_demo") or g.get("app_type") == "demo"),
          sort=lambda g: -(g.get("review_count") or 0)),
     dict(slug="korean-new",
-         title="스팀 한국어 지원 신작 — 최근 나온 게임",
-         h1="한국어 지원 신작",
-         desc="최근 스팀에 출시된 게임 중 한국어를 지원하는 것만 골라 매일 갱신합니다.",
-         note="최근 출시 순입니다.",
+         title="스팀 신작 추천 — 최근 나온 게임",
+         h1="새로 나온 게임",
+         desc="최근 스팀에 출시된 게임을 매일 갱신합니다. 한국어를 지원하는 것만 골랐습니다.",
+         note="최근 출시 순입니다. 전부 한국어를 지원합니다.",
          pick=lambda g: g.get("korean") and g.get("tag") == "신작" and not g.get("coming_soon"),
          sort=lambda g: (g.get("release_date") or "", g.get("name") or ""), rev=True),
     dict(slug="korean-soon",
-         title="스팀 출시예정 한국어 게임 — 곧 나오는 것",
-         h1="곧 나오는 한국어 게임",
-         desc="아직 출시되지 않았지만 한국어를 지원할 예정인 스팀 게임 목록.",
+         title="스팀 출시예정 게임 — 곧 나오는 것",
+         h1="곧 나오는 게임",
+         desc="아직 나오지 않은 스팀 게임 목록. 한국어를 지원할 예정인 것만 골랐습니다.",
          note="출시일이 가까운 순입니다. 출시 전에 찜해두면 좋습니다.",
          pick=lambda g: g.get("korean") and g.get("coming_soon"),
          sort=lambda g: (g.get("release_date") or "9999", g.get("name") or "")),
     dict(slug="under-10000",
-         title="스팀 1만원 이하 한국어 게임",
-         h1="1만원 이하 한국어 게임",
-         desc="현재 스팀 원화 가격이 1만원 이하이고 한국어를 지원하는 게임 목록.",
-         note="현재 판매가 기준입니다. 낮은 가격 순.",
+         title="스팀 1만원 이하 게임",
+         h1="1만원 이하 게임",
+         desc="현재 스팀 원화 가격이 1만원 이하인 게임 목록. 한국어를 지원하는 것만 골랐습니다.",
+         note="현재 판매가 기준, 낮은 가격 순입니다. 전부 한국어를 지원합니다.",
          pick=lambda g: (g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000),
          sort=lambda g: g.get("price_final") or 0),
 ]

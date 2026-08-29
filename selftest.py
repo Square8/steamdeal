@@ -405,7 +405,15 @@ for spec in build.LANDINGS:
     p = os.path.join(config.SITE_DIR, f"{spec['slug']}.html")
     check(f"랜딩 {spec['slug']}.html", os.path.exists(p))
 kd = open(os.path.join(config.SITE_DIR, "korean-demo.html"), encoding="utf-8").read()
-check("랜딩 제목이 키워드를 담는다", "스팀 한국어 데모" in kd)
+# 제목은 '자동완성이 실제로 제안하는 표현'만 써야 한다.
+# "스팀 한국어 데모" 는 실측 제안 0건이었다 — 다시 들어오면 잡는다.
+check("랜딩 제목이 수요 확인된 표현을 쓴다", "스팀 무료 데모 추천" in kd)
+check("수요 0 으로 측정된 표현은 제목에 없다", "스팀 한국어 데모" not in kd)
+_dead = ["스팀 한국어 데모"]
+for _f in ("korean-games", "korean-demo", "korean-new", "korean-soon", "under-10000"):
+    _t = open(os.path.join(config.SITE_DIR, f"{_f}.html"), encoding="utf-8").read()
+    _title = _t.split("<title>")[1].split("</title>")[0]
+    check(f"{_f} 제목에 죽은 표현 없음", not any(x in _title for x in _dead), _title[:40])
 check("랜딩에도 헤더/네비 있음", 'class="jump"' in kd)
 check("상세 페이지 og:image 는 스팀 표지", 'property="og:image"' in
       open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read())
