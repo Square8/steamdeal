@@ -43,6 +43,39 @@ check("장르 추출", app["genres"] == "액션, 인디", app["genres"])
 check("한국어 출시일 파싱", app["release_date"] == "2026-08-26", str(app["release_date"]))
 check("출시예정 아님", app["coming_soon"] == 0)
 
+print("\n1b) 스크린샷·트레일러 추출 (키 이름을 가정하지 않는다)")
+check("480 을 선호한다", steam._pick_url({"480": "http://a", "max": "http://b"}) == "http://a")
+check("480 이 없으면 max", steam._pick_url({"max": "http://b"}) == "http://b")
+check("모르는 키만 있어도 하나는 건진다", steam._pick_url({"1080": "http://c"}) == "http://c")
+check("문자열로 와도 처리", steam._pick_url("http://d") == "http://d")
+check("URL 이 아니면 버린다", steam._pick_url({"480": "없음"}) == "")
+check("None 이면 빈 값", steam._pick_url(None) == "")
+
+_p = {"7": {"success": True, "data": {
+    "type": "game", "name": "미디어", "is_free": False,
+    "release_date": {"coming_soon": False, "date": ""},
+    "supported_languages": "Korean", "genres": [], "demos": [],
+    "screenshots": [{"path_thumbnail": "http://s1", "path_full": "http://f1"},
+                    {"path_thumbnail": "http://s2"}, {"path_thumbnail": "http://s3"},
+                    {"path_thumbnail": "http://s4"}, {"path_thumbnail": "http://s5"}],
+    "movies": [{"id": 1, "thumbnail": "http://poster", "highlight": False,
+                "mp4": {"480": "http://lo.mp4", "max": "http://hi.mp4"}},
+               {"id": 2, "thumbnail": "http://poster2", "highlight": True,
+                "mp4": {"480": "http://pick.mp4"}, "webm": {"480": "http://pick.webm"}}]}}}
+_m = with_fake(_p, lambda: steam.fetch_app(7))
+check("스크린샷 4장까지만",
+      len(_m["screenshots"].split("\n")) == steam.MAX_SCREENSHOTS,
+      _m["screenshots"].replace("\n", " "))
+check("highlight 로 표시된 트레일러를 고른다", _m["movie_mp4"] == "http://pick.mp4",
+      _m["movie_mp4"])
+check("webm 도 함께 가져온다", _m["movie_webm"] == "http://pick.webm")
+check("포스터 확보", _m["movie_poster"] == "http://poster2")
+_p2 = dict(_p); _p2["7"]["data"] = dict(_p["7"]["data"]); del _p2["7"]["data"]["movies"]
+_m2 = with_fake(_p2, lambda: steam.fetch_app(7))
+check("movies 가 없어도 안 깨진다(표지로 떨어짐)", _m2["movie_mp4"] == "")
+check("응답에 뭐가 왔는지 세어둔다", steam.MEDIA_STATS["apps"] >= 2
+      and steam.MEDIA_STATS["screenshots"] >= 2, str(steam.MEDIA_STATS["apps"]))
+
 print("\n2) 한국어 미지원 / 출시예정 / DLC")
 p2 = {"9": {"success": True, "data": {"type": "game", "name": "NoKR", "is_free": True,
     "release_date": {"coming_soon": True, "date": "2027년 출시 예정"},

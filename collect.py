@@ -126,6 +126,18 @@ def main() -> int:
     if ex_seen:
         log.info("개척 적중률 %d/%d (%.1f%%) — 낮으면 훑는 위치가 틀린 것이다",
                  ex_ok, ex_seen, 100 * ex_ok / ex_seen)
+    # 응답에 미디어가 실제로 오는지. 트레일러가 0 이면 여기서 원인이 드러난다.
+    ms = steam.MEDIA_STATS
+    if ms["apps"]:
+        log.info("미디어 — 앱 %d개 중 스크린샷 %d / movies 키 있음 %d / 항목 있음 %d / 영상URL %d",
+                 ms["apps"], ms["screenshots"], ms["movies_key"],
+                 ms["movies_items"], ms["got_mp4"])
+        if ms["sample_movie_keys"]:
+            log.info("  movies[0] 키: %s", ms["sample_movie_keys"])
+            log.info("  mp4/webm 키: %s", ms["sample_src_keys"] or "(사전 아님)")
+        elif ms["movies_key"] == 0:
+            log.warning("  appdetails 응답에 movies 필드 자체가 없다 "
+                        "— 스팀이 더 이상 주지 않는 것으로 보인다. 스크린샷만 쓴다.")
     q = lambda s: conn.execute(s).fetchone()[0]
     log.info("완료 — 저장 %d, 무관 %d, 제외 %d | 누적 %d개 (한국어 %d, 데모 %d), 수집일수 %d일",
              ok, dropped, failed,

@@ -127,6 +127,30 @@ def all_appids() -> list[tuple[int, str]]:
 
 MAX_SCREENSHOTS = 4      # 상세 페이지 스트립용. 늘리면 페이지가 무거워진다
 
+# 응답에 실제로 뭐가 오는지 세어둔다.
+# 첫 실행에서 스크린샷은 264개 들어왔는데 트레일러는 0개였다 — 같은 응답에서
+# 하나는 되고 하나는 안 됐으니 movies 의 형태가 예상과 다르다는 뜻이다.
+# 추측으로 또 고치지 말고, 다음 실행이 스스로 답을 알려주게 한다.
+MEDIA_STATS = {"apps": 0, "screenshots": 0, "movies_key": 0, "movies_items": 0,
+               "got_mp4": 0, "sample_movie_keys": "", "sample_src_keys": ""}
+
+
+def _pick_url(node) -> str:
+    """{'480': url, 'max': url} 같은 사전에서 쓸 만한 URL 하나. 키 이름을 가정하지 않는다.
+    480 을 선호하되(모바일 용량), 없으면 아무거나 하나라도 쓴다."""
+    if isinstance(node, str):
+        return node if node.startswith("http") else ""
+    if not isinstance(node, dict):
+        return ""
+    for key in ("480", 480, "max", "recommended"):
+        v = node.get(key)
+        if isinstance(v, str) and v.startswith("http"):
+            return v
+    for v in node.values():
+        if isinstance(v, str) and v.startswith("http"):
+            return v
+    return ""
+
 
 _KO_DATE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
@@ -209,20 +233,25 @@ def fetch_app(appid: int) -> dict | None:
             shots.append(u)
 
     mp4 = webm = poster = ""
-    movies = [m for m in (d.get("movies") or []) if isinstance(m, dict)]
+    raw_movies = d.get("movies")
+    movies = [m for m in (raw_movies or []) if isinstance(m, dict)]
     if movies:
         # highlight 로 표시된 것이 대표 트레일러다. 없으면 첫 번째.
         mv = next((m for m in movies if m.get("highlight")), movies[0])
-        # 480p 를 쓴다. max 는 용량이 커서 모바일에서 부담이다.
-        mp4 = str((mv.get("mp4") or {}).get("480") or "")
-        webm = str((mv.get("webm") or {}).get("480") or "")
-        poster = str(mv.get("thumbnail") or "")
-        if not mp4.startswith("http"):
-            mp4 = ""
-        if not webm.startswith("http"):
-            webm = ""
-        if not poster.startswith("http"):
-            poster = ""
+        mp4 = _pick_url(mv.get("mp4"))
+        webm = _pick_url(mv.get("webm"))
+        poster = _pick_url(mv.get("thumbnail"))
+        if not MEDIA_STATS["sample_movie_keys"]:
+            MEDIA_STATS["sample_movie_keys"] = ",".join(sorted(mv.keys()))[:160]
+            src = mv.get("mp4") or mv.get("webm")
+            if isinstance(src, dict):
+                MEDIA_STATS["sample_src_keys"] = ",".join(str(k) for k in src.keys())[:80]
+
+    MEDIA_STATS["apps"] += 1
+    MEDIA_STATS["screenshots"] += 1 if shots else 0
+    MEDIA_STATS["movies_key"] += 1 if raw_movies is not None else 0
+    MEDIA_STATS["movies_items"] += 1 if movies else 0
+    MEDIA_STATS["got_mp4"] += 1 if (mp4 or webm) else 0
 
     return {
         "appid": appid,
