@@ -264,9 +264,10 @@ def save_player_count(conn, appid: int, count: int) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute(
         """UPDATE games SET
-             players_previous=COALESCE(players_current,0),
+             players_previous=CASE WHEN players_checked_at IS NULL
+                                   THEN ? ELSE COALESCE(players_current,0) END,
              players_current=?, players_checked_at=?
-           WHERE appid=?""", (max(int(count), 0), now, appid))
+           WHERE appid=?""", (max(int(count), 0), max(int(count), 0), now, appid))
 
 
 def save_review_summary(conn, appid: int, summary: dict) -> None:

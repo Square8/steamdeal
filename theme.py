@@ -281,6 +281,15 @@ section{margin-top:4rem; scroll-margin-top:76px}
   padding:3px 7px; border-radius:7px; background:rgba(4,10,20,.78); color:#f3f7ff;
   backdrop-filter:blur(5px); font-family:"Inter",sans-serif; font-size:10.5px;
   font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  display:inline-flex; align-items:center; gap:4px;
+}
+.player-badge::before{
+  content:"●"; color:var(--deal); font-size:9px; line-height:1;
+  animation:playerPulse 2s ease-in-out infinite;
+}
+@keyframes playerPulse{
+  0%,100%{opacity:1; transform:scale(1)}
+  50%{opacity:.35; transform:scale(.82)}
 }
 .ribbon + .player-badge{max-width:calc(100% - 78px)}
 .card-b{padding:11px 13px 13px; display:flex; flex-direction:column; gap:7px; flex:1}
@@ -500,11 +509,11 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .lead h1{font-size:1.95rem}
   .lead .facts{gap:6px 13px; font-size:12.5px}
   .quick-actions{
-    flex-wrap:nowrap; overflow-x:auto; margin-left:-13px; margin-right:-13px;
-    padding:0 13px 4px; scrollbar-width:none;
+    flex-wrap:nowrap; overflow-x:auto; white-space:nowrap; margin-left:-13px; margin-right:-13px;
+    padding:0 13px 8px; scrollbar-width:none; scroll-snap-type:x mandatory;
   }
   .quick-actions::-webkit-scrollbar{display:none}
-  .quick-actions button{white-space:nowrap}
+  .quick-actions button{flex:0 0 auto; white-space:nowrap; scroll-snap-align:start}
   .hero-body{padding:17px 17px 16px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
@@ -527,6 +536,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important; scroll-behavior:auto !important}
   .card:hover{transform:none}
+  .player-badge::before{animation:none}
 }
 """
 

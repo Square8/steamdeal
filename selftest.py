@@ -416,7 +416,7 @@ check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천
 check("첫 화면 명제", "지금 살 만한 것부터" in h)
 check("명제 옆 숫자는 실제 값", 'class="facts"' in h and "<b>" in h)
 check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h and "70%+" in h)
-check("기대작 표현이 정직함", "출시 임박 인기 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
+check("기대작 표현이 정직함", "출시 임박 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
 check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
 check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
 check("상단 갱신 상태", "자동 갱신 정상" in h and 'class="live-dot"' in h)
@@ -430,6 +430,8 @@ check("하위 폴더에서도 CSS 경로가 맞다",
                                  encoding="utf-8").read())
 check("3중 테마 스코프", all(x in _css for x in
       [":root{", ':root:not([data-theme="light"])', ':root[data-theme="dark"]']))
+check("모바일 퀵 액션 가로 스크롤", "scroll-snap-type:x mandatory" in _css and "white-space:nowrap" in _css)
+check("동접 뱃지 라이브 점", ".player-badge::before" in _css and "@keyframes playerPulse" in _css)
 check("칩에 글자 포함(색 단독 아님)", "데모</span>" in h)
 check("필터 컨트롤", 'data-f="demo"' in h and 'data-f="kr"' in h)
 check("정렬 컨트롤", 'id="sort"' in h and 'value="cheap"' in h)
@@ -450,7 +452,7 @@ signal_card = build.card({"appid": 730, "name": "신호 게임", "korean": 1,
                           "review_desc": "Overwhelmingly Positive",
                           "review_total": 10000, "review_positive_pct": 95,
                           "history": [], "price_final": 33000})
-check("카드에 현재 플레이어 수", "43,210명 플레이 중" in signal_card)
+check("카드에 현재 플레이어 수", "player-badge" in signal_card and "4.3만명 플레이 중" in signal_card)
 check("카드에 리뷰 평가 칩", "압도적 긍정" in signal_card)
 check("상세 리뷰 영문을 한국어로 바꿈", build.review_label(
       {"review_desc": "Overwhelmingly Positive"}) == "압도적 긍정")

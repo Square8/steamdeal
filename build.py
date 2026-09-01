@@ -480,10 +480,7 @@ def card(g: dict, big: bool = False) -> str:
     score = g.get("score") or 0
     players = g.get("players_current") or 0
     delta = g.get("player_delta") or 0
-    if players:
-        movement = f" · {'▲' if delta > 0 else '▼'} {abs(delta):,}" if delta else ""
-        rc = f"현재 {players:,}명 플레이 중{movement}"
-    elif review_label(g):
+    if review_label(g):
         total = g.get("review_total") or g.get("review_count") or 0
         positive = g.get("review_positive_pct")
         extra = f" · 긍정 {positive}%" if positive is not None else ""
@@ -491,6 +488,10 @@ def card(g: dict, big: bool = False) -> str:
     else:
         rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
               else esc(g.get("developer") or g.get("genres") or ""))
+    # 동접은 이미지 배지에서 이미 보여주므로 카드 본문에서 같은 숫자를 반복하지 않는다.
+    # 두 번째 측정부터만 증감 화살표를 보조 정보로 붙인다.
+    if players and delta:
+        rc = f"{rc} · {'▲' if delta > 0 else '▼'} {abs(delta):,}" if rc else f"{'▲' if delta > 0 else '▼'} {abs(delta):,}"
     hist = g.get("history") or []
     # 가격이 실제로 변한 적이 있을 때만 추이를 그린다.
     # 2일치 데이터에서 전부 평선을 그리면 아무 정보도 없는 장식이 된다.
@@ -716,7 +717,7 @@ def build_index(games: list[dict], updated: str) -> str:
          "현재 조건에 맞는 70%+ 핫딜이 없습니다.", rail=True, cap=8,
          more_href="#all", more_text="할인 게임 찾기")}
 
-{section("soon", "🚀 출시 임박 인기 기대작",
+{section("soon", "🚀 출시 임박 기대작",
          "Steam 상점 노출과 출시일 기준입니다. 공개되지 않은 위시리스트 순위는 사용하지 않습니다.",
          soon, "출시예정 목록이 아직 비어 있습니다.", rail=True,
          more_href="korean-soon.html", more_text="출시예정 전체")}
