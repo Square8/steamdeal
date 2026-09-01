@@ -396,7 +396,8 @@ WISHLIST_JS = """<script>
 
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
-         depth: int = 0, freshness: dict | None = None) -> str:
+         depth: int = 0, freshness: dict | None = None,
+         extra_head: str = "") -> str:
     """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
     up = "../" * depth
     freshness = freshness or {"label": "자동 갱신 정상", "class": "ok", "display": updated}
@@ -445,6 +446,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <link rel="apple-touch-icon" href="{up}favicon.svg">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
+{extra_head}
 {verify}
 {can}
 <meta property="og:type" content="website">
@@ -1008,12 +1010,25 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
 }})();
 </script>
 """
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "GameDil",
+        "url": abs_url(""),
+        "potentialAction": {
+            "@type": "SearchAction",
+            "target": abs_url("index.html") + "?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+        }
+    }
+    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n</script>'
     return page("GameDil — 지금 많이 하는 한국어 게임과 검증된 핫딜",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
                 freshness=freshness,
                 desc=(f"한국어 스팀 게임 {n_kr:,}개의 현재 인기와 원화 가격을 추적합니다. "
-                      f"한국어 데모 {n_demo}개, 출시예정 {n_soon}개를 매일 두 번 자동 갱신."))
+                      f"한국어 데모 {n_demo}개, 출시예정 {n_soon}개를 매일 두 번 자동 갱신."),
+                extra_head=extra_head)
 
 
 # ---------------------------------------------------------------- 상세
@@ -1295,9 +1310,45 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
         bits.append(f'{g["release_text"]} 출시')
     d = f'{g["name"]} 스팀 원화 가격과 변동 이력.' + (" " + " · ".join(bits) if bits else "")
 
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": g["name"],
+        "url": f"https://store.steampowered.com/app/{g['appid']}/"
+    }
+    if g.get("header_image"):
+        schema["image"] = g["header_image"]
+
+    if g.get("is_free"):
+        schema["offers"] = {
+            "@type": "Offer",
+            "priceCurrency": "KRW",
+            "price": 0
+        }
+    elif g.get("price_final") is not None:
+        schema["offers"] = {
+            "@type": "Offer",
+            "priceCurrency": "KRW",
+            "price": g["price_final"]
+        }
+        if g.get("discount_pct"):
+            schema["offers"]["discount"] = g["discount_pct"]
+            
+    r_total = g.get("review_total") or g.get("review_count") or 0
+    r_pos = g.get("review_positive_pct")
+    if r_total > 0 and r_pos is not None:
+        schema["aggregateRating"] = {
+            "@type": "AggregateRating",
+            "ratingValue": r_pos,
+            "bestRating": 100,
+            "ratingCount": r_total
+        }
+        
+    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n</script>'
+
     return page(pt, body, updated, canonical=f"game/{g['appid']}.html",
                 og_image=(g.get("header_image") or ""), desc=d, depth=1,
-                freshness=freshness)
+                freshness=freshness, extra_head=extra_head)
 
 
 # ---------------------------------------------------------------- 랜딩(검색 유입용)
@@ -1372,10 +1423,23 @@ def build_landing(spec: dict, games: list[dict], updated: str,
   {grid}
 </section>
 """
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "GameDil",
+        "url": abs_url(""),
+        "potentialAction": {
+            "@type": "SearchAction",
+            "target": abs_url(f"{spec['slug']}.html") + "?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+        }
+    }
+    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n</script>'
     return page(spec["title"], body, updated,
                 canonical=f"{spec['slug']}.html", desc=spec["desc"],
                 og_image=(items[0].get("header_image") if items else ""),
-                freshness=freshness)
+                freshness=freshness,
+                extra_head=extra_head)
 
 
 def build_sitemap(paths: list[str], updated: str) -> str:

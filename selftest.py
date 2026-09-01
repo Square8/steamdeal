@@ -539,6 +539,29 @@ check("robots 에 사이트맵 주소", "Sitemap: https://" in
 del os.environ["SITE_URL"]
 importlib.reload(config); importlib.reload(build)
 
+print("\n9d) JSON-LD 구조화 데이터")
+import re
+import json
+idx3 = open(idx, encoding="utf-8").read()
+ld_idx_match = re.search(r'<script type="application/ld\+json">\s*(\{.*?\})\s*</script>', idx3, re.DOTALL)
+check("홈페이지 JSON-LD 추출", bool(ld_idx_match))
+if ld_idx_match:
+    try:
+        ld_idx = json.loads(ld_idx_match.group(1))
+        check("홈페이지 WebSite schema 파싱 성공", ld_idx.get("@type") == "WebSite")
+    except Exception as e:
+        check("홈페이지 JSON-LD 파싱 실패", False, str(e))
+
+d730_2 = open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read()
+ld_730_match = re.search(r'<script type="application/ld\+json">\s*(\{.*?\})\s*</script>', d730_2, re.DOTALL)
+check("상세 페이지 JSON-LD 추출", bool(ld_730_match))
+if ld_730_match:
+    try:
+        ld_730 = json.loads(ld_730_match.group(1))
+        check("상세 페이지 VideoGame schema 파싱 성공", ld_730.get("@type") == "VideoGame")
+    except Exception as e:
+        check("상세 페이지 JSON-LD 파싱 실패", False, str(e))
+
 print("\n10) XSS")
 conn = store.connect()
 bad = dict(app); bad["appid"] = 999; bad["name"] = '<b>X</b> & "Y"'
