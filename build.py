@@ -286,6 +286,42 @@ def freshness_info(raw: str | None) -> dict:
     return {"label": label, "class": cls, "display": display}
 
 
+WISHLIST_JS = """<script>
+(function(){
+  var KEY='steamdeal-wishlist-v1';
+  function read(){
+    try { return new Set(JSON.parse(localStorage.getItem(KEY)||'[]').map(String)); }
+    catch(e) { return new Set(); }
+  }
+  function write(set){
+    try { localStorage.setItem(KEY, JSON.stringify(Array.from(set))); } catch(e) {}
+  }
+  function paint(){
+    var saved=read();
+    document.querySelectorAll('[data-wish-id]').forEach(function(btn){
+      if(!btn.dataset.wishBound){
+        btn.addEventListener('click',function(ev){ ev.preventDefault(); ev.stopPropagation(); toggle(btn); });
+        btn.dataset.wishBound='1';
+      }
+      var on=saved.has(String(btn.dataset.wishId));
+      btn.classList.toggle('on',on);
+      btn.setAttribute('aria-pressed',String(on));
+      btn.setAttribute('aria-label',on?'찜 목록에서 삭제':'찜 목록에 추가');
+      btn.textContent=on?'♥':'♡';
+    });
+    document.querySelectorAll('.wish-count').forEach(function(el){ el.textContent=saved.size; });
+  }
+  function toggle(btn){
+    var saved=read(), id=String(btn.dataset.wishId);
+    if(saved.has(id)) saved.delete(id); else saved.add(id);
+    write(saved); paint();
+  }
+  window.steamWishlist={read:read,paint:paint,toggle:toggle};
+  document.addEventListener('DOMContentLoaded',paint);
+})();
+</script>"""
+
+
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
          depth: int = 0, freshness: dict | None = None) -> str:
@@ -299,6 +335,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <a href="{up}index.html#soon">기대작</a>
     <a href="{up}index.html#demo">데모</a>
     <a href="{up}under-10000.html">1만원 이하</a>
+    <a href="{up}index.html#all">찜 <span class="wish-count">0</span></a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
     search = (f"""<form class="hsearch" role="search" onsubmit="return sq(this)">
@@ -343,6 +380,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 {og_img}
 {theme.FONTS}
 <link rel="stylesheet" href="{up}style.css?v={CSS_HASH}">
+{WISHLIST_JS}
 </head>
 <body>
 <header class="top"><div class="topin">
@@ -533,8 +571,10 @@ def card(g: dict, big: bool = False) -> str:
    data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
    data-kr="{g.get('korean') or 0}" data-adult="{g.get('adult') or 0}"
    data-off="{g.get('discount_pct') or 0}" data-price="{g.get('price_final') or 0}"
-   data-score="{score}" data-atl="{1 if atl_label(g) else 0}">
+   data-score="{score}" data-atl="{1 if atl_label(g) else 0}" data-wish="{g['appid']}">
   {shot(g)}
+  <button class="wish" type="button" data-wish-id="{g['appid']}" aria-pressed="false"
+          aria-label="찜 목록에 추가">♡</button>
   <div class="card-b">
     <div class="name">{esc(g['name'])}</div>
     {chips_for(g)}
@@ -635,6 +675,7 @@ def lead(games: list[dict], safe: list[dict]) -> str:
     <button type="button" data-jump-filter="demo">🎮 무료 데모</button>
     <button type="button" data-jump-filter="kr">🇰🇷 한국어</button>
     <button type="button" data-jump-filter="soon">🚀 출시예정</button>
+    <button type="button" data-jump-filter="wish">♡ 찜 목록</button>
   </div>
 </section>"""
 
@@ -776,6 +817,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
     <button class="chip" data-f="kr" aria-pressed="false">한국어</button>
     <button class="chip" data-f="cheap" aria-pressed="false">1만원 이하</button>
     <button class="chip" data-f="off50" aria-pressed="false">50% 이상 할인</button>
+    <button class="chip" data-f="wish" aria-pressed="false">♡ 찜 목록 <span class="wish-count">0</span></button>
   </div>
   <div class="grid" id="list">{"".join(card(g) for g in shown_games)}
     <div class="none" id="noneMsg" hidden>조건에 맞는 게임이 없습니다.</div>
@@ -809,6 +851,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
     if (f==='kr'    && d.kr!=='1')   return false;
     if (f==='cheap' && !(+d.price>0 && +d.price<=10000)) return false;
     if (f==='off50' && +d.off<50)    return false;
+    if (f==='wish' && !window.steamWishlist.read().has(String(d.wish))) return false;
     return true;
   }}
   function cmp(a,b){{

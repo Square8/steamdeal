@@ -296,6 +296,16 @@ section{margin-top:4rem; scroll-margin-top:76px}
   50%{opacity:.35; transform:scale(.82)}
 }
 .ribbon + .player-badge{max-width:calc(100% - 78px)}
+.wish{
+  position:absolute; top:44px; right:8px; z-index:3; width:30px; height:30px;
+  display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.22);
+  border-radius:50%; background:rgba(4,10,20,.72); color:#f3f7ff;
+  backdrop-filter:blur(5px); cursor:pointer; font-family:Arial,sans-serif;
+  font-size:21px; line-height:1; transition:transform .13s, background .13s, color .13s;
+}
+.wish:hover{transform:scale(1.08); background:var(--brand); color:#fff}
+.wish.on{background:var(--warn); border-color:var(--warn); color:#fff}
+.wish:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .card-b{padding:11px 13px 13px; display:flex; flex-direction:column; gap:7px; flex:1}
 .card-b .name{
   font-weight:800; font-size:15.5px; line-height:1.3; letter-spacing:-.02em;
@@ -508,6 +518,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .rail .card-b .name{font-size:15px}
   .rail .tagline{font-size:10.5px}
   .rail .shot img,.rail .ph{aspect-ratio:16/9}
+  .rail .wish{top:43px}
   section{margin-top:3.25rem}
   .lead{margin-top:28px}
   .lead h1{font-size:1.95rem}
