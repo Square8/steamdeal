@@ -440,6 +440,9 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<link rel="icon" type="image/svg+xml" href="{up}favicon.svg">
+<link rel="apple-touch-icon" href="{up}favicon.svg">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
 {verify}
@@ -1422,6 +1425,8 @@ def main() -> int:
             f.write(text)
 
     write("style.css", theme.CSS)
+    if os.path.exists(os.path.join(config.ROOT, "favicon.svg")):
+        write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())
     write("index.html", build_index(games, updated, freshness))
     paths = ["index.html"]
 
