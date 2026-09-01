@@ -550,6 +550,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-body{padding:17px 17px 16px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
+  .buyrow .btn{flex:1; justify-content:center}
   nav.jump{
     order:3; width:100%; overflow-x:auto; padding-bottom:2px;
     flex-wrap:nowrap;                 /* 줄바꿈하면 헤더가 두 줄이 된다 */

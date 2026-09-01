@@ -60,7 +60,8 @@ git push -u origin main
 
 **Actions 탭 → "가격 수집 및 사이트 배포" → Run workflow** 클릭.
 
-3~6분 후 `https://<내아이디>.github.io/steamdeal/` 에서 사이트가 열린다.
+3~6분 후 설정한 커스텀 도메인(예: `https://gamedil.com/`)에서 사이트가 열린다.
+(도메인 미설정 시 `https://<내아이디>.github.io/steamdeal/` 에서 열림)
 
 첫 실행에는 이력이 하루치뿐이라 차트가 안 그려진다. 며칠 지나야 추이와 역대최저가 의미를 갖는다.
 

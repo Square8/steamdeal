@@ -427,6 +427,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
               f'<meta name="twitter:card" content="summary_large_image">'
               if og_image else '<meta name="twitter:card" content="summary">')
     og_u = (f'<meta property="og:url" content="{esc(abs_url(canonical))}">'
+            f'\n<meta name="twitter:url" content="{esc(abs_url(canonical))}">'
             if canonical else "")
     # 검색엔진 소유 확인 태그. 값이 없으면 태그 자체를 내보내지 않는다.
     verify = ""
@@ -1113,6 +1114,28 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
 
     # 알림 서버 없이도 바로 쓸 수 있는 1단계: 목표가는 이 브라우저에만 저장한다.
     # 저장할 때 찜에도 넣어두므로 다음 방문에서 찜 필터로 바로 찾을 수 있다.
+    judge_panel = ""
+    if g.get("price_final") and not g.get("is_free"):
+        d = g.get("days_tracked", 0)
+        curr = g.get("price_final", 0)
+        low = g.get("lowest_seen", 0)
+        if d < config.MIN_DAYS_FOR_LOW:
+            j_txt = f"추적 {d}일째 · 아직 가격 판단을 보류합니다."
+        elif curr <= low and low > 0:
+            if g.get("atl_trustworthy"):
+                j_txt = f"<b>역대 최저가</b>입니다. (관측 {d}일 기준)"
+            else:
+                j_txt = f"<b>추적 {d}일 기준 최저가</b>입니다."
+        elif low > 0:
+            diff = curr - low
+            j_txt = f"관측 최저가({low:,}원)보다 <b>{diff:,}원</b> 더 비쌉니다. (추적 {d}일 기준)"
+        else:
+            j_txt = f"추적 {d}일째 · 아직 가격 판단을 보류합니다."
+        judge_panel = f"""<div class="panel">
+  <h3>지금 사도 될까요?</h3>
+  <p style="font-size:13.5px; margin:0; color:var(--ink-2); line-height:1.5;">{j_txt}</p>
+</div>"""
+
     target_panel = ""
     if g.get("price_final") and not g.get("is_free"):
         target_panel = f"""<div class="panel target-panel" data-target-appid="{g['appid']}"
@@ -1169,6 +1192,54 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
                 f' target="_blank" rel="noopener">데모 받기</a>'
                 if (g.get("has_demo") or g.get("app_type") == "demo") else "")
 
+    share_title_js = json.dumps(g['name'], ensure_ascii=False)
+    share_text = g['name']
+    if g.get('is_free'):
+        share_text += " — 무료"
+    elif g.get('price_final'):
+        share_text += f" — {g['price_final']:,}원"
+        if g.get('discount_pct'):
+            share_text += f" ({g['discount_pct']}% 할인)"
+    if g.get('price_final') and not g.get('is_free'):
+        curr = g.get("price_final", 0)
+        low = g.get("lowest_seen", 0)
+        if curr <= low and low > 0 and g.get("atl_trustworthy"):
+            share_text += " [스팀 역대 최저가]"
+    share_text_js = json.dumps(share_text, ensure_ascii=False)
+
+    share_js = f"""<script>
+(function(){{
+  var btn = document.getElementById('shareBtn');
+  if(!btn) return;
+  function copyToClipboard() {{
+    var og = btn.textContent;
+    var fullText = {share_text_js} + "\\n" + location.href;
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {{
+      btn.textContent = "복사 실패";
+      setTimeout(function(){{ btn.textContent = og; }}, 2000);
+      return;
+    }}
+    navigator.clipboard.writeText(fullText).then(function(){{
+      btn.textContent = "복사 완료!";
+      setTimeout(function(){{ btn.textContent = og; }}, 2000);
+    }}).catch(function(){{
+      btn.textContent = "복사 실패";
+      setTimeout(function(){{ btn.textContent = og; }}, 2000);
+    }});
+  }}
+  btn.addEventListener('click', function(){{
+    if(navigator.share) {{
+      navigator.share({{title: {share_title_js}, text: {share_text_js}, url: location.href}})
+        .catch(function(err){{
+          if (err.name !== 'AbortError') copyToClipboard();
+        }});
+    }} else {{
+      copyToClipboard();
+    }}
+  }});
+}})();
+</script>"""
+
     body = f"""
 <a class="back" href="./../index.html">← 목록으로</a>
 <div class="dhero">
@@ -1182,13 +1253,16 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
       <a class="btn btn-p" href="https://store.steampowered.com/app/{g['appid']}/?cc=kr"
          target="_blank" rel="noopener">스팀 상점에서 보기</a>
       {demo_btn}
+      <button class="btn btn-s share-btn" id="shareBtn" type="button" aria-label="공유">공유</button>
     </div>
   </div>
 </div>
+{share_js}
 
 {shots_strip(g)}
 
 {why_panel}
+{judge_panel}
 
 <div class="panel">
   <h3>정보</h3>

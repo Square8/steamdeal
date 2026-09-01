@@ -523,13 +523,13 @@ check("상세 제목에 가격이 들어간다", "33,000원" in d730.split("</ti
 check("하위 폴더에서 상위 경로가 ../ 로 나간다", 'href="../index.html' in d730)
 check("유료 게임 상세에 목표 가격 저장", "data-target-appid=\"730\"" in d730 and "target-save" in d730)
 # SITE_URL 을 주면 절대 URL 이 나와야 한다
-os.environ["SITE_URL"] = "https://square8.github.io/steamdeal"
+os.environ["SITE_URL"] = "https://gamedil.com"
 import importlib
 importlib.reload(config); importlib.reload(build)
 build.main()
 sm = open(sm_path, encoding="utf-8").read()
 idx2 = open(idx, encoding="utf-8").read()
-check("사이트맵에 절대 URL", "https://square8.github.io/steamdeal/index.html" in sm, )
+check("사이트맵에 절대 URL", "https://gamedil.com/index.html" in sm, )
 check("사이트맵에 랜딩 포함", "korean-demo.html" in sm)
 check("사이트맵에 게임 상세 포함", "game/730.html" in sm)
 check("성인 게임은 사이트맵에서 제외", "game/700.html" not in sm)
