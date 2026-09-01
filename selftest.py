@@ -421,6 +421,10 @@ check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
 check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
 check("상단 갱신 상태", "자동 갱신 정상" in h and 'class="live-dot"' in h)
 check("빠른 조건 버튼", 'data-jump-filter="off50"' in h and 'data-jump-filter="cheap"' in h)
+check("갱신 지연 상태 판정", build.freshness_info(
+      (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=20)).isoformat())['label'] == "갱신 지연")
+check("갱신 멈춤 상태 판정", build.freshness_info(
+      (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=40)).isoformat())['label'] == "갱신 멈춤")
 # CSS 는 style.css 로 분리됐다 (페이지마다 인라인하면 게임 수만큼 중복)
 _css = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
 check("style.css 로 분리됨", len(_css) > 5000 and "<style>" not in h)

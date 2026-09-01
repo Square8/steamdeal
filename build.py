@@ -265,11 +265,33 @@ def abs_url(rel: str) -> str:
     return f"{base}/{rel.lstrip('./')}" if base else rel
 
 
+def freshness_info(raw: str | None) -> dict:
+    """마지막 수집 완료 시각을 사용자에게 정직한 상태로 바꾼다.
+    예약 실행은 하루 두 번이므로 18시간까지 정상, 36시간까지 지연,
+    그 이상은 멈춤으로 본다. 데이터가 없는 새 설치는 확인 필요로 표시한다."""
+    if not raw:
+        return {"label": "갱신 상태 확인 필요", "class": "needs", "display": "시각 없음"}
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - dt).total_seconds()
+        display = dt.astimezone(KST).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return {"label": "갱신 상태 확인 필요", "class": "needs", "display": str(raw)[:16]}
+    if age <= 18 * 3600:
+        label, cls = "자동 갱신 정상", "ok"
+    elif age <= 36 * 3600:
+        label, cls = "갱신 지연", "late"
+    else:
+        label, cls = "갱신 멈춤", "stale"
+    return {"label": label, "class": cls, "display": display}
+
+
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
-         depth: int = 0) -> str:
+         depth: int = 0, freshness: dict | None = None) -> str:
     """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
     up = "../" * depth
+    freshness = freshness or {"label": "자동 갱신 정상", "class": "ok", "display": updated}
     # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
     jump = (f"""<nav class="jump">
     <a href="{up}index.html#popular">지금 인기</a>
@@ -328,10 +350,10 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <b>스팀<i>딜</i> 레이더</b>
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
-  <div class="freshness" title="스팀 데이터 자동 수집 상태">
+  <div class="freshness f-{freshness['class']}" title="스팀 데이터 자동 수집 상태">
     <span class="live-dot" aria-hidden="true"></span>
-    <span>자동 갱신 정상</span>
-    <time>{esc(updated)} KST</time>
+    <span>{esc(freshness['label'])}</span>
+    <time>{esc(freshness['display'])} KST</time>
   </div>
   {search}
   {jump}
@@ -617,7 +639,7 @@ def lead(games: list[dict], safe: list[dict]) -> str:
 </section>"""
 
 
-def build_index(games: list[dict], updated: str) -> str:
+def build_index(games: list[dict], updated: str, freshness: dict | None = None) -> str:
     # 기본 화면은 성적 콘텐츠를 제외한다. 전체 탐색기에서 토글로 켤 수 있다.
     safe = [g for g in games if not g.get("adult")]
     korean = [g for g in safe if g.get("korean")]
@@ -847,6 +869,7 @@ def build_index(games: list[dict], updated: str) -> str:
     return page("스팀딜 레이더 — 지금 많이 하는 한국어 게임과 검증된 핫딜",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
+                freshness=freshness,
                 desc=(f"한국어 스팀 게임 {n_kr:,}개의 현재 인기와 원화 가격을 추적합니다. "
                       f"한국어 데모 {n_demo}개, 출시예정 {n_soon}개를 매일 두 번 자동 갱신."))
 
@@ -890,7 +913,7 @@ def shots_strip(g: dict) -> str:
     return f'<div class="panel"><h3>게임 화면</h3><div class="shots">{imgs}</div></div>'
 
 
-def build_detail(g: dict, updated: str) -> str:
+def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
     if g.get("is_free"):
         price_block = '<span class="big">무료</span>'
     elif g.get("price_final"):
@@ -1038,7 +1061,8 @@ def build_detail(g: dict, updated: str) -> str:
     d = f'{g["name"]} 스팀 원화 가격과 변동 이력.' + (" " + " · ".join(bits) if bits else "")
 
     return page(pt, body, updated, canonical=f"game/{g['appid']}.html",
-                og_image=(g.get("header_image") or ""), desc=d, depth=1)
+                og_image=(g.get("header_image") or ""), desc=d, depth=1,
+                freshness=freshness)
 
 
 # ---------------------------------------------------------------- 랜딩(검색 유입용)
@@ -1095,7 +1119,8 @@ LANDINGS = [
 ]
 
 
-def build_landing(spec: dict, games: list[dict], updated: str) -> str:
+def build_landing(spec: dict, games: list[dict], updated: str,
+                  freshness: dict | None = None) -> str:
     items = sorted([g for g in games if not g.get("adult") and spec["pick"](g)],
                    key=spec["sort"], reverse=spec.get("rev", False))
     grid = ('<div class="grid">' + "".join(card(g) for g in items) + "</div>"
@@ -1114,7 +1139,8 @@ def build_landing(spec: dict, games: list[dict], updated: str) -> str:
 """
     return page(spec["title"], body, updated,
                 canonical=f"{spec['slug']}.html", desc=spec["desc"],
-                og_image=(items[0].get("header_image") if items else ""))
+                og_image=(items[0].get("header_image") if items else ""),
+                freshness=freshness)
 
 
 def build_sitemap(paths: list[str], updated: str) -> str:
@@ -1143,13 +1169,20 @@ def main() -> int:
 
     conn = store.connect()
     games = store.all_games(conn)
+    last_collection = store.get_meta(conn, "last_collection_at")
+    if not last_collection:
+        # 메타 기록이 생기기 전 DB도 현재 동접/리뷰 수집 시각으로 최대한 정확히 표시한다.
+        stamps = [g.get("players_checked_at") for g in games if g.get("players_checked_at")]
+        stamps += [g.get("reviews_checked_at") for g in games if g.get("reviews_checked_at")]
+        last_collection = max(stamps) if stamps else None
     conn.close()
 
     if not games:
         log.error("DB에 게임이 없다. 먼저 collect.py 를 실행할 것.")
         return 1
 
-    updated = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+    freshness = freshness_info(last_collection)
+    updated = freshness["display"] if last_collection else datetime.now(KST).strftime("%Y-%m-%d %H:%M")
     os.makedirs(os.path.join(config.SITE_DIR, "game"), exist_ok=True)
 
     def write(rel: str, text: str) -> None:
@@ -1157,16 +1190,16 @@ def main() -> int:
             f.write(text)
 
     write("style.css", theme.CSS)
-    write("index.html", build_index(games, updated))
+    write("index.html", build_index(games, updated, freshness))
     paths = ["index.html"]
 
     for spec in LANDINGS:
-        write(f"{spec['slug']}.html", build_landing(spec, games, updated))
+        write(f"{spec['slug']}.html", build_landing(spec, games, updated, freshness))
         paths.append(f"{spec['slug']}.html")
 
     # 성인 게임 상세는 만들되 사이트맵에 넣지 않는다 (검색에 내보내지 않음)
     for g in games:
-        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, updated))
+        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, updated, freshness))
         if not g.get("adult"):
             paths.append(f"game/{g['appid']}.html")
 

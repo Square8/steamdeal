@@ -14,6 +14,7 @@
 """
 import logging
 import sys
+from datetime import datetime, timezone
 
 import config
 import steam
@@ -127,6 +128,9 @@ def main() -> int:
 
     if "--signals-only" in sys.argv:
         review_ok, player_ok = _collect_signals(conn, log)
+        if review_ok or player_ok:
+            store.set_meta(conn, "last_signal_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+            conn.commit()
         conn.close()
         return 0 if review_ok or player_ok else 1
 
@@ -160,6 +164,8 @@ def main() -> int:
     # appdetails 전체 수집과 분리된 작은 후보군만 확인한다. 이 단계가 실패해도
     # 가격 수집 결과는 유지되고, 홈은 기존 리뷰 수 기반으로 안전하게 폴백한다.
     _collect_signals(conn, log)
+    store.set_meta(conn, "last_collection_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    conn.commit()
 
     if ex_seen:
         log.info("개척 적중률 %d/%d (%.1f%%) — 낮으면 훑는 위치가 틀린 것이다",

@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS probed (
     on_date TEXT
 );
 
+-- 마지막으로 전체 가격 수집이 완료된 시각. 날짜만 담는 games.checked_at 과 달리
+-- 예약 실행 지연을 화면에서 판별할 수 있도록 UTC 초 단위로 저장한다.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_prices_appid ON prices(appid);
 CREATE INDEX IF NOT EXISTS idx_games_checked ON games(checked_at);
 """
@@ -79,6 +86,17 @@ def connect() -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _migrate(conn)
     return conn
+
+
+def set_meta(conn, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO meta(key,value) VALUES(?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+
+def get_meta(conn, key: str, default: str | None = None) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
 
 
 def _migrate(conn) -> None:

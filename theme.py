@@ -100,6 +100,10 @@ header.top{
   color:var(--ink-2); font-family:"Inter",sans-serif; font-size:11.5px; font-weight:700;
 }
 .freshness time{color:var(--ink-3); font-weight:500}
+.freshness.f-late{color:var(--amber)}
+.freshness.f-stale,.freshness.f-needs{color:var(--warn)}
+.freshness.f-late .live-dot{background:var(--amber); box-shadow:0 0 0 4px var(--amber-soft)}
+.freshness.f-stale .live-dot,.freshness.f-needs .live-dot{background:var(--warn); box-shadow:0 0 0 4px var(--warn-soft)}
 .live-dot{
   width:7px; height:7px; border-radius:50%; flex:none; background:var(--deal);
   box-shadow:0 0 0 4px var(--deal-soft);
