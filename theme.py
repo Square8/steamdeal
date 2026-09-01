@@ -228,6 +228,8 @@ nav.jump a:hover{background:var(--raised); color:var(--ink)}
   background:var(--brand); border-color:var(--brand); color:var(--brand-ink);
 }
 .chip:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.chip.reset-btn{background:transparent; border-style:dashed; color:var(--ink-3)}
+.chip.reset-btn:hover{background:var(--surface-2); color:var(--ink)}
 
 /* ================= 섹션 / 그리드 ================= */
 /* 제목만 키우면 구획이 안 느껴진다. 섹션 사이 여백을 같이 넓힌다. */
@@ -306,11 +308,13 @@ section{margin-top:4rem; scroll-margin-top:76px}
 .wish:hover{transform:scale(1.08); background:var(--brand); color:#fff}
 .wish.on{background:var(--warn); border-color:var(--warn); color:#fff}
 .wish:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.card.target-hit{border-color:var(--deal)}
+.t.target-hit-tag{background:var(--deal-soft); border-color:var(--deal); color:var(--deal)}
 .card-b{padding:11px 13px 13px; display:flex; flex-direction:column; gap:7px; flex:1}
 .card-b .name{
   font-weight:800; font-size:15.5px; line-height:1.3; letter-spacing:-.02em;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-  overflow:hidden;
+  overflow:hidden; word-break:break-word; overflow-wrap:anywhere;
 }
 .chips{display:flex; gap:4px; flex-wrap:wrap}
 /* 리뷰수·개발사는 3순위다. 제목과 같은 무게로 두면 스캔이 느려진다. */
@@ -321,6 +325,7 @@ section{margin-top:4rem; scroll-margin-top:76px}
 .card-f{
   margin-top:auto; padding-top:9px; border-top:1px solid var(--line);
   display:flex; align-items:flex-end; justify-content:space-between; gap:8px;
+  flex-wrap:wrap;
 }
 .price{text-align:right; white-space:nowrap; margin-left:auto}
 .price .now{font-size:15px; font-weight:800; letter-spacing:-.03em; display:block}
@@ -464,6 +469,19 @@ footer p{margin:0}
   letter-spacing:.1em; text-transform:uppercase; margin:0 0 4px; color:var(--ink-2);
 }
 .panel .sub{margin:0 0 13px; color:var(--ink-3); font-size:12.5px}
+.target-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.target-input{
+  flex:0 1 158px; min-width:0; padding:9px 10px; border-radius:9px;
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+  font:700 14px "Inter","Gothic A1",sans-serif;
+}
+.target-input:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
+.target-row > span{color:var(--ink-2); font-size:13px}
+.target-save{padding:9px 13px}
+.target-del{padding:9px 13px}
+.target-result{min-height:18px; margin:10px 0 0; color:var(--ink-3); font-size:12.5px; line-height:1.4}
+.target-result.hit{color:var(--deal)}
+.current-target{color:var(--ink); font-size:13.5px}
 .chartwrap{position:relative}
 .chart{display:block; width:100%; height:auto; touch-action:pan-y}
 .tip{
@@ -544,7 +562,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .logo span{display:none}
   .logo{margin-right:0; flex:none}
   .freshness{margin-left:auto}
-  .freshness time{display:none}
+  .freshness.f-ok .f-time{display:none}
   .hsearch{order:2; flex:1 1 100%; min-width:0}
   .hsearch input{width:100%}
 }

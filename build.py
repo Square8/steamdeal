@@ -266,35 +266,41 @@ def abs_url(rel: str) -> str:
 
 
 def freshness_info(raw: str | None) -> dict:
-    """마지막 수집 완료 시각을 사용자에게 정직한 상태로 바꾼다.
-    예약 실행은 하루 두 번이므로 18시간까지 정상, 36시간까지 지연,
-    그 이상은 멈춤으로 본다. 데이터가 없는 새 설치는 확인 필요로 표시한다."""
+    """마지막 수집 완료 시각을 사용자에게 정직한 상태로 바꾼다."""
     if not raw:
-        return {"label": "갱신 상태 확인 필요", "class": "needs", "display": "시각 없음"}
+        return {"label": "상태 확인 필요", "class": "needs", "display": "시각 없음"}
     try:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         age = (datetime.now(timezone.utc) - dt).total_seconds()
-        display = dt.astimezone(KST).strftime("%Y-%m-%d %H:%M")
+        display = dt.astimezone(KST).strftime("%m-%d %H:%M")
     except (ValueError, TypeError):
-        return {"label": "갱신 상태 확인 필요", "class": "needs", "display": str(raw)[:16]}
+        return {"label": "상태 확인 필요", "class": "needs", "display": str(raw)[:16]}
     if age <= 18 * 3600:
-        label, cls = "자동 갱신 정상", "ok"
+        label, cls = "최신 가격", "ok"
     elif age <= 36 * 3600:
-        label, cls = "갱신 지연", "late"
+        label, cls = "업데이트 지연", "late"
     else:
-        label, cls = "갱신 멈춤", "stale"
+        label, cls = "데이터 오래됨", "stale"
     return {"label": label, "class": cls, "display": display}
 
 
 WISHLIST_JS = """<script>
 (function(){
   var KEY='steamdeal-wishlist-v1';
+  var TARGET_KEY='steamdeal-target-price-v1';
   function read(){
     try { return new Set(JSON.parse(localStorage.getItem(KEY)||'[]').map(String)); }
     catch(e) { return new Set(); }
   }
   function write(set){
     try { localStorage.setItem(KEY, JSON.stringify(Array.from(set))); } catch(e) {}
+  }
+  function readTargets(){
+    try { var raw=JSON.parse(localStorage.getItem(TARGET_KEY)||'{}'); return raw&&typeof raw==='object'?raw:{}; }
+    catch(e) { return {}; }
+  }
+  function writeTargets(targets){
+    try { localStorage.setItem(TARGET_KEY, JSON.stringify(targets)); } catch(e) {}
   }
   function paint(){
     var saved=read();
@@ -310,13 +316,79 @@ WISHLIST_JS = """<script>
       btn.textContent=on?'♥':'♡';
     });
     document.querySelectorAll('.wish-count').forEach(function(el){ el.textContent=saved.size; });
+    paintTargetHits();
+    paintTargetPanels();
   }
   function toggle(btn){
     var saved=read(), id=String(btn.dataset.wishId);
     if(saved.has(id)) saved.delete(id); else saved.add(id);
     write(saved); paint();
   }
-  window.steamWishlist={read:read,paint:paint,toggle:toggle};
+  function paintTargetHits(){
+    var targets=readTargets();
+    document.querySelectorAll('.card[data-wish]').forEach(function(card){
+      var id=String(card.dataset.wish), target=+targets[id]||0, price=+card.dataset.price||0;
+      var chips=card.querySelector('.chips'), flag=card.querySelector('.target-hit-tag');
+      var hit=target>0 && price>0 && price<=target;
+      card.classList.toggle('target-hit',hit);
+      if(hit && !flag){
+        if(!chips){
+          chips=document.createElement('div'); chips.className='chips';
+          var name=card.querySelector('.name'); if(name) name.after(chips);
+        }
+        flag=document.createElement('span'); flag.className='t target-hit-tag';
+        flag.textContent='목표가 도달'; if(chips) chips.prepend(flag);
+      } else if(!hit && flag) flag.remove();
+    });
+  }
+  function paintTargetPanels(){
+    var targets=readTargets();
+    document.querySelectorAll('[data-target-appid]').forEach(function(panel){
+      var id=String(panel.dataset.targetAppid), price=+panel.dataset.currentPrice||0;
+      var input=panel.querySelector('.target-input'), save=panel.querySelector('.target-save');
+      var del=panel.querySelector('.target-del'), result=panel.querySelector('.target-result');
+      var target=+targets[id]||0;
+      if(input && !input.dataset.formatBound){
+        input.addEventListener('input', function(){
+          var val = this.value.replace(/[^0-9]/g, '');
+          this.value = val ? Number(val).toLocaleString('ko-KR') : '';
+        });
+        input.dataset.formatBound='1';
+      }
+      if(input && document.activeElement!==input) input.value=target?target.toLocaleString('ko-KR'):'';
+      if(result){
+        if(target){
+          result.innerHTML = '<strong class="current-target">현재 목표가: ' + target.toLocaleString('ko-KR') + '원</strong><br>' +
+            (price<=target ? '🎉 목표가에 도달했습니다. 지금 가격을 확인해보세요.' : '현재가 ' + price.toLocaleString('ko-KR') + '원 · 아직 도달하지 않았습니다.');
+        } else {
+          result.textContent = '아직 목표 가격을 저장하지 않았습니다.';
+        }
+        result.classList.toggle('hit',!!target && price<=target);
+      }
+      if(del){
+        del.style.display = target ? 'inline-block' : 'none';
+        if(!del.dataset.delBound){
+          del.addEventListener('click', function(){
+            var next=readTargets(); delete next[id]; writeTargets(next); paint();
+          });
+          del.dataset.delBound='1';
+        }
+      }
+      if(save && !save.dataset.targetBound){
+        save.addEventListener('click',function(){
+          var n=Number(String(input.value||'').replace(/[^0-9]/g,''));
+          var next=readTargets();
+          if(n>0){
+            next[id]=n;
+            var saved=read(); saved.add(id); write(saved);
+          } else delete next[id];
+          writeTargets(next); paint();
+        });
+        save.dataset.targetBound='1';
+      }
+    });
+  }
+  window.steamWishlist={read:read,paint:paint,toggle:toggle,readTargets:readTargets};
   document.addEventListener('DOMContentLoaded',paint);
 })();
 </script>"""
@@ -388,10 +460,10 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <b>스팀<i>딜</i> 레이더</b>
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
-  <div class="freshness f-{freshness['class']}" title="스팀 데이터 자동 수집 상태">
+  <div class="freshness f-{freshness['class']}" title="스팀 데이터 갱신 상태">
     <span class="live-dot" aria-hidden="true"></span>
-    <span>{esc(freshness['label'])}</span>
-    <time>{esc(freshness['display'])} KST</time>
+    <span class="f-lbl">{esc(freshness['label'])}</span>
+    <time class="f-time">({esc(freshness['display'])} 기준)</time>
   </div>
   {search}
   {jump}
@@ -455,6 +527,8 @@ def checked_time(games: list[dict]) -> str:
 def chips_for(g: dict, show_atl: bool = True) -> str:
     """게임 성격을 칩으로. 색만으로 뜻을 전하지 않도록 항상 글자를 쓴다."""
     out = []
+    if show_atl and atl_label(g):
+        out.append(atl_label(g))
     if g.get("app_type") == "demo" or g.get("has_demo"):
         out.append('<span class="t demo">데모</span>')
     if g.get("coming_soon"):
@@ -469,8 +543,6 @@ def chips_for(g: dict, show_atl: bool = True) -> str:
         out.append('<span class="t adult">성인</span>')
     if review_label(g):
         out.append(f'<span class="t review">{esc(review_label(g))}</span>')
-    if show_atl and atl_label(g):
-        out.append(atl_label(g))
     return f'<div class="chips">{"".join(out)}</div>' if out else ""
 
 
@@ -818,6 +890,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
     <button class="chip" data-f="cheap" aria-pressed="false">1만원 이하</button>
     <button class="chip" data-f="off50" aria-pressed="false">50% 이상 할인</button>
     <button class="chip" data-f="wish" aria-pressed="false">♡ 찜 목록 <span class="wish-count">0</span></button>
+    <button class="chip reset-btn" id="resetBtn" style="display:none;" aria-label="필터 초기화">🔄 초기화</button>
   </div>
   <div class="grid" id="list">{"".join(card(g) for g in shown_games)}
     <div class="none" id="noneMsg" hidden>조건에 맞는 게임이 없습니다.</div>
@@ -870,7 +943,18 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
     cards.forEach(function(c){{ c.hidden=true; }});
     vis.sort(cmp).forEach(function(c,i){{ if(i<shown) c.hidden=false; list.appendChild(c); }});
     list.appendChild(msg);
-    msg.hidden = vis.length>0;
+
+    var hasFilter = f !== 'all' || (q.value||'').trim() !== '' || sort.value !== 'score' || adult.checked;
+    var resetBtn = document.getElementById('resetBtn');
+    if(resetBtn) resetBtn.style.display = hasFilter ? 'inline-block' : 'none';
+
+    if(vis.length === 0){{
+      if(f === 'wish' && (q.value||'').trim() === '') msg.textContent = '찜한 게임이 없습니다. 마음에 드는 게임을 찜해보세요.';
+      else msg.textContent = '조건에 맞는 게임이 없습니다. 검색어나 필터를 넓혀보세요.';
+      msg.hidden = false;
+    }} else {{
+      msg.hidden = true;
+    }}
     cnt.textContent = vis.length+'개';
     // 전부 그리지 않고 24개씩 늘린다. 검색은 숨은 카드까지 전부 대상으로 한다.
     moreWrap.hidden = vis.length<=shown;
@@ -894,6 +978,17 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
       document.getElementById('all').scrollIntoView();
     }});
   }});
+  var resetBtnNode = document.getElementById('resetBtn');
+  if(resetBtnNode) {{
+    resetBtnNode.addEventListener('click', function(){{
+      q.value = '';
+      sort.value = 'score';
+      adult.checked = false;
+      var allChip = document.querySelector('.presets .chip[data-f="all"]');
+      if (allChip) allChip.click();
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    }});
+  }}
 
   // 헤더 검색창이 넘겨준 #q=... 을 받아 목록에 반영하고 그 자리로 데려간다.
   window.applyHash=function(){{
@@ -1016,6 +1111,24 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
   <ul class="whylist">{why}</ul>
 </div>""" if why else "")
 
+    # 알림 서버 없이도 바로 쓸 수 있는 1단계: 목표가는 이 브라우저에만 저장한다.
+    # 저장할 때 찜에도 넣어두므로 다음 방문에서 찜 필터로 바로 찾을 수 있다.
+    target_panel = ""
+    if g.get("price_final") and not g.get("is_free"):
+        target_panel = f"""<div class="panel target-panel" data-target-appid="{g['appid']}"
+  data-current-price="{g['price_final']}">
+  <h3>내 목표 가격</h3>
+  <p class="sub">실제 푸시 알림이 아니라 다음 방문 시 사이트에 표시됩니다. (현재 기기 브라우저에만 저장)</p>
+  <div class="target-row">
+    <input class="target-input" type="text" inputmode="numeric"
+           placeholder="예: 15,000" aria-label="{esc(g['name'])} 목표 가격">
+    <span>원</span>
+    <button class="btn btn-p target-save" type="button">저장</button>
+    <button class="btn target-del" type="button" style="display:none;" aria-label="목표가 삭제">삭제</button>
+  </div>
+  <p class="target-result" role="status"></p>
+</div>"""
+
     hist = g.get("history") or []
     days = g.get("days_tracked") or 0
     if len(hist) >= 2:
@@ -1081,6 +1194,8 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
   <h3>정보</h3>
   <div class="tablewrap"><table>{fact_rows}</table></div>
 </div>
+
+{target_panel}
 
 {chart}
 """

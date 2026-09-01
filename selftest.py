@@ -419,13 +419,13 @@ check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h an
 check("기대작 표현이 정직함", "출시 임박 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
 check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
 check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
-check("상단 갱신 상태", "자동 갱신 정상" in h and 'class="live-dot"' in h)
+check("상단 갱신 상태", "최신 가격" in h and 'class="live-dot"' in h)
 check("빠른 조건 버튼", 'data-jump-filter="off50"' in h and 'data-jump-filter="cheap"' in h)
 check("찜 목록 필터", 'data-f="wish"' in h and "steamWishlist" in h)
 check("갱신 지연 상태 판정", build.freshness_info(
-      (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=20)).isoformat())['label'] == "갱신 지연")
+      (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=20)).isoformat())['label'] == "업데이트 지연")
 check("갱신 멈춤 상태 판정", build.freshness_info(
-      (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=40)).isoformat())['label'] == "갱신 멈춤")
+      (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=40)).isoformat())['label'] == "데이터 오래됨")
 # CSS 는 style.css 로 분리됐다 (페이지마다 인라인하면 게임 수만큼 중복)
 _css = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
 check("style.css 로 분리됨", len(_css) > 5000 and "<style>" not in h)
@@ -438,6 +438,8 @@ check("3중 테마 스코프", all(x in _css for x in
 check("모바일 퀵 액션 가로 스크롤", "scroll-snap-type:x mandatory" in _css and "white-space:nowrap" in _css)
 check("동접 뱃지 라이브 점", ".player-badge::before" in _css and "@keyframes playerPulse" in _css)
 check("찜 버튼 스타일", ".wish.on" in _css and "data-wish-id" in h)
+check("목표가 도달 스크립트", "steamdeal-target-price-v1" in h and "목표가 도달" in h)
+check("목표 가격 입력 스타일", ".target-input" in _css and ".target-result.hit" in _css)
 check("칩에 글자 포함(색 단독 아님)", "데모</span>" in h)
 check("필터 컨트롤", 'data-f="demo"' in h and 'data-f="kr"' in h)
 check("정렬 컨트롤", 'id="sort"' in h and 'value="cheap"' in h)
@@ -519,6 +521,7 @@ check("상세 페이지 og:image 는 스팀 표지", 'property="og:image"' in
 d730 = open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read()
 check("상세 제목에 가격이 들어간다", "33,000원" in d730.split("</title>")[0])
 check("하위 폴더에서 상위 경로가 ../ 로 나간다", 'href="../index.html' in d730)
+check("유료 게임 상세에 목표 가격 저장", "data-target-appid=\"730\"" in d730 and "target-save" in d730)
 # SITE_URL 을 주면 절대 URL 이 나와야 한다
 os.environ["SITE_URL"] = "https://square8.github.io/steamdeal"
 import importlib
