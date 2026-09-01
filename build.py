@@ -445,7 +445,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 {verify}
 {can}
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="스팀딜 레이더">
+<meta property="og:site_name" content="GameDil">
 <meta property="og:locale" content="ko_KR">
 <meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(desc)}">
@@ -458,7 +458,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <body>
 <header class="top"><div class="topin">
   <a class="logo" href="{up}index.html">
-    <b>스팀<i>딜</i> 레이더</b>
+    <b>Game<i>Dil</i></b>
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
   <div class="freshness f-{freshness['class']}" title="스팀 데이터 갱신 상태">
@@ -1005,7 +1005,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
 }})();
 </script>
 """
-    return page("스팀딜 레이더 — 지금 많이 하는 한국어 게임과 검증된 핫딜",
+    return page("GameDil — 지금 많이 하는 한국어 게임과 검증된 핫딜",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
                 freshness=freshness,
@@ -1446,7 +1446,7 @@ def main() -> int:
     if not config.SITE_URL:
         log.warning("SITE_URL 이 비어 있어 사이트맵/canonical 이 절대 URL 이 아니다 "
                     "(로컬 테스트면 정상, Actions 면 환경변수 확인)")
-    log.info("생성 완료 — 게임 %d개(성인 %d 숨김), 방송후보 %d, 데모 %d, "
+    log.info("생성 완료 — 게임 %d개(성인 %d 숨김), 추천후보 %d, 데모 %d, "
              "랜딩 %d, 사이트맵 %d개 URL → %s",
              len(games), adult, cands, demos, len(LANDINGS), len(paths), config.SITE_DIR)
     return 0

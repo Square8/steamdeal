@@ -1,4 +1,4 @@
-"""가짜 데이터로 수집→저장→방송후보 선정→사이트 생성 전 구간 검증.
+"""가짜 데이터로 수집→저장→추천후보 선정→사이트 생성 전 구간 검증.
 스팀 API 없이 기계가 정상인지 확인한다."""
 import os, sys, tempfile, datetime as dt
 TMP = tempfile.mkdtemp(prefix="steamradar_test_")
@@ -167,7 +167,7 @@ check(f"관측 {config.MIN_DAYS_FOR_ATL}일 넘으면 신뢰", g2["atl_trustwort
       f'{g2["days_tracked"]}일')
 check("최저가 계산", g2["lowest_seen"] == 33000, str(g2["lowest_seen"]))
 
-print("\n7) 방송 후보 선정")
+print("\n7) 추천 후보 선정")
 cands = store.broadcast_candidates(store.all_games(conn))
 names = [c["name"] for c in cands]
 check("한국어+데모 게임은 후보", "테스트 게임" in names, str(names))
@@ -189,7 +189,7 @@ check("옵션을 켜면 포함",
       "성인 테스트" in [x["name"] for x in store.broadcast_candidates(ag, include_adult=True)])
 c2.close()
 
-print("\n7c) 방송 점수")
+print("\n7c) 추천 점수")
 s_demo, why = store.score_broadcast(
     {"has_demo": 1, "korean": 1, "tag": "신작", "price_final": 9000, "discount_pct": 20})
 s_bare, _ = store.score_broadcast({"korean": 0, "price_final": 70000})
@@ -447,7 +447,7 @@ check("성인 포함 토글", 'id="adult"' in h)
 check("카드에 합성 점수 없음", 'class="score-n"' not in h and 'class="bar"' not in h)
 check("헤더에 검색창", 'class="hsearch"' in h and 'name="q"' in h)
 check("전체 목록 더 보기 버튼", 'id="moreBtn"' in h)
-check("사이트 정체성이 방송이 아니라 발견", "방송 적합도" not in h and "방송 후보" not in h)
+check("사이트 정체성이 할인/발견 중심임", "추천 적합도" not in h and "추천 후보" not in h)
 check("개발자용 문구 노출 없음", "config.py" not in h)
 check("상세 페이지 생성", os.path.exists(os.path.join(config.SITE_DIR, "game", "730.html")))
 
@@ -551,5 +551,5 @@ check("원본 태그 없음", "<b>X</b>" not in h2)
 print()
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
-print("전 구간 통과 — 파싱/저장/회전/방송후보/차트/사이트 기계는 정상")
+print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")
 print(f"(테스트 산출물: {config.SITE_DIR})")

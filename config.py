@@ -1,12 +1,7 @@
 """
-스팀 방송 소재 레이더 — 설정
+GameDil — 설정
 
-목적: 스팀 신작·데모·출시예정을 매일 자동으로 모아서
-      "이번 주 방송할 만한 게임"을 뽑아준다. 가격 추적은 부수 기능.
-
-이 도구의 첫 사용자는 만든 사람 자신이다. 그래서 방문자 0명이어도 가치가 있다.
-
-스팀 공식 상점 API 사용. API 키 불필요, 무료.
+목적: 스팀 게임 할인과 최저가를 한눈에 모아서 보여준다.
 """
 import os
 
@@ -14,8 +9,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE_DIR = os.environ.get("SITE_DIR") or os.path.join(ROOT, "site")
 DB_PATH = os.environ.get("DB_PATH") or os.path.join(ROOT, "data", "steam.sqlite3")
 
-SITE_NAME = "스팀딜 레이더"
-SITE_TAGLINE = "한국어로 할 수 있는 게임을 가장 먼저"
+SITE_NAME = "GameDil"
+SITE_TAGLINE = "게임 할인과 최저가를 한눈에"
 # 절대 URL(사이트맵·canonical·og:url)에 쓴다. GitHub Actions 에서 주입한다.
 # 비어 있으면 상대 경로로만 동작한다 (로컬 테스트용).
 SITE_URL = os.environ.get("SITE_URL", "")
@@ -121,9 +116,9 @@ BUCKETS = {
 # 항상 추적할 게임 (스팀 상점 URL 의 /app/<숫자>/ 가 앱ID)
 SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520]
 
-# ---- 방송 후보 판정 ----
-# 방송에 쓸 만한지 걸러내는 기준. 취향에 맞게 바꾸면 된다.
-REQUIRE_KOREAN = True    # 한국어 지원 안 하면 방송 후보에서 제외
+# ---- 추천 후보 판정 ----
+# 추천 목록에 띄울 기준. 취향에 맞게 바꾸면 된다.
+REQUIRE_KOREAN = True    # 한국어 지원 안 하면 추천 목록에서 제외
 BROADCAST_MAX_PRICE = 80000   # 이 가격 넘으면 후보에서 빼기 (0 = 제한 없음)
 
 # ---- 역대최저 표기 정직성 ----
@@ -137,7 +132,7 @@ MIN_DAYS_FOR_ATL = 60
 # 30일은 스팀 주말/미드위크 세일이 최소 한 번은 지나가는 길이다.
 MIN_DAYS_FOR_LOW = 30
 
-SKIP_FREE_IN_PRICE = True   # 무료 게임은 가격 추적에서 제외 (방송 후보에는 포함)
+SKIP_FREE_IN_PRICE = True   # 무료 게임은 가격 추적에서 제외 (추천 후보에는 포함)
 
 # ---- 무엇을 '보관'할지 ----
 # 개척은 넓게 하되 저장은 좁게 한다.

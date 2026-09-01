@@ -359,7 +359,7 @@ def all_games(conn) -> list[dict]:
 
 
 def score_broadcast(g: dict) -> tuple[int, list[str]]:
-    """방송 적합도 점수(0~100)와 그 근거.
+    """추천 적합도 점수(0~100)와 그 근거.
 
     일부러 '역대 최저가와의 거리' 는 넣지 않았다. 그 지표는 수집 60일이 넘어야
     의미가 생기는데(MIN_DAYS_FOR_ATL) 지금은 이력이 며칠뿐이라, 넣으면 근거 없는
@@ -412,7 +412,7 @@ def score_broadcast(g: dict) -> tuple[int, list[str]]:
 
 
 def broadcast_candidates(games: list[dict], include_adult: bool = False) -> list[dict]:
-    """방송 후보: 한국어 지원 + 가격 조건 + (데모 있음 또는 신작/출시예정).
+    """추천 후보: 한국어 지원 + 가격 조건 + (데모 있음 또는 신작/출시예정).
     기준은 config 에서 조절한다. 점수 높은 순으로 돌려준다."""
     out = []
     for g in games:

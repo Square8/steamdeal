@@ -232,7 +232,7 @@ def parse_release(date_text: str | None) -> str | None:
 
 
 def fetch_app(appid: int) -> dict | None:
-    """게임 하나의 상세 정보. 방송 판단에 필요한 항목까지 함께 가져온다."""
+    """게임 하나의 상세 정보. 추천 판단에 필요한 항목까지 함께 가져온다."""
     data = _get_json(config.APPDETAILS_URL,
                      {"appids": appid, "cc": config.CC, "l": config.LANG})
     if not isinstance(data, dict):
@@ -306,7 +306,7 @@ def fetch_app(appid: int) -> dict | None:
         "discount_pct": int(po.get("discount_percent", 0)) if po else 0,
         "header_image": d.get("header_image") or "",
         "short_description": (d.get("short_description") or "")[:300],
-        # --- 방송 판단용 ---
+        # --- 추천 판단용 ---
         "coming_soon": 1 if rel.get("coming_soon") else 0,
         "release_text": (rel.get("date") or "")[:40],
         "release_date": parse_release(rel.get("date")),
