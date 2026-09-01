@@ -11,9 +11,10 @@ on:
       - 'data/**'
       - 'README.md'
   schedule:
-    # GitHub Actions cron 은 UTC 기준. 한국시간 08:40 / 20:40 에 맞춤.
-    - cron: '40 23 * * *'   # KST 08:40
-    - cron: '40 11 * * *'   # KST 20:40
+    # GitHub Actions cron 은 UTC 기준. 정시 부근의 예약 큐 혼잡을 피하려고
+    # 덜 흔한 17분에 실행한다. 예약 작업은 GitHub 사정에 따라 지연될 수 있다.
+    - cron: '17 23 * * *'   # KST 08:17
+    - cron: '17 11 * * *'   # KST 20:17
   workflow_dispatch:        # 수동 실행 버튼
 
 # Pages 배포에 필요한 권한 + DB 커밋 권한
@@ -29,6 +30,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
