@@ -16,18 +16,19 @@ HEADERS = {
 _last = 0.0
 
 
-def _throttle() -> None:
+def _throttle(delay: float | None = None) -> None:
     global _last
-    gap = config.REQUEST_DELAY - (time.monotonic() - _last)
+    delay = config.REQUEST_DELAY if delay is None else delay
+    gap = delay - (time.monotonic() - _last)
     if gap > 0:
         time.sleep(gap)
-    time.sleep(random.uniform(0, 0.4))
+    time.sleep(random.uniform(0, min(0.4, delay / 3)))
     _last = time.monotonic()
 
 
-def _get_json(url: str, params: dict | None = None):
+def _get_json(url: str, params: dict | None = None, delay: float | None = None):
     for attempt in range(config.MAX_RETRY + 1):
-        _throttle()
+        _throttle(delay)
         try:
             r = requests.get(url, params=params, headers=HEADERS, timeout=config.TIMEOUT)
             if r.status_code == 200:
@@ -43,6 +44,47 @@ def _get_json(url: str, params: dict | None = None):
             log.warning("요청 실패 (%s/%s): %s", attempt + 1, config.MAX_RETRY + 1, e)
             time.sleep(3 * (attempt + 1))
     return None
+
+
+def fetch_current_players(appid: int) -> int | None:
+    """현재 Steam 접속 플레이어 수. 실패와 실제 0명을 구분해 None 을 쓴다."""
+    data = _get_json(config.PLAYERS_URL, {"appid": appid},
+                     delay=config.SIGNAL_REQUEST_DELAY)
+    if not isinstance(data, dict):
+        return None
+    response = data.get("response") or {}
+    try:
+        count = int(response.get("player_count"))
+    except (TypeError, ValueError):
+        return None
+    return max(count, 0)
+
+
+def fetch_review_summary(appid: int) -> dict | None:
+    """리뷰 본문은 받지 않고 집계만 저장한다.
+
+    query_summary 는 평가 등급·긍정/부정·전체 리뷰 수를 한 번에 준다.
+    카드에는 이 집계만 필요하므로 num_per_page=1 로 응답을 작게 유지한다.
+    """
+    data = _get_json(
+        config.REVIEWS_URL.format(appid=appid),
+        {"json": 1, "filter": "all", "language": "all", "day_range": 365,
+         "review_type": "all", "purchase_type": "all", "num_per_page": 1},
+        delay=config.SIGNAL_REQUEST_DELAY,
+    )
+    if not isinstance(data, dict) or data.get("success") != 1:
+        return None
+    q = data.get("query_summary") or {}
+    try:
+        return {
+            "score": int(q.get("review_score") or 0),
+            "desc": str(q.get("review_score_desc") or "")[:60],
+            "positive": int(q.get("total_positive") or 0),
+            "negative": int(q.get("total_negative") or 0),
+            "total": int(q.get("total_reviews") or 0),
+        }
+    except (TypeError, ValueError):
+        return None
 
 
 def discover() -> dict[int, str]:

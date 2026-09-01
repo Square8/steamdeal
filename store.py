@@ -1,7 +1,7 @@
 """저장소. 게임 정보 + 일별 가격 이력."""
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timezone
 
 import config
 
@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS games (
     is_free       INTEGER DEFAULT 0,
     adult         INTEGER DEFAULT 0,   -- 성적 콘텐츠. 기본 화면에서 감춘다
     review_count  INTEGER DEFAULT 0,   -- 인지도 대리 지표
+    review_score  INTEGER DEFAULT 0,
+    review_desc   TEXT,
+    review_positive INTEGER DEFAULT 0,
+    review_negative INTEGER DEFAULT 0,
+    reviews_checked_at TEXT,
+    players_current INTEGER DEFAULT 0,
+    players_previous INTEGER DEFAULT 0,
+    players_checked_at TEXT,
     developer     TEXT,
     -- '이게 무슨 게임인가'에 답하는 것들. appdetails 응답에 이미 들어 있어
     -- 추가 호출 없이 얻는다. screenshots 는 줄바꿈으로 이어붙인 URL 목록.
@@ -83,6 +91,13 @@ def _migrate(conn) -> None:
         "has_demo": "INTEGER DEFAULT 0", "demo_appid": "INTEGER",
         "is_free": "INTEGER DEFAULT 0", "checked_at": "TEXT",
         "adult": "INTEGER DEFAULT 0", "review_count": "INTEGER DEFAULT 0",
+        "review_score": "INTEGER DEFAULT 0", "review_desc": "TEXT",
+        "review_positive": "INTEGER DEFAULT 0",
+        "review_negative": "INTEGER DEFAULT 0",
+        "reviews_checked_at": "TEXT",
+        "players_current": "INTEGER DEFAULT 0",
+        "players_previous": "INTEGER DEFAULT 0",
+        "players_checked_at": "TEXT",
         "developer": "TEXT", "price_first": "TEXT", "price_last": "TEXT",
         "screenshots": "TEXT", "movie_mp4": "TEXT", "movie_webm": "TEXT",
         "movie_poster": "TEXT",
@@ -216,6 +231,54 @@ def stale_appids(conn, limit: int) -> list[int]:
         "SELECT appid FROM games ORDER BY COALESCE(checked_at,'') ASC LIMIT ?", (limit,))]
 
 
+def _current_price_join() -> str:
+    """게임별 가장 최근 가격을 붙이는 공통 SQL 조각."""
+    return """
+      LEFT JOIN prices p ON p.appid=g.appid AND p.on_date=(
+        SELECT MAX(p2.on_date) FROM prices p2 WHERE p2.appid=g.appid)
+    """
+
+
+def player_signal_appids(conn, limit: int) -> list[int]:
+    """동접을 물어볼 후보. 한국어·비성인 정식 게임 중 검증된 인기작을 우선한다."""
+    sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
+      WHERE g.korean=1 AND g.adult=0 AND g.coming_soon=0 AND g.app_type='game'
+      ORDER BY CASE WHEN COALESCE(p.discount_pct,0)>0 THEN 0 ELSE 1 END,
+               COALESCE(g.review_count,0) DESC, g.appid DESC
+      LIMIT ?""")
+    return [r[0] for r in conn.execute(sql, (limit,))]
+
+
+def review_signal_appids(conn, limit: int) -> list[int]:
+    """평가 등급 후보. 할인율 50% 이상인 한국어 게임을 오래된 측정부터 갱신한다."""
+    sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
+      WHERE g.korean=1 AND g.adult=0 AND g.app_type='game'
+        AND COALESCE(p.discount_pct,0)>=50 AND COALESCE(g.review_count,0)>=100
+      ORDER BY COALESCE(g.reviews_checked_at,'') ASC,
+               COALESCE(p.discount_pct,0) DESC, COALESCE(g.review_count,0) DESC
+      LIMIT ?""")
+    return [r[0] for r in conn.execute(sql, (limit,))]
+
+
+def save_player_count(conn, appid: int, count: int) -> None:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute(
+        """UPDATE games SET
+             players_previous=COALESCE(players_current,0),
+             players_current=?, players_checked_at=?
+           WHERE appid=?""", (max(int(count), 0), now, appid))
+
+
+def save_review_summary(conn, appid: int, summary: dict) -> None:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute(
+        """UPDATE games SET review_score=?, review_desc=?,
+             review_positive=?, review_negative=?, reviews_checked_at=?
+           WHERE appid=?""",
+        (summary.get("score", 0), summary.get("desc", ""),
+         summary.get("positive", 0), summary.get("negative", 0), now, appid))
+
+
 def observed_days(first: str | None, last: str | None) -> int:
     """가격을 지켜본 날짜 폭(양끝 포함). 가격 행 개수와 다르다."""
     if not first or not last:
@@ -265,6 +328,12 @@ def all_games(conn) -> list[dict]:
             g.update({"price_final": 0, "discount_pct": 0, "price_initial": 0,
                       "lowest_seen": 0, "days_tracked": 0,
                       "at_lowest": False, "atl_trustworthy": False})
+        pos = g.get("review_positive") or 0
+        neg = g.get("review_negative") or 0
+        g["review_total"] = pos + neg
+        g["review_positive_pct"] = round(pos * 100 / (pos + neg)) if pos + neg else 0
+        g["player_delta"] = ((g.get("players_current") or 0)
+                             - (g.get("players_previous") or 0))
         g["score"], g["why"] = score_broadcast(g)
         out.append(g)
     return out

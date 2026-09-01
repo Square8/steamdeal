@@ -270,15 +270,13 @@ def page(title: str, body: str, updated: str, nav: bool = True,
          depth: int = 0) -> str:
     """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
     up = "../" * depth
-    # 메뉴는 사이트가 실제로 잘하는 축(한국어 · 데모 · 신작 · 출시예정)을 먼저 둔다.
-    # 가격은 2일치뿐이라 앞세우면 가장 약한 데이터로 첫인상을 만들게 된다.
+    # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
     jump = (f"""<nav class="jump">
-    <a href="{up}korean-games.html">한국어</a>
-    <a href="{up}korean-demo.html">데모</a>
-    <a href="{up}korean-new.html">신작</a>
-    <a href="{up}korean-soon.html">출시예정</a>
+    <a href="{up}index.html#popular">지금 인기</a>
+    <a href="{up}index.html#hot">핫딜</a>
+    <a href="{up}index.html#soon">기대작</a>
+    <a href="{up}index.html#demo">데모</a>
     <a href="{up}under-10000.html">1만원 이하</a>
-    <a href="{up}index.html#sale">할인 중</a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
     search = (f"""<form class="hsearch" role="search" onsubmit="return sq(this)">
@@ -306,7 +304,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     if config.NAVER_VERIFY:
         verify += f'<meta name="naver-site-verification" content="{esc(config.NAVER_VERIFY)}">'
     return f"""<!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -330,6 +328,11 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <b>스팀<i>딜</i> 레이더</b>
     <span>{esc(config.SITE_TAGLINE)}</span>
   </a>
+  <div class="freshness" title="스팀 데이터 자동 수집 상태">
+    <span class="live-dot" aria-hidden="true"></span>
+    <span>자동 갱신 정상</span>
+    <time>{esc(updated)} KST</time>
+  </div>
   {search}
   {jump}
 </div></header>
@@ -348,6 +351,47 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 
 # ---------------------------------------------------------------- 카드 조각
 
+REVIEW_LABELS = {
+    "overwhelmingly positive": "압도적 긍정",
+    "very positive": "매우 긍정적",
+    "positive": "긍정적",
+    "mostly positive": "대체로 긍정적",
+    "mixed": "복합적",
+    "mostly negative": "대체로 부정적",
+    "negative": "부정적",
+    "very negative": "매우 부정적",
+    "overwhelmingly negative": "압도적 부정",
+}
+
+
+def review_label(g: dict) -> str:
+    raw = (g.get("review_desc") or "").strip()
+    return REVIEW_LABELS.get(raw.lower(), raw)
+
+
+def is_overwhelming(g: dict) -> bool:
+    raw = (g.get("review_desc") or "").lower()
+    return "overwhelmingly positive" in raw or "압도적으로 긍정" in raw
+
+
+def compact_num(v: int) -> str:
+    v = int(v or 0)
+    if v >= 10_000:
+        return f"{v / 10_000:.1f}만".replace(".0만", "만")
+    return f"{v:,}"
+
+
+def checked_time(games: list[dict]) -> str:
+    values = [g.get("players_checked_at") for g in games if g.get("players_checked_at")]
+    if not values:
+        return ""
+    raw = max(values)
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return dt.astimezone(KST).strftime("%m/%d %H:%M")
+    except (ValueError, AttributeError):
+        return raw[:16]
+
 def chips_for(g: dict, show_atl: bool = True) -> str:
     """게임 성격을 칩으로. 색만으로 뜻을 전하지 않도록 항상 글자를 쓴다."""
     out = []
@@ -363,6 +407,8 @@ def chips_for(g: dict, show_atl: bool = True) -> str:
         out.append('<span class="t nokr">한국어 없음</span>')
     if g.get("adult"):
         out.append('<span class="t adult">성인</span>')
+    if review_label(g):
+        out.append(f'<span class="t review">{esc(review_label(g))}</span>')
     if show_atl and atl_label(g):
         out.append(atl_label(g))
     return f'<div class="chips">{"".join(out)}</div>' if out else ""
@@ -390,13 +436,16 @@ def shot(g: dict, ribbon: bool = True) -> str:
     pct = g.get("discount_pct") or 0
     rib = (f'<span class="ribbon {"r-hi" if pct >= 75 else "r-lo"}">-{pct}%</span>'
            if ribbon and pct else "")
+    players = g.get("players_current") or 0
+    playing = (f'<span class="player-badge">● {compact_num(players)}명 플레이 중</span>'
+               if players else "")
     if g.get("header_image"):
         inner = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지" '
                  f'loading="lazy" decoding="async">')
     else:
         initial = esc((g.get("name") or "?").strip()[:2].upper())
         inner = f'<div class="ph" aria-hidden="true">{initial}</div>'
-    return f'<div class="shot">{inner}{rib}</div>'
+    return f'<div class="shot">{inner}{rib}{playing}</div>'
 
 
 def off_class(pct: int) -> str:
@@ -429,8 +478,19 @@ def card(g: dict, big: bool = False) -> str:
     점수는 목록 정렬에만 내부적으로 쓰고, 근거는 상세에서 문장으로 보여준다.
     """
     score = g.get("score") or 0
-    rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
-          else esc(g.get("developer") or g.get("genres") or ""))
+    players = g.get("players_current") or 0
+    delta = g.get("player_delta") or 0
+    if players:
+        movement = f" · {'▲' if delta > 0 else '▼'} {abs(delta):,}" if delta else ""
+        rc = f"현재 {players:,}명 플레이 중{movement}"
+    elif review_label(g):
+        total = g.get("review_total") or g.get("review_count") or 0
+        positive = g.get("review_positive_pct")
+        extra = f" · 긍정 {positive}%" if positive is not None else ""
+        rc = f"{review_label(g)} · 리뷰 {total:,}{extra}"
+    else:
+        rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
+              else esc(g.get("developer") or g.get("genres") or ""))
     hist = g.get("history") or []
     # 가격이 실제로 변한 적이 있을 때만 추이를 그린다.
     # 2일치 데이터에서 전부 평선을 그리면 아무 정보도 없는 장식이 된다.
@@ -536,45 +596,85 @@ def lead(games: list[dict], safe: list[dict]) -> str:
     처음 온 사람은 2초 안에 '여기가 뭐 하는 곳인지' 알아야 한다.
     숫자를 문장 안에 넣으면 "스팀 게임이 78개뿐"으로 읽히므로 명제와 숫자를 분리한다.
     """
+    n_kr = sum(1 for g in safe if g.get("korean"))
     n_demo = sum(1 for g in safe if g.get("korean")
                  and (g.get("has_demo") or g.get("app_type") == "demo"))
-    n_sale = sum(1 for g in safe if (g.get("discount_pct") or 0) > 0)
-    facts = [("추적 중인 게임", len(games)), ("한국어 데모", n_demo), ("오늘 할인 중", n_sale)]
+    n_sale = sum(1 for g in safe if g.get("korean") and (g.get("discount_pct") or 0) > 0)
+    facts = [("한국어 게임", n_kr), ("무료 데모", n_demo), ("지금 할인", n_sale)]
     fh = "".join(f"<span>{esc(k)} <b>{v:,}</b></span>" for k, v in facts)
     return f"""<section class="lead" id="top">
-  <h1>한국어 스팀 신작과 데모를 매일 두 번 찾아드립니다.</h1>
+  <p class="lead-kicker">STEAM DEAL RADAR</p>
+  <h1>한국어로 할 수 있는 스팀 게임,<br>지금 살 만한 것부터.</h1>
   <p class="facts">{fh}</p>
+  <div class="quick-actions" aria-label="빠른 조건">
+    <button type="button" data-jump-filter="off50">🔥 50%+ 할인</button>
+    <button type="button" data-jump-filter="cheap">💸 1만원 이하</button>
+    <button type="button" data-jump-filter="demo">🎮 무료 데모</button>
+    <button type="button" data-jump-filter="kr">🇰🇷 한국어</button>
+    <button type="button" data-jump-filter="soon">🚀 출시예정</button>
+  </div>
 </section>"""
 
 
 def build_index(games: list[dict], updated: str) -> str:
-    import store as _store
     # 기본 화면은 성적 콘텐츠를 제외한다. 전체 탐색기에서 토글로 켤 수 있다.
     safe = [g for g in games if not g.get("adult")]
-    cands = _store.broadcast_candidates(games)          # 이미 점수순 정렬
-    top = cands[0] if cands else (safe[0] if safe else games[0])
+    korean = [g for g in safe if g.get("korean")]
 
-    # 히어로에 쓴 게임만 아래에서 뺀다.
-    # 섹션끼리는 겹쳐도 된다 — '데모'를 보러 온 사람에게 데모 섹션이 비어 있으면 안 되니까.
-    # 예전 문제는 겹침 자체가 아니라 모든 섹션이 '같은 정렬로 같은 목록'이었던 것이므로,
-    # 섹션마다 정렬 기준을 다르게 줘서 실제로 다른 화면이 되게 한다.
-    def rest(pool):
-        return [g for g in pool if g["appid"] != top["appid"]]
+    # 실시간 동접은 공식 Steam 현재 플레이어 수 신호가 있을 때만 주장한다.
+    player_pool = [g for g in korean if (g.get("players_current") or 0) > 0
+                   and not g.get("coming_soon")]
+    if player_pool:
+        popular = sorted(player_pool, key=lambda g: (-(g.get("players_current") or 0),
+                                                      -(g.get("review_count") or 0)))
+        popular_title = "🔥 지금 많이 하는 한국어 게임"
+        stamp = checked_time(player_pool)
+        popular_note = f"Steam 현재 플레이어 수 · {stamp} KST 기준" if stamp else "Steam 현재 플레이어 수 기준"
+    else:
+        popular = sorted([g for g in korean if not g.get("coming_soon")],
+                         key=lambda g: -(g.get("review_count") or 0))
+        popular_title = "🔥 지금 많이 찾는 한국어 게임"
+        popular_note = "동접 신호를 처음 수집하기 전까지 Steam 리뷰 수를 기준으로 보여줍니다."
 
-    demos = sorted(rest([g for g in safe
-                         if g.get("has_demo") or g.get("app_type") == "demo"]),
-                   key=lambda g: -(g.get("review_count") or 0))   # 인기 있는 데모 먼저
-    fresh = sorted(rest([g for g in safe if g.get("tag") == "신작"]),
+    strict_hot = [g for g in korean if (g.get("discount_pct") or 0) >= 70
+                  and is_overwhelming(g)
+                  and (g.get("review_total") or g.get("review_count") or 0) >= 500]
+    if strict_hot:
+        hot = sorted(strict_hot, key=lambda g: (-(g.get("discount_pct") or 0),
+                                                -(g.get("review_total") or g.get("review_count") or 0)))
+        hot_title = "💸 70%+ 할인 · 압도적 긍정"
+        hot_note = "할인율만 세지 않습니다. Steam 전체 리뷰가 ‘압도적으로 긍정적’인 게임만 골랐습니다."
+    else:
+        reviewed_hot = [g for g in korean if (g.get("discount_pct") or 0) >= 70
+                        and (g.get("review_score") or 0) >= 8
+                        and (g.get("review_total") or 0) >= 500]
+        if reviewed_hot:
+            hot = sorted(reviewed_hot, key=lambda g: (-(g.get("discount_pct") or 0),
+                                                       -(g.get("review_total") or 0)))
+            hot_title = "💸 70%+ 할인 · 매우 긍정 이상"
+            hot_note = "할인율과 Steam 전체 리뷰 평가를 함께 통과한 게임입니다."
+        else:
+            hot = sorted([g for g in korean if (g.get("discount_pct") or 0) >= 70
+                          and (g.get("review_count") or 0) >= 500],
+                         key=lambda g: (-(g.get("discount_pct") or 0),
+                                        -(g.get("review_count") or 0)))
+            hot_title = "💸 70%+ 검증된 핫딜"
+            hot_note = "리뷰 요약을 처음 수집하기 전까지 할인율과 리뷰 수로 검증합니다."
+
+    demos = sorted([g for g in korean
+                    if g.get("has_demo") or g.get("app_type") == "demo"],
+                   key=lambda g: -(g.get("review_count") or 0))
+    fresh = sorted([g for g in korean if g.get("tag") == "신작"],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
-                   reverse=True)                                   # 최근 출시 먼저
-    soon = sorted(rest([g for g in safe if g.get("coming_soon")]),
-                  key=lambda g: (g.get("release_date") or "9999", g.get("name") or ""))
-    on_sale = sorted(rest([g for g in safe if g.get("discount_pct")]),
-                     key=lambda g: -g["discount_pct"])
+                   reverse=True)
+    soon = sorted([g for g in korean if g.get("coming_soon")],
+                  key=lambda g: (g.get("release_date") or "9999",
+                                 -(g.get("review_count") or 0), g.get("name") or ""))
+    top = (hot or popular or demos or fresh or soon or safe or games)[0]
 
     days = max((g.get("days_tracked", 0) for g in games), default=0)
-    n_demo = sum(1 for g in safe if g.get("has_demo") or g.get("app_type") == "demo")
-    n_soon = sum(1 for g in safe if g.get("coming_soon"))
+    n_demo = sum(1 for g in korean if g.get("has_demo") or g.get("app_type") == "demo")
+    n_soon = sum(1 for g in korean if g.get("coming_soon"))
     n_kr = sum(1 for g in safe if g.get("korean"))
     tiles = "".join(
         f'<div class="tile"><div class="k">{k}</div><div class="v">{v}</div></div>'
@@ -608,15 +708,27 @@ def build_index(games: list[dict], updated: str) -> str:
     body = f"""
 {lead(games, safe)}
 
-{hero(top)}
+{section("popular", popular_title, popular_note, popular,
+         "인기 신호를 수집하는 중입니다.", rail=True, cap=8,
+         more_href="#all", more_text="전체에서 찾기")}
 
-{section("demo", "데모로 먼저 해볼 수 있는 게임", "사기 전에 무료로 해볼 수 있는 것들.", demos, "데모가 있는 게임이 아직 수집되지 않았습니다.", more_href="korean-demo.html", more_text="무료 데모 전체", feature=True)}
+{section("hot", hot_title, hot_note, hot,
+         "현재 조건에 맞는 70%+ 핫딜이 없습니다.", rail=True, cap=8,
+         more_href="#all", more_text="할인 게임 찾기")}
 
-{section("new", "새로 나온 게임", "", fresh, "신작 목록이 아직 비어 있습니다.", rail=True, more_href="korean-new.html", more_text="신작 전체")}
+{section("soon", "🚀 출시 임박 인기 기대작",
+         "Steam 상점 노출과 출시일 기준입니다. 공개되지 않은 위시리스트 순위는 사용하지 않습니다.",
+         soon, "출시예정 목록이 아직 비어 있습니다.", rail=True,
+         more_href="korean-soon.html", more_text="출시예정 전체")}
 
-{section("soon", "곧 나오는 게임", "출시 전에 미리 찜해두면 좋은 것들.", soon, "출시예정 목록이 아직 비어 있습니다.", rail=True, more_href="korean-soon.html", more_text="출시예정 전체")}
+{section("demo", "🎮 사기 전에 해보는 무료 데모",
+         "한국어로 먼저 플레이해보고 고를 수 있는 게임입니다.", demos,
+         "한국어 데모가 아직 수집되지 않았습니다.", rail=True,
+         more_href="korean-demo.html", more_text="무료 데모 전체")}
 
-{section("sale", "할인 중", "원화 가격을 하루 두 번 기록합니다.", on_sale, "할인 중인 게임이 아직 없습니다.", rail=True, more_href="#all", more_text="전체에서 더 보기")}
+{section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순으로 보여줍니다.", fresh,
+         "한국어 신작 목록이 아직 비어 있습니다.", rail=True,
+         more_href="korean-new.html", more_text="신작 전체")}
 {atl_note}
 
 <section id="all">
@@ -709,6 +821,13 @@ def build_index(games: list[dict], updated: str) -> str:
       f=c.dataset.f; apply();
     }});
   }});
+  document.querySelectorAll('[data-jump-filter]').forEach(function(b){{
+    b.addEventListener('click',function(){{
+      var target=document.querySelector('.presets .chip[data-f="'+b.dataset.jumpFilter+'"]');
+      if(target) target.click();
+      document.getElementById('all').scrollIntoView();
+    }});
+  }});
 
   // 헤더 검색창이 넘겨준 #q=... 을 받아 목록에 반영하고 그 자리로 데려간다.
   window.applyHash=function(){{
@@ -724,10 +843,10 @@ def build_index(games: list[dict], updated: str) -> str:
 }})();
 </script>
 """
-    return page("스팀딜 레이더 — 한국어 지원 스팀 신작 · 데모 · 출시예정",
+    return page("스팀딜 레이더 — 지금 많이 하는 한국어 게임과 검증된 핫딜",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
-                desc=(f"스팀 게임 {len(games):,}개의 한국어 지원 여부와 원화 가격을 추적합니다. "
+                desc=(f"한국어 스팀 게임 {n_kr:,}개의 현재 인기와 원화 가격을 추적합니다. "
                       f"한국어 데모 {n_demo}개, 출시예정 {n_soon}개를 매일 두 번 자동 갱신."))
 
 
@@ -791,6 +910,17 @@ def build_detail(g: dict, updated: str) -> str:
     if g.get("genres"):
         facts.append(("장르", esc(g["genres"])))
     facts.append(("한국어", "지원" if g.get("korean") else "미지원"))
+    if g.get("players_current"):
+        facts.append(("현재 플레이 중", f'{g["players_current"]:,}명'))
+    if review_label(g):
+        total = g.get("review_total") or g.get("review_count") or 0
+        positive = g.get("review_positive_pct")
+        value = review_label(g)
+        if positive is not None:
+            value += f" · 긍정 {positive}%"
+        if total:
+            value += f" ({total:,}개)"
+        facts.append(("Steam 평가", esc(value)))
     if (g.get("review_count") or 0) > 0:
         facts.append(("스팀 리뷰 수", f'{g["review_count"]:,}개'))
     if g.get("has_demo") or g.get("app_type") == "demo":

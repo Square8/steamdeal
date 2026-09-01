@@ -95,6 +95,15 @@ header.top{
 }
 .logo b i{color:var(--brand); font-style:normal}
 .logo span{color:var(--ink-3); font-size:12px}
+.freshness{
+  display:flex; align-items:center; gap:6px; white-space:nowrap;
+  color:var(--ink-2); font-family:"Inter",sans-serif; font-size:11.5px; font-weight:700;
+}
+.freshness time{color:var(--ink-3); font-weight:500}
+.live-dot{
+  width:7px; height:7px; border-radius:50%; flex:none; background:var(--deal);
+  box-shadow:0 0 0 4px var(--deal-soft);
+}
 nav.jump{display:flex; gap:2px; flex-wrap:wrap}
 nav.jump a{
   padding:6px 11px; border-radius:8px; font-size:13px; font-weight:500;
@@ -134,10 +143,14 @@ nav.jump a:hover{background:var(--raised); color:var(--ink)}
 /* 첫 화면 한 줄 명제 + 숫자.
    처음 온 사람은 2초 안에 '여기가 뭐 하는 곳인지' 알아야 한다.
    숫자는 빌드 때 실제 값으로 채운다 (문구는 오해가 없게 명제와 숫자를 분리). */
-.lead{margin:26px 0 20px}
+.lead{margin:38px 0 8px}
+.lead-kicker{
+  margin:0 0 9px; color:var(--brand); font-family:"Inter",sans-serif;
+  font-size:11px; font-weight:800; letter-spacing:.16em;
+}
 .lead h1{
   font-family:"Inter","Gothic A1",sans-serif; font-weight:800;
-  font-size:clamp(1.45rem, 3.4vw, 2.1rem); letter-spacing:-.04em; line-height:1.25;
+  font-size:clamp(1.85rem, 4.5vw, 3rem); letter-spacing:-.055em; line-height:1.14;
   margin:0 0 10px; text-wrap:balance;
 }
 .lead .facts{
@@ -148,6 +161,16 @@ nav.jump a:hover{background:var(--raised); color:var(--ink)}
   font-family:"Inter",sans-serif; font-variant-numeric:tabular-nums;
   color:var(--ink); font-weight:800;
 }
+.quick-actions{
+  display:flex; gap:8px; flex-wrap:wrap; margin-top:18px;
+}
+.quick-actions button{
+  appearance:none; padding:8px 13px; border:1px solid var(--line); border-radius:999px;
+  background:var(--surface); color:var(--ink-2); cursor:pointer;
+  font-family:inherit; font-size:12.5px; font-weight:700;
+}
+.quick-actions button:hover{border-color:var(--brand); color:var(--ink); background:var(--brand-soft)}
+.quick-actions button:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .hero{
   display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:0;
   background:var(--surface); border:1px solid var(--line); border-radius:14px;
@@ -253,6 +276,13 @@ section{margin-top:4rem; scroll-margin-top:76px}
   font-family:"Inter",sans-serif; font-weight:800; font-size:12.5px;
   letter-spacing:-.02em;
 }
+.player-badge{
+  position:absolute; top:8px; right:8px; max-width:calc(100% - 16px);
+  padding:3px 7px; border-radius:7px; background:rgba(4,10,20,.78); color:#f3f7ff;
+  backdrop-filter:blur(5px); font-family:"Inter",sans-serif; font-size:10.5px;
+  font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.ribbon + .player-badge{max-width:calc(100% - 78px)}
 .card-b{padding:11px 13px 13px; display:flex; flex-direction:column; gap:7px; flex:1}
 .card-b .name{
   font-weight:800; font-size:15.5px; line-height:1.3; letter-spacing:-.02em;
@@ -306,6 +336,7 @@ section{margin-top:4rem; scroll-margin-top:76px}
 .t.new{background:var(--deal-soft); color:var(--deal)}
 .t.free{background:var(--deal-soft); color:var(--deal)}
 .t.atl{background:var(--deal-soft); color:var(--deal)}
+.t.review{background:var(--brand-soft); color:var(--brand)}
 .t.nokr,.t.adult{background:var(--raised); color:var(--ink-2)}
 .badge{
   display:inline-flex; align-items:center; gap:3px; padding:1.5px 6px;
@@ -454,10 +485,26 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .wrap{padding:0 13px 60px}
   .grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:11px}
   .rail{
-    grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:186px;
+    grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:204px;
     overflow-x:auto; padding-bottom:10px; scroll-snap-type:x proximity;
+    scrollbar-width:none;
   }
+  .rail::-webkit-scrollbar{display:none}
   .rail > *{scroll-snap-align:start}
+  .rail .card-b{padding:10px 11px 11px; gap:6px}
+  .rail .card-b .name{font-size:15px}
+  .rail .tagline{font-size:10.5px}
+  .rail .shot img,.rail .ph{aspect-ratio:16/9}
+  section{margin-top:3.25rem}
+  .lead{margin-top:28px}
+  .lead h1{font-size:1.95rem}
+  .lead .facts{gap:6px 13px; font-size:12.5px}
+  .quick-actions{
+    flex-wrap:nowrap; overflow-x:auto; margin-left:-13px; margin-right:-13px;
+    padding:0 13px 4px; scrollbar-width:none;
+  }
+  .quick-actions::-webkit-scrollbar{display:none}
+  .quick-actions button{white-space:nowrap}
   .hero-body{padding:17px 17px 16px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
@@ -468,11 +515,13 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   }
   nav.jump::-webkit-scrollbar{display:none}
   nav.jump a{white-space:nowrap}
-  /* 헤더를 2줄로: [로고 | 검색] / [메뉴]. 태그라인은 폭을 다 먹어서 모바일에선 뺀다. */
+  /* 모바일: [로고 | 갱신] / [검색] / [메뉴]. */
   .topin{padding:10px 13px; gap:10px}
   .logo span{display:none}
   .logo{margin-right:0; flex:none}
-  .hsearch{order:2; flex:1 1 auto; min-width:0}
+  .freshness{margin-left:auto}
+  .freshness time{display:none}
+  .hsearch{order:2; flex:1 1 100%; min-width:0}
   .hsearch input{width:100%}
 }
 @media (prefers-reduced-motion:reduce){

@@ -8,6 +8,10 @@ os.environ["SITE_DIR"] = os.path.join(TMP, "site")
 import config, store, build, steam
 import requests
 
+# 네트워크는 전부 가짜 응답이다. 실제 수집용 요청 간격을 기다릴 이유가 없다.
+config.REQUEST_DELAY = 0
+config.SIGNAL_REQUEST_DELAY = 0
+
 FAILS = []
 def check(label, cond, detail=""):
     print(f"  {'PASS' if cond else 'FAIL'}  {label}" + (f"  ({detail})" if detail else ""))
@@ -42,6 +46,17 @@ check("데모 감지", app["has_demo"] == 1 and app["demo_appid"] == 731)
 check("장르 추출", app["genres"] == "액션, 인디", app["genres"])
 check("한국어 출시일 파싱", app["release_date"] == "2026-08-26", str(app["release_date"]))
 check("출시예정 아님", app["coming_soon"] == 0)
+
+print("\n1a) 현재 플레이어·리뷰 신호 파싱")
+players = with_fake({"response": {"result": 1, "player_count": 43210}},
+                    lambda: steam.fetch_current_players(730))
+check("현재 플레이어 수", players == 43210, str(players))
+review = with_fake({"success": 1, "query_summary": {
+    "review_score": 9, "review_score_desc": "Overwhelmingly Positive",
+    "total_positive": 9500, "total_negative": 500, "total_reviews": 10000}},
+    lambda: steam.fetch_review_summary(730))
+check("리뷰 요약", review and review["score"] == 9, str(review))
+check("리뷰 평가 문구", review and review["desc"] == "Overwhelmingly Positive")
 
 print("\n1b) 스크린샷·트레일러 추출 (키 이름을 가정하지 않는다)")
 check("480 을 선호한다", steam._pick_url({"480": "http://a", "max": "http://b"}) == "http://a")
@@ -113,6 +128,15 @@ check("3건 저장", conn.execute("SELECT COUNT(*) FROM games").fetchone()[0] ==
 check("가격 있는 것만 이력에 남음",   # 730, 731 만. 무료(9) 는 제외
       conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 2)
 check("stale 목록 반환", len(store.stale_appids(conn, 10)) == 3)
+store.save_player_count(conn, 730, 43210)
+store.save_review_summary(conn, 730, review)
+conn.execute("UPDATE games SET review_count=10000 WHERE appid=730")
+conn.commit()
+signal_game = next(x for x in store.all_games(conn) if x["appid"] == 730)
+check("현재 플레이어 저장", signal_game["players_current"] == 43210)
+check("리뷰 긍정 비율 계산", signal_game["review_positive_pct"] == 95)
+check("동접 수집 후보", 730 in store.player_signal_appids(conn, 20))
+check("리뷰 수집 후보", 730 in store.review_signal_appids(conn, 20))
 
 print("\n5) 정가는 스팀 값을 쓴다 (관측 최고가로 추정하지 않음)")
 games = store.all_games(conn)
@@ -389,10 +413,14 @@ check("index 생성", os.path.exists(idx))
 # '오늘의 추천'은 나머지 섹션의 합집합이라 중복의 원인이었다(측정: 중복 7개가 전부
 # 이 섹션에서 나왔고, 빼면 0이 됨). 히어로가 같은 역할을 하므로 없앴다.
 check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천" not in h)
-check("첫 화면 명제", "매일 두 번 찾아드립니다" in h)
+check("첫 화면 명제", "지금 살 만한 것부터" in h)
 check("명제 옆 숫자는 실제 값", 'class="facts"' in h and "<b>" in h)
-check("데모 섹션", "데모로 먼저 해볼 수 있는 게임" in h)
-check("히어로(오늘 하나) 존재", 'class="hero"' in h and "오늘의 한 편" in h)
+check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h and "70%+" in h)
+check("기대작 표현이 정직함", "출시 임박 인기 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
+check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
+check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
+check("상단 갱신 상태", "자동 갱신 정상" in h and 'class="live-dot"' in h)
+check("빠른 조건 버튼", 'data-jump-filter="off50"' in h and 'data-jump-filter="cheap"' in h)
 # CSS 는 style.css 로 분리됐다 (페이지마다 인라인하면 게임 수만큼 중복)
 _css = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
 check("style.css 로 분리됨", len(_css) > 5000 and "<style>" not in h)
@@ -413,17 +441,19 @@ check("사이트 정체성이 방송이 아니라 발견", "방송 적합도" no
 check("개발자용 문구 노출 없음", "config.py" not in h)
 check("상세 페이지 생성", os.path.exists(os.path.join(config.SITE_DIR, "game", "730.html")))
 
-print("\n9b) 중복 노출 / 이미지 자리표시 / 빈 그래프 안내")
+print("\n9b) 카드 신호 / 이미지 자리표시 / 빈 그래프 안내")
 import re as _re
-# 히어로에 쓴 게임이 바로 아래 '방송 후보' 그리드에 또 나오지 않아야 한다
-hero_block = h.split('<section id="demo"')[0]
-demo_block = h.split('<section id="demo"')[1].split("</section>")[0]
-hero_ids = set(_re.findall(r'./game/(\d+)\.html', hero_block))
-demo_ids = set(_re.findall(r'./game/(\d+)\.html', demo_block))
-check("히어로 게임이 아래 섹션에서 중복되지 않음",
-      not (hero_ids & demo_ids), f"겹침={hero_ids & demo_ids}")
 _nbig = h.count('class="card big"')
-check("핵심 섹션 첫 카드만 크게", _nbig == 1, f"{_nbig}장")
+check("모바일 레일 카드 크기를 균일하게 유지", _nbig == 0, f"{_nbig}장")
+signal_card = build.card({"appid": 730, "name": "신호 게임", "korean": 1,
+                          "players_current": 43210, "player_delta": 210,
+                          "review_desc": "Overwhelmingly Positive",
+                          "review_total": 10000, "review_positive_pct": 95,
+                          "history": [], "price_final": 33000})
+check("카드에 현재 플레이어 수", "43,210명 플레이 중" in signal_card)
+check("카드에 리뷰 평가 칩", "압도적 긍정" in signal_card)
+check("상세 리뷰 영문을 한국어로 바꿈", build.review_label(
+      {"review_desc": "Overwhelmingly Positive"}) == "압도적 긍정")
 # 할인 세기가 색으로 구분되는가 (숫자와 함께 쓰므로 색 단독 아님)
 check("할인 75%+ 는 다른 등급으로 표시", build.off_class(90) == "off-hi")
 check("50~74% 는 중간 등급", build.off_class(60) == "off-mid")
@@ -447,7 +477,7 @@ check("트레일러가 있으면 영상, poster 는 항상 깔린다",
       and 'poster="http://p"' in build.media_main(
           {"appid": 1, "name": "x", "movie_mp4": "http://m.mp4", "movie_poster": "http://p"}))
 check("데모가 있으면 데모 섹션이 비지 않음",
-      "데모가 있는 게임이 아직 수집되지 않았습니다" not in h)
+      "한국어 데모가 아직 수집되지 않았습니다" not in h)
 # hidden 속성이 실제로 먹는지. .card 가 display:flex 라서 이 규칙이 없으면
 # 검색·필터·성인숨김이 전부 무효가 된다 (실제로 났던 버그)
 check("[hidden] 규칙이 있어 필터가 실제로 숨긴다",

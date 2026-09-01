@@ -20,6 +20,35 @@ import steam
 import store
 
 
+def _collect_signals(conn, log) -> tuple[int, int]:
+    """홈 트렌드용 리뷰 등급·현재 동접을 제한된 후보에만 붙인다."""
+    review_ok = player_ok = 0
+    review_ids = store.review_signal_appids(conn, config.REVIEW_SIGNAL_LIMIT)
+    player_ids = store.player_signal_appids(conn, config.PLAYER_SIGNAL_LIMIT)
+    log.info("트렌드 신호 — 리뷰 후보 %d / 동접 후보 %d",
+             len(review_ids), len(player_ids))
+
+    for i, appid in enumerate(review_ids, 1):
+        summary = steam.fetch_review_summary(appid)
+        if summary is not None:
+            store.save_review_summary(conn, appid, summary)
+            review_ok += 1
+        if i % 20 == 0:
+            conn.commit()
+
+    for i, appid in enumerate(player_ids, 1):
+        count = steam.fetch_current_players(appid)
+        if count is not None:
+            store.save_player_count(conn, appid, count)
+            player_ok += 1
+        if i % 20 == 0:
+            conn.commit()
+    conn.commit()
+    log.info("트렌드 신호 완료 — 리뷰 %d/%d, 동접 %d/%d",
+             review_ok, len(review_ids), player_ok, len(player_ids))
+    return review_ok, player_ok
+
+
 def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
     """(부를 목록, 그중 개척분 appid). 개척 적중률을 따로 재려면 구분이 필요하다 —
     첫 배포에서 개척 440개 중 8개만 건진 걸 진행 로그로 역산해서야 알았다."""
@@ -96,6 +125,11 @@ def main() -> int:
     log = logging.getLogger("collect")
     conn = store.connect()
 
+    if "--signals-only" in sys.argv:
+        review_ok, player_ok = _collect_signals(conn, log)
+        conn.close()
+        return 0 if review_ok or player_ok else 1
+
     targets, explore_ids = _plan(conn, log)
     if not targets:
         log.error("부를 대상이 없다. 스팀 API 응답을 확인할 것.")
@@ -122,6 +156,10 @@ def main() -> int:
             log.info("  진행 %d/%d (저장 %d, 무관 %d, 제외 %d)",
                      i, len(targets), ok, dropped, failed)
     conn.commit()
+
+    # appdetails 전체 수집과 분리된 작은 후보군만 확인한다. 이 단계가 실패해도
+    # 가격 수집 결과는 유지되고, 홈은 기존 리뷰 수 기반으로 안전하게 폴백한다.
+    _collect_signals(conn, log)
 
     if ex_seen:
         log.info("개척 적중률 %d/%d (%.1f%%) — 낮으면 훑는 위치가 틀린 것이다",

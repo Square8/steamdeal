@@ -30,10 +30,20 @@ NAVER_VERIFY = os.environ.get("NAVER_SITE_VERIFICATION", "").strip()
 
 # ---- 스팀 API ----
 CC = "kr"
-LANG = "korean"
+# Steam Store API 언어 코드는 korean 이 아니라 koreana 다.
+# 잘못된 값은 설명이 독일어 등 다른 언어로 섞여 들어오는 원인이 된다.
+LANG = "koreana"
 REQUEST_DELAY = 1.5      # 스팀 appdetails 는 요청수 제한이 있다. 줄이지 말 것.
 TIMEOUT = 20
 MAX_RETRY = 2
+
+# 홈의 트렌드 섹션에 쓰는 보조 신호. appdetails 와 달리 후보 게임에만 붙인다.
+# 전체 게임에 매번 요청하면 수집 시간이 폭증하므로, 검증된 인기/할인 후보만 갱신한다.
+PLAYERS_URL = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
+REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
+SIGNAL_REQUEST_DELAY = 0.8
+PLAYER_SIGNAL_LIMIT = 80
+REVIEW_SIGNAL_LIMIT = 60
 
 # 한 실행에서 상세조회할 최대 게임 수.
 # REQUEST_DELAY(1.5초)를 지키므로 800개 = 약 20분. Actions 단일 잡 상한은 6시간이고
@@ -143,4 +153,4 @@ KEEP_ONLY_RELEVANT = True
 # 홈의 '전체에서 찾기' 격자에 서버가 미리 그려두는 카드 수 상한.
 # 무제한이면 게임 9천개에서 index.html 이 6.9MB 가 된다(실측). 그건 모바일에서
 # 열리지 않는다. 더 좁은 목록은 상단 메뉴의 랜딩 페이지가 담당한다.
-MAX_INDEX_CARDS = 400
+MAX_INDEX_CARDS = 240
