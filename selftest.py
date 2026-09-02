@@ -7,6 +7,7 @@ os.environ["SITE_DIR"] = os.path.join(TMP, "site")
 
 import config, store, build, steam
 import requests
+import re
 
 # 네트워크는 전부 가짜 응답이다. 실제 수집용 요청 간격을 기다릴 이유가 없다.
 config.REQUEST_DELAY = 0
@@ -461,6 +462,23 @@ check("정렬 컨트롤", 'id="sort"' in h and 'value="cheap"' in h)
 check("성인 포함 토글", 'id="adult"' in h)
 check("카드에 합성 점수 없음", 'class="score-n"' not in h and 'class="bar"' not in h)
 check("헤더에 검색창", 'class="hsearch"' in h and 'name="q"' in h)
+check("?q= 쿼리 파라미터 기반 검색 스크립트", 'new URLSearchParams' in h and 'params.get(\'q\')' in h)
+check("기존 #q= 하위 호환 스크립트", "h.indexOf('#q=')" in h)
+check("초기화 시 q 파라미터 제거", "history.replaceState(null, '', location.pathname)" in h)
+
+idx_s_action = re.search(r'"target":\s*"([^"]+)"', h)
+if idx_s_action:
+    check("SearchAction target이 홈페이지 ?q= 형식인지", "?q={search_term_string}" in idx_s_action.group(1))
+else:
+    check("SearchAction target이 홈페이지 ?q= 형식인지", False)
+
+# 랜딩페이지 SearchAction 확인
+l_html = open(os.path.join(config.SITE_DIR, "korean-games.html"), encoding="utf-8").read()
+l_s_action = re.search(r'"@type":\s*"SearchAction",\s*"target":\s*"([^"]+)"', l_html)
+if l_s_action:
+    check("랜딩페이지 SearchAction도 홈페이지 ?q= 형식인지", "index.html?q={search_term_string}" in l_s_action.group(1))
+else:
+    check("랜딩페이지 SearchAction도 홈페이지 ?q= 형식인지", False)
 check("전체 목록 더 보기 버튼", 'id="moreBtn"' in h)
 check("사이트 정체성이 할인/발견 중심임", "추천 적합도" not in h and "추천 후보" not in h)
 check("개발자용 문구 노출 없음", "config.py" not in h)
@@ -557,7 +575,6 @@ del os.environ["SITE_URL"]
 importlib.reload(config); importlib.reload(build)
 
 print("\n9d) JSON-LD 구조화 데이터")
-import re
 import json
 idx3 = open(idx, encoding="utf-8").read()
 ld_idx_match = re.search(r'<script type="application/ld\+json">\s*(\{.*?\})\s*</script>', idx3, re.DOTALL)

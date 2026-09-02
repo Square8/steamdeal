@@ -411,16 +411,13 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <a href="{up}index.html#all">찜 <span class="wish-count">0</span></a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
-    search = (f"""<form class="hsearch" role="search" onsubmit="return sq(this)">
+    search = (f"""<form class="hsearch" role="search" action="{up}index.html" method="GET">
     <input type="search" name="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
     <button type="submit" aria-label="검색">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
            aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L15 15"/></svg>
     </button>
-  </form>
-  <script>function sq(f){{var v=(f.q.value||'').trim();
-    location.href='{up}index.html'+(v?'#q='+encodeURIComponent(v):'#all');
-    if(window.applyHash)window.applyHash();return false;}}</script>""" if nav else "")
+  </form>""" if nav else "")
     desc = desc or DEFAULT_DESC
     can = (f'<link rel="canonical" href="{esc(abs_url(canonical))}">'
            if canonical else "")
@@ -912,7 +909,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
 <script>
 (function(){{
   var PAGE=24, shown=PAGE;
-  var list=document.getElementById('list'), q=document.getElementById('q');
+  var list=document.getElementById('list'), q=document.getElementById('q'), hq=document.querySelector('.hsearch input[name="q"]');
   var sort=document.getElementById('sort'), adult=document.getElementById('adult');
   var msg=document.getElementById('noneMsg'), cnt=document.getElementById('cnt');
   var moreWrap=document.getElementById('moreWrap'), moreBtn=document.getElementById('moreBtn');
@@ -969,7 +966,18 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
   }}
   function apply(){{ shown=PAGE; render(); }}
   moreBtn.addEventListener('click',function(){{ shown+=PAGE; render(); }});
-  q.addEventListener('input',apply);
+  
+  function handleInput(v) {{
+    if (q) q.value = v;
+    if (hq) hq.value = v;
+    var newUrl = location.pathname + (v ? '?q=' + encodeURIComponent(v) : '');
+    history.replaceState(null, '', newUrl);
+    apply();
+  }}
+  
+  if (q) q.addEventListener('input', function() {{ handleInput(q.value); }});
+  if (hq) hq.addEventListener('input', function() {{ handleInput(hq.value); }});
+  
   sort.addEventListener('change',apply);
   adult.addEventListener('change',apply);
   chips.forEach(function(c){{
@@ -988,26 +996,42 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
   var resetBtnNode = document.getElementById('resetBtn');
   if(resetBtnNode) {{
     resetBtnNode.addEventListener('click', function(){{
-      q.value = '';
+      if (q) q.value = '';
+      if (hq) hq.value = '';
       sort.value = 'score';
       adult.checked = false;
       var allChip = document.querySelector('.presets .chip[data-f="all"]');
       if (allChip) allChip.click();
-      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+      history.replaceState(null, '', location.pathname);
     }});
   }}
 
-  // 헤더 검색창이 넘겨준 #q=... 을 받아 목록에 반영하고 그 자리로 데려간다.
-  window.applyHash=function(){{
-    var h=location.hash||'';
-    if (h.indexOf('#q=')!==0) return;
-    try {{ q.value=decodeURIComponent(h.slice(3)); }} catch(e) {{ q.value=h.slice(3); }}
+  // 초기 진입 및 popstate 시 URL 파라미터(?q=) 또는 해시(#q=)를 읽어 검색창에 반영한다.
+  window.syncURL=function(){{
+    var params = new URLSearchParams(window.location.search);
+    var searchStr = params.get('q');
+    var h = location.hash||'';
+    var v = '';
+    
+    if (searchStr !== null) {{
+      v = searchStr;
+    }} else if (h.indexOf('#q=') === 0) {{
+      v = h.slice(3);
+      try {{ v=decodeURIComponent(v); }} catch(e) {{}}
+      history.replaceState(null, '', location.pathname + '?q=' + encodeURIComponent(v));
+    }}
+    
+    if (q) q.value = v;
+    if (hq) hq.value = v;
+    
     apply();
-    document.getElementById('all').scrollIntoView();
+    if (searchStr !== null || h.indexOf('#q=') === 0) {{
+      document.getElementById('all').scrollIntoView();
+    }}
   }};
-  window.addEventListener('hashchange', window.applyHash);
-  apply();
-  window.applyHash();
+  window.addEventListener('hashchange', window.syncURL);
+  window.addEventListener('popstate', window.syncURL);
+  window.syncURL();
 }})();
 </script>
 """
@@ -1479,7 +1503,7 @@ def build_landing(spec: dict, games: list[dict], updated: str,
         "url": abs_url(""),
         "potentialAction": {
             "@type": "SearchAction",
-            "target": abs_url(f"{spec['slug']}.html") + "?q={search_term_string}",
+            "target": abs_url("index.html") + "?q={search_term_string}",
             "query-input": "required name=search_term_string"
         }
     }
