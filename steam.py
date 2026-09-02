@@ -283,6 +283,10 @@ def fetch_app(appid: int) -> dict | None:
         mp4 = _pick_url(mv.get("mp4"))
         webm = _pick_url(mv.get("webm"))
         poster = _pick_url(mv.get("thumbnail"))
+        
+        # mp4, webm이 모두 비어있지만 movie_id가 있는 경우 (hls_h264 등 최신 형식 대응)
+        if not mp4 and not webm and mv.get("id"):
+            mp4 = f"https://cdn.akamai.steamstatic.com/steam/apps/{mv['id']}/movie480.mp4"
         if not MEDIA_STATS["sample_movie_keys"]:
             MEDIA_STATS["sample_movie_keys"] = ",".join(sorted(mv.keys()))[:160]
             src = mv.get("mp4") or mv.get("webm")

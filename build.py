@@ -1051,6 +1051,7 @@ def media_main(g: dict) -> str:
     alt = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지">'
            if g.get("header_image") else "")
     return f"""<div class="dmedia">
+  <div class="dmedia-title">Steam 트레일러</div>
   <video class="dvid" playsinline muted loop controls preload="none"
          poster="{esc(poster)}" aria-label="{esc(g['name'])} 트레일러">
     {src}{alt}

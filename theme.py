@@ -183,7 +183,7 @@ nav.jump a:hover{background:var(--raised); color:var(--ink)}
 .hero-img{position:relative; background:var(--raised); min-height:210px}
 /* 이미지가 칸을 꽉 채우게. 안 그러면 본문이 더 길 때 아래에 빈 띠가 남는다. */
 .hero-img .shot{height:100%}
-.hero-img .shot img,.hero-img .ph{
+.hero-img .shot img, .hero-img .ph{
   width:100%; height:100%; aspect-ratio:auto; object-fit:cover; display:block;
 }
 .hero-body{padding:22px 24px 20px; display:flex; flex-direction:column; gap:10px}
@@ -262,10 +262,10 @@ section{margin-top:4rem; scroll-margin-top:76px}
 /* 눈이 멈출 곳을 하나 만든다. 모든 섹션에 쓰면 다시 균일해져서 의미가 없다. */
 .card.big{grid-column:span 2; grid-row:span 1}
 .card.big .name{font-size:19px}
-.card.big .shot img,.card.big .ph{aspect-ratio:920/215}
+.card.big .shot img, .card.big .ph{aspect-ratio:920/215}
 @media (max-width:700px){ .card.big{grid-column:span 1}
   .card.big .name{font-size:15.5px}
-  .card.big .shot img,.card.big .ph{aspect-ratio:460/215} }
+  .card.big .shot img, .card.big .ph{aspect-ratio:460/215} }
 .card:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .shot{position:relative; background:var(--raised)}
 .shot img{width:100%; aspect-ratio:460/215; object-fit:cover; display:block}
@@ -431,10 +431,11 @@ footer p{margin:0}
 
 /* ================= 상세: '이게 무슨 게임인가'에 답하는 부분 ================= */
 .dmedia{border-radius:12px; overflow:hidden; border:1px solid var(--line);
-  background:var(--raised)}
+  background:var(--raised); max-width: 100%}
+.dmedia-title{padding:8px 12px; font-size:13px; font-weight:700; color:var(--ink-2); background:var(--surface); border-bottom:1px solid var(--line)}
 .dmedia .shot{border:0; border-radius:0}
-.dvid{display:block; width:100%; height:auto; aspect-ratio:16/9;
-  background:#000; object-fit:cover}
+.dvid{display:block; width:100%; max-width:100%; height:auto; aspect-ratio:16/9;
+  background:#000; object-fit:contain}
 /* 스크린샷 스트립. 좁은 화면에서는 손가락으로 밀 수 있게 가로 스크롤. */
 .shots{display:grid; grid-template-columns:repeat(4,1fr); gap:9px}
 .shots img{
@@ -535,7 +536,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .rail .card-b{padding:10px 11px 11px; gap:6px}
   .rail .card-b .name{font-size:15px}
   .rail .tagline{font-size:10.5px}
-  .rail .shot img,.rail .ph{aspect-ratio:16/9}
+  .rail .shot img, .rail .ph{aspect-ratio:16/9}
   .rail .wish{top:43px}
   section{margin-top:3.25rem}
   .lead{margin-top:28px}

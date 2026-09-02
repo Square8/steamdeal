@@ -36,7 +36,8 @@ payload = {"730": {"success": True, "data": {
     "release_date": {"coming_soon": False, "date": "2026년 8월 26일"},
     "supported_languages": "English<strong>*</strong>, Korean, Japanese",
     "genres": [{"description": "액션"}, {"description": "인디"}],
-    "demos": [{"appid": 731, "description": ""}]}}}
+    "demos": [{"appid": 731, "description": ""}],
+    "movies": [{"highlight": True, "webm": {"max": "http://x/movie.webm"}, "mp4": {"max": "http://x/movie.mp4"}, "thumbnail": "http://x/poster.jpg"}]}}}
 app = with_fake(payload, lambda: steam.fetch_app(730))
 check("파싱 성공", app is not None)
 check("가격 원 단위(센트→원)", app["price_final"] == 33000, str(app["price_final"]))
@@ -46,6 +47,13 @@ check("데모 감지", app["has_demo"] == 1 and app["demo_appid"] == 731)
 check("장르 추출", app["genres"] == "액션, 인디", app["genres"])
 check("한국어 출시일 파싱", app["release_date"] == "2026-08-26", str(app["release_date"]))
 check("출시예정 아님", app["coming_soon"] == 0)
+
+payload_fb = {"999": {"success": True, "data": {
+    "type": "game", "name": "Fallback Test",
+    "movies": [{"id": 2569999, "thumbnail": "http://x/thumb.jpg"}]}}}
+app_fb = with_fake(payload_fb, lambda: steam.fetch_app(999))
+check("fallback MP4 URL 생성", app_fb["movie_mp4"] == "https://cdn.akamai.steamstatic.com/steam/apps/2569999/movie480.mp4")
+check("fallback thumbnail 유지", app_fb["movie_poster"] == "http://x/thumb.jpg")
 
 print("\n1a) 현재 플레이어·리뷰 신호 파싱")
 players = with_fake({"response": {"result": 1, "player_count": 43210}},
@@ -479,13 +487,13 @@ check("스크린샷이 있으면 상세에 게임 화면 절이 생긴다",
       "게임 화면" in build.shots_strip({"name": "x", "screenshots": "http://a\nhttp://b"}))
 check("스크린샷이 없으면 빈 절을 만들지 않는다",
       build.shots_strip({"name": "x", "screenshots": ""}) == "")
-check("트레일러가 없으면 표지로 떨어진다",
-      "<video" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}))
-check("트레일러가 있으면 영상, poster 는 항상 깔린다",
-      "<video" in build.media_main({"appid": 1, "name": "x", "header_image": "http://h",
-                                    "movie_mp4": "http://m.mp4", "movie_poster": "http://p"})
-      and 'poster="http://p"' in build.media_main(
-          {"appid": 1, "name": "x", "movie_mp4": "http://m.mp4", "movie_poster": "http://p"}))
+check("트레일러가 없으면 이미지 fallback (Steam 트레일러 제목 없음)",
+      "<video" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}) and
+      "Steam 트레일러" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}))
+mm_video = build.media_main({"appid": 1, "name": "x", "header_image": "http://h",
+                             "movie_mp4": "http://m.mp4", "movie_poster": "http://p"})
+check("트레일러가 있으면 Steam 트레일러 제목과 video 태그 생성",
+      "Steam 트레일러" in mm_video and "<video" in mm_video and 'poster="http://p"' in mm_video)
 check("데모가 있으면 데모 섹션이 비지 않음",
       "한국어 데모가 아직 수집되지 않았습니다" not in h)
 # hidden 속성이 실제로 먹는지. .card 가 display:flex 라서 이 규칙이 없으면
@@ -561,6 +569,7 @@ if ld_730_match:
         check("상세 페이지 VideoGame schema 파싱 성공", ld_730.get("@type") == "VideoGame")
     except Exception as e:
         check("상세 페이지 JSON-LD 파싱 실패", False, str(e))
+
 
 print("\n10) XSS")
 conn = store.connect()
