@@ -805,6 +805,129 @@ check(f"전체 목록 초기 카드가 24개 이하이며 0이 아님 (실제: {
 check(f"전체 목록 초기 카드에 성인 콘텐츠 없음 (실제: {_all_adult}개)", _all_adult == 0)
 
 
+print("\n14) 미디어 백필 (트레일러 안전 수집)")
+import sqlite3
+mig_conn = sqlite3.connect(":memory:")
+mig_conn.row_factory = sqlite3.Row
+legacy_schema = store.SCHEMA.replace("media_checked_at TEXT,", "")
+mig_conn.executescript(legacy_schema)
+mig_cols_before = {r["name"] for r in mig_conn.execute("PRAGMA table_info(games)")}
+check("마이그레이션 전 media_checked_at 칼럼 없음", "media_checked_at" not in mig_cols_before)
+mig_conn.execute("""
+    INSERT INTO games (appid, name, adult, checked_at, first_seen, last_seen, movie_mp4, movie_webm)
+    VALUES (9001, 'Has MP4', 0, '2026-09-01', '2026-09-01', '2026-09-01', 'http://cdn/video.mp4', ''),
+           (9002, 'No Movie', 0, '2026-09-01', '2026-09-01', '2026-09-01', '', ''),
+           (9003, 'Has WebM Only', 0, '2026-09-01', '2026-09-01', '2026-09-01', '', 'http://cdn/video.webm')
+""")
+mig_conn.commit()
+
+store._migrate(mig_conn)
+mig_cols_after = {r["name"] for r in mig_conn.execute("PRAGMA table_info(games)")}
+check("기존 DB에 새 열이 없어도 자동 마이그레이션됨", "media_checked_at" in mig_cols_after)
+r9001 = mig_conn.execute("SELECT media_checked_at FROM games WHERE appid=9001").fetchone()
+r9002 = mig_conn.execute("SELECT media_checked_at FROM games WHERE appid=9002").fetchone()
+r9003 = mig_conn.execute("SELECT media_checked_at FROM games WHERE appid=9003").fetchone()
+check("기존 MP4 영상 있는 게임은 checked_at으로 채워져 재수집 방지", r9001["media_checked_at"] == '2026-09-01')
+check("기존 영상 없는 게임은 media_checked_at이 비어있어 백필 대상 유지", r9002["media_checked_at"] is None)
+check("movie_webm만 있는 기존 게임도 마이그레이션 후 media_checked_at 기록됨", r9003["media_checked_at"] == '2026-09-01')
+
+bf_conn = sqlite3.connect(":memory:")
+bf_conn.row_factory = sqlite3.Row
+bf_conn.executescript(store.SCHEMA)
+bf_conn.execute("""
+    INSERT INTO games (appid, name, app_type, adult, review_count, media_checked_at, checked_at, first_seen, last_seen)
+    VALUES (2001, 'Game A', 'game', 0, 500, NULL, '2026-09-01', '2026-09-01', '2026-09-01'),
+           (2002, 'Demo B', 'demo', 0, 100, NULL, '2026-09-01', '2026-09-01', '2026-09-01'),
+           (2003, 'Game C Checked', 'game', 0, 1000, '2026-09-01 12:00:00', '2026-09-01', '2026-09-01', '2026-09-01'),
+           (2004, 'Adult D', 'game', 1, 9999, NULL, '2026-09-01', '2026-09-01', '2026-09-01')
+""")
+bf_conn.commit()
+
+candidates = store.media_backfill_appids(bf_conn, 10)
+check("성인 게임 제외 (2004 제외)", 2004 not in candidates)
+check("이미 media_checked_at이 있는 게임은 재선택하지 않음 (2003 제외)", 2003 not in candidates)
+check("미디어 미확인 비성인 정식 게임이 데모보다 우선 선택됨", candidates == [2001, 2002])
+
+deduped = store.media_backfill_appids(bf_conn, 10, exclude_appids={2001})
+check("일반 수집 대상과 중복 제거", 2001 not in deduped and deduped == [2002])
+
+bf_conn.execute("INSERT INTO games (appid, name, app_type, adult, checked_at, first_seen, last_seen) VALUES (4001, 'Fallback Backfill Game', 'game', 0, '2026-09-01', '2026-09-01', '2026-09-01')")
+bf_conn.execute("INSERT INTO games (appid, name, app_type, adult, checked_at, first_seen, last_seen) VALUES (4002, 'No Video Backfill Game', 'game', 0, '2026-09-01', '2026-09-01', '2026-09-01')")
+bf_conn.commit()
+
+payload_fb = {"4001": {"success": True, "data": {
+    "type": "game",
+    "name": "Fallback Backfill Game",
+    "movies": [{"id": 777888, "highlight": True}]
+}}}
+parsed_fb = with_fake(payload_fb, lambda: steam.fetch_app(4001))
+check("steam.py에서 fallback MP4 생성", "movie480.mp4" in parsed_fb["movie_mp4"])
+store.save(bf_conn, parsed_fb)
+saved_fb = bf_conn.execute("SELECT movie_mp4, media_checked_at FROM games WHERE appid=4001").fetchone()
+check("fallback MP4가 저장되고 media_checked_at도 기록됨",
+      saved_fb["movie_mp4"] == parsed_fb["movie_mp4"] and bool(saved_fb["media_checked_at"]))
+
+payload_no_vid = {"4002": {"success": True, "data": {
+    "type": "game",
+    "name": "No Video Backfill Game",
+    "movies": []
+}}}
+parsed_no_vid = with_fake(payload_no_vid, lambda: steam.fetch_app(4002))
+store.save(bf_conn, parsed_no_vid)
+saved_no_vid = bf_conn.execute("SELECT movie_mp4, media_checked_at FROM games WHERE appid=4002").fetchone()
+check("실제 영상이 없는 게임은 movie_mp4 없음", not saved_no_vid["movie_mp4"])
+check("성공 응답이지만 movie 없는 게임은 media_checked_at 기록됨", bool(saved_no_vid["media_checked_at"]))
+check("영상 없는 확인 완료 게임은 백필 후보에서 제외됨", 4002 not in store.media_backfill_appids(bf_conn, 10))
+
+# 실패 처리 및 백필 계속 진행 테스트:
+# 5001: fetch 실패 (None 반환)
+# 5002: fetch 성공이지만 movie 없음 (실제 영상 없음)
+# 5003: fetch 성공 및 영상 있음 (5001 실패 후에도 중단되지 않고 다음 게임 처리가 계속되는지 확인)
+test_fail_conn = sqlite3.connect(":memory:")
+test_fail_conn.row_factory = sqlite3.Row
+test_fail_conn.executescript(store.SCHEMA)
+test_fail_conn.execute("""
+    INSERT INTO games (appid, name, app_type, adult, checked_at, first_seen, last_seen)
+    VALUES (5001, 'Fail Game', 'game', 0, '2026-09-01', '2026-09-01', '2026-09-01'),
+           (5002, 'No Movie Game', 'game', 0, '2026-09-01', '2026-09-01', '2026-09-01'),
+           (5003, 'Success Game', 'game', 0, '2026-09-01', '2026-09-01', '2026-09-01')
+""")
+test_fail_conn.commit()
+
+payload_5002 = {"5002": {"success": True, "data": {"type": "game", "name": "No Movie Game", "movies": []}}}
+payload_5003 = {"5003": {"success": True, "data": {"type": "game", "name": "Success Game", "movies": [{"id": 55555, "highlight": True}]}}}
+
+def _route_backfill(url, *a, **k):
+    p = str(k.get("params") or "")
+    if "5001" in p:
+        return FakeResp(None)
+    if "5002" in p:
+        return FakeResp(payload_5002)
+    if "5003" in p:
+        return FakeResp(payload_5003)
+    return FakeResp({})
+
+_orig_get = requests.get
+try:
+    requests.get = _route_backfill
+    res_multi = _collect._collect_media_backfill(test_fail_conn, _lg.getLogger("test_fail"))
+finally:
+    requests.get = _orig_get
+
+check("failed / no_video 카운트가 서로 구분됨", res_multi["failed"] == 1 and res_multi["no_video"] == 1 and res_multi["found"] == 1)
+
+row_5001 = test_fail_conn.execute("SELECT media_checked_at FROM games WHERE appid=5001").fetchone()
+check("fetch_app이 None인 경우 media_checked_at이 비어 있음", row_5001["media_checked_at"] is None)
+check("실패한 게임은 다음 백필 후보에 다시 포함됨", 5001 in store.media_backfill_appids(test_fail_conn, 10))
+
+row_5002 = test_fail_conn.execute("SELECT movie_mp4, media_checked_at FROM games WHERE appid=5002").fetchone()
+check("실제 영상 없음으로 정상 처리된 게임은 media_checked_at 기록됨", bool(row_5002["media_checked_at"]))
+check("영상 없는 확인 완료 게임은 다음 백필 후보에서 제외됨", 5002 not in store.media_backfill_appids(test_fail_conn, 10))
+
+row_5003 = test_fail_conn.execute("SELECT movie_mp4, media_checked_at FROM games WHERE appid=5003").fetchone()
+check("백필 중 한 게임이 실패해도 다음 게임 처리가 계속됨", "movie480.mp4" in (row_5003["movie_mp4"] or ""))
+
+
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")

@@ -50,6 +50,63 @@ def _collect_signals(conn, log) -> tuple[int, int]:
     return review_ok, player_ok
 
 
+def _collect_media_backfill(conn, log, exclude_appids: set[int] | None = None) -> dict:
+    """트레일러 정보가 비어 있는 기존 게임의 미디어를 안전하게 백필한다."""
+    limit = config.MEDIA_BACKFILL_LIMIT
+    remaining_before = store.count_media_unchecked(conn)
+    backfill_ids = store.media_backfill_appids(conn, limit, exclude_appids=exclude_appids)
+
+    log.info("미디어 백필 — 대상 %d개 (전체 미확인 %d개)", len(backfill_ids), remaining_before)
+    if not backfill_ids:
+        return {"targets": 0, "fallback": 0, "found": 0, "no_video": 0, "failed": 0, "remaining": remaining_before}
+
+    found = 0
+    fallback = 0
+    no_video = 0
+    failed = 0
+
+    for i, appid in enumerate(backfill_ids, 1):
+        prev_fallback = steam.MEDIA_STATS.get("fallback_mp4", 0)
+        try:
+            app = steam.fetch_app(appid)
+        except Exception as e:
+            log.warning("미디어 백필 fetch 실패 (appid %s): %s", appid, e)
+            app = None
+
+        if app is None:
+            # 네트워크 일시 실패, API 오류 등일 수 있으므로 media_checked_at을 기록하지 않고
+            # 다음 실행에서 재시도할 수 있도록 남겨둔다.
+            failed += 1
+        else:
+            used_fallback = (steam.MEDIA_STATS.get("fallback_mp4", 0) > prev_fallback) or (
+                "movie480.mp4" in (app.get("movie_mp4") or "")
+            )
+            if used_fallback:
+                fallback += 1
+            has_vid = bool(app.get("movie_mp4") or app.get("movie_webm"))
+            if has_vid:
+                found += 1
+            else:
+                no_video += 1
+            store.save(conn, app)
+
+        if i % 20 == 0:
+            conn.commit()
+
+    conn.commit()
+    remaining_after = store.count_media_unchecked(conn)
+    log.info("미디어 백필 완료 — 이번 실행 대상: %d개, 영상 발견: %d개, 실제 영상 없음: %d개, API 실패: %d개 (fallback MP4 생성: %d개) | 남은 미확인 대상: %d개",
+             len(backfill_ids), found, no_video, failed, fallback, remaining_after)
+    return {
+        "targets": len(backfill_ids),
+        "fallback": fallback,
+        "found": found,
+        "no_video": no_video,
+        "failed": failed,
+        "remaining": remaining_after,
+    }
+
+
 def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
     """(부를 목록, 그중 개척분 appid). 개척 적중률을 따로 재려면 구분이 필요하다 —
     첫 배포에서 개척 440개 중 8개만 건진 걸 진행 로그로 역산해서야 알았다."""
@@ -164,6 +221,11 @@ def main() -> int:
     # appdetails 전체 수집과 분리된 작은 후보군만 확인한다. 이 단계가 실패해도
     # 가격 수집 결과는 유지되고, 홈은 기존 리뷰 수 기반으로 안전하게 폴백한다.
     _collect_signals(conn, log)
+
+    # 미디어 백필: 기존 수집 대상과 중복되지 않게 배제하고 백필 진행
+    regular_appids = {appid for appid, _ in targets}
+    _collect_media_backfill(conn, log, regular_appids)
+
     store.set_meta(conn, "last_collection_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     conn.commit()
 

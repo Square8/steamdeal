@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS games (
     movie_mp4     TEXT,
     movie_webm    TEXT,
     movie_poster  TEXT,
+    media_checked_at TEXT,
     -- 가격을 '관측한' 첫/마지막 날. 가격 행은 변동 시에만 쌓기 때문에
     -- 관측 기간을 이력 행 개수로 셀 수 없다. 그래서 따로 기록한다.
     price_first   TEXT,
@@ -118,11 +119,17 @@ def _migrate(conn) -> None:
         "players_checked_at": "TEXT",
         "developer": "TEXT", "price_first": "TEXT", "price_last": "TEXT",
         "screenshots": "TEXT", "movie_mp4": "TEXT", "movie_webm": "TEXT",
-        "movie_poster": "TEXT",
+        "movie_poster": "TEXT", "media_checked_at": "TEXT",
     }
     for col, decl in add.items():
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {decl}")
+    # 기존에 이미 트레일러 URL(MP4 또는 WebM)이 채워져 있는 게임은 이미 확인된 것으로 간주한다.
+    conn.execute("""
+        UPDATE games SET media_checked_at = checked_at
+        WHERE media_checked_at IS NULL
+          AND ((movie_mp4 IS NOT NULL AND movie_mp4 != '')
+               OR (movie_webm IS NOT NULL AND movie_webm != ''))""")
     # 예전 방식(매일 1행)으로 쌓인 DB 에서 관측 구간을 복원한다.
     # 새 칼럼이 방금 추가됐다면 값이 NULL 이므로 기존 prices 에서 채워준다.
     conn.execute("""
@@ -158,13 +165,14 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
     if not known and not is_relevant(app, tag):
         return False
     today = date.today().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute(
         """INSERT INTO games (appid,name,app_type,tag,header_image,description,genres,
                               korean,coming_soon,release_text,release_date,
                               has_demo,demo_appid,is_free,adult,review_count,developer,
                               screenshots,movie_mp4,movie_webm,movie_poster,
-                              first_seen,last_seen,checked_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                              first_seen,last_seen,checked_at,media_checked_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(appid) DO UPDATE SET
              name=excluded.name, app_type=excluded.app_type,
              header_image=excluded.header_image, description=excluded.description,
@@ -177,6 +185,7 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
              screenshots=excluded.screenshots, movie_mp4=excluded.movie_mp4,
              movie_webm=excluded.movie_webm, movie_poster=excluded.movie_poster,
              last_seen=excluded.last_seen, checked_at=excluded.checked_at,
+             media_checked_at=excluded.media_checked_at,
              -- 태그는 처음 발견된 것을 유지한다 (신작으로 잡힌 게 나중에 '할인'으로 덮이면
              -- 언제 새로 나왔는지 알 수 없게 되므로)
              tag=COALESCE(games.tag, excluded.tag)""",
@@ -187,7 +196,7 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
          app.get("developer", ""),
          app.get("screenshots", ""), app.get("movie_mp4", ""),
          app.get("movie_webm", ""), app.get("movie_poster", ""),
-         today, today, today),
+         today, today, today, app.get("media_checked_at") or now_iso),
     )
     # 가격이 있는 것만 이력에 남긴다 (무료/출시예정은 가격이 없다)
     if app["price_final"] > 0:
@@ -276,6 +285,41 @@ def review_signal_appids(conn, limit: int) -> list[int]:
                COALESCE(p.discount_pct,0) DESC, COALESCE(g.review_count,0) DESC
       LIMIT ?""")
     return [r[0] for r in conn.execute(sql, (limit,))]
+
+
+def media_backfill_appids(conn, limit: int, exclude_appids: set[int] | None = None) -> list[int]:
+    """미디어 백필 우선 대상: 성인 제외, 정식 게임 우선, media_checked_at 비어 있는 게임 우선."""
+    exclude = exclude_appids or set()
+    sql = """
+        SELECT appid FROM games
+        WHERE adult = 0
+          AND (media_checked_at IS NULL OR media_checked_at = '')
+        ORDER BY CASE WHEN app_type = 'game' THEN 0 ELSE 1 END,
+                 COALESCE(review_count, 0) DESC, appid DESC
+    """
+    out = []
+    for r in conn.execute(sql):
+        aid = r[0]
+        if aid in exclude:
+            continue
+        out.append(aid)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def count_media_unchecked(conn) -> int:
+    """미디어 확인이 필요한 비성인 게임 수."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM games WHERE adult=0 AND (media_checked_at IS NULL OR media_checked_at='')"
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def mark_media_checked(conn, appid: int) -> None:
+    """미디어 확인 시각만 기록 (실제 영상이 없는 경우, API 실패 등 재시도 방지)."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute("UPDATE games SET media_checked_at=? WHERE appid=?", (now, appid))
 
 
 def save_player_count(conn, appid: int, count: int) -> None:
