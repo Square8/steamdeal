@@ -55,6 +55,12 @@ app_fb = with_fake(payload_fb, lambda: steam.fetch_app(999))
 check("fallback MP4 URL 생성", app_fb["movie_mp4"] == "https://cdn.akamai.steamstatic.com/steam/apps/2569999/movie480.mp4")
 check("fallback thumbnail 유지", app_fb["movie_poster"] == "http://x/thumb.jpg")
 
+payload_bad = {"999": {"success": True, "data": {
+    "type": "game", "name": "Bad Movie Test",
+    "movies": "string instead of list"}}}
+app_bad = with_fake(payload_bad, lambda: steam.fetch_app(999))
+check("잘못된 movie 데이터가 와도 빌드가 중단되지 않음", app_bad["movie_mp4"] == "")
+
 print("\n1a) 현재 플레이어·리뷰 신호 파싱")
 players = with_fake({"response": {"result": 1, "player_count": 43210}},
                     lambda: steam.fetch_current_players(730))
@@ -418,6 +424,7 @@ check("build.main() 정상", rc == 0, f"rc={rc}")
 idx = os.path.join(config.SITE_DIR, "index.html")
 h = open(idx, encoding="utf-8").read()
 check("index 생성", os.path.exists(idx))
+check("홈 HTML에는 자동재생 video가 생성되지 않음", "<video" not in h)
 # '오늘의 추천'은 나머지 섹션의 합집합이라 중복의 원인이었다(측정: 중복 7개가 전부
 # 이 섹션에서 나왔고, 빼면 0이 됨). 히어로가 같은 역할을 하므로 없앴다.
 check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천" not in h)
@@ -508,6 +515,8 @@ check("이력 1건이면 빈 그래프 대신 안내문", 'class="waiting"' in d
 
 print("\n9c) 검색 유입 준비물 (사이트맵 / canonical / OG / 랜딩)")
 check("robots.txt 생성", os.path.exists(os.path.join(config.SITE_DIR, "robots.txt")))
+cname_path = os.path.join(config.ROOT, "CNAME")
+check("CNAME 내용이 gamedil.com", os.path.exists(cname_path) and open(cname_path).read().strip() == "gamedil.com")
 sm_path = os.path.join(config.SITE_DIR, "sitemap.xml")
 check("sitemap.xml 생성", os.path.exists(sm_path))
 for spec in build.LANDINGS:

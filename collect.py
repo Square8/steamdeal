@@ -173,9 +173,9 @@ def main() -> int:
     # 응답에 미디어가 실제로 오는지. 트레일러가 0 이면 여기서 원인이 드러난다.
     ms = steam.MEDIA_STATS
     if ms["apps"]:
-        log.info("미디어 — 앱 %d개 중 스크린샷 %d / movies 키 있음 %d / 항목 있음 %d / 영상URL %d",
+        log.info("미디어 — 앱 %d개 중 스크린샷 %d / movies 키 있음 %d / 항목 있음 %d / 영상URL %d (fallback %d)",
                  ms["apps"], ms["screenshots"], ms["movies_key"],
-                 ms["movies_items"], ms["got_mp4"])
+                 ms["movies_items"], ms["got_mp4"], ms.get("fallback_mp4", 0))
         if ms["sample_movie_keys"]:
             log.info("  movies[0] 키: %s", ms["sample_movie_keys"])
             log.info("  mp4/webm 키: %s", ms["sample_src_keys"] or "(사전 아님)")
