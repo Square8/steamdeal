@@ -580,3 +580,19 @@ BADGE_ATL = (
     '<svg viewBox="0 0 10 10" aria-hidden="true" fill="currentColor">'
     '<path d="M5 9.5L.7 4h2.6V.5h3.4V4h2.6z"/></svg>역대최저</span>'
 )
+
+CSS += '''
+/* Compare Table */
+.compare-container { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2rem; }
+.compare-table { width: 100%; min-width: 600px; border-collapse: collapse; text-align: center; }
+.compare-table th, .compare-table td { padding: 1rem; border: 1px solid var(--line); }
+.compare-table th { background: var(--surface); font-weight: bold; width: 10%; min-width: 80px; }
+.compare-table td { width: 30%; vertical-align: top; background: var(--surface-2); }
+.compare-table img { max-width: 100%; border-radius: 4px; display: block; margin: 0 auto 0.5rem; }
+.compare-table .del-btn { margin-top: 1rem; }
+.empty-state { text-align: center; padding: 4rem 1rem; color: var(--ink-2); }
+.scroll-hint { text-align: center; color: var(--ink-2); font-size: 13px; margin-bottom: 0.5rem; display: none; }
+@media (max-width: 600px) {
+  .scroll-hint { display: block; }
+}
+'''

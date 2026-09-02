@@ -703,6 +703,68 @@ check("120개 초과 데이터가 있어도 121번째 카드가 랜딩 HTML에 �
 rd_empty = build.build_landing(spec_rd, [], t_max, None)
 check("대상이 0개일 때 랜딩의 정직한 빈 상태 안내 생성", "아직 조건에 맞는 게임이 수집되지 않았습니다" in rd_empty and rd_empty.count('<a class="card') == 0)
 
+
+print("\n12) 비교함 기능 (보안/UX 강화)")
+compare_html_path = os.path.join(config.SITE_DIR, "compare.html")
+check("compare.html 생성", os.path.exists(compare_html_path))
+c_html = open(compare_html_path, encoding="utf-8").read()
+sm_content2 = open(os.path.join(config.SITE_DIR, "sitemap.xml"), encoding="utf-8").read()
+check("compare.html이 sitemap에 없는지", "compare.html" not in sm_content2)
+check("compare.html에 ALL_GAMES 또는 전체 JSON이 없음", "ALL_GAMES" not in c_html and 'var ALL_GAMES' not in c_html)
+check("compare.html 크기가 기존보다 작음", len(c_html) < 50000)
+
+idx = os.path.join(config.SITE_DIR, "index.html")
+idx_html = open(idx, encoding="utf-8").read()
+detail_730 = open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read()
+check("모든 깊이에서 비교 링크 경로가 맞는지 (홈)", 'href="compare.html"' in idx_html)
+check("모든 깊이에서 비교 링크 경로가 맞는지 (상세)", 'href="../compare.html"' in detail_730)
+
+check("상세페이지 비교 버튼에 안전한 스냅샷 존재", 'data-snapshot=' in detail_730 and '&quot;name&quot;' in detail_730)
+
+detail_700 = ""
+try:
+    detail_700 = open(os.path.join(config.SITE_DIR, "game", "700.html"), encoding="utf-8").read()
+    check("성인 게임 상세페이지에 비교 버튼이 없음", 'class="btn btn-s compare-btn"' not in detail_700)
+except FileNotFoundError:
+    pass
+
+import re
+build_content = open("build.py", "r", encoding="utf-8").read()
+check("기존 appid 배열 형식 localStorage 처리 로직", "typeof arr[0] === 'string'" in build_content and "localStorage.removeItem" in build_content)
+check("중복/3개초과/성인 정리 로직 존재", "if (map[appid])" in build_content and "if (g.adult)" in build_content and "out.length >= 3" in build_content)
+check("빈 상태 안내 존재", "비교함이 비었습니다." in c_html or "비교함이 비었습니다." in build_content)
+check("제거 및 비우기 동작", "window.steamCompare.write([])" in build_content or "cur.splice" in build_content)
+check("DOM API textContent 사용", "e.textContent = text" in build_content)
+check("유효하지 않은 이미지 제외", "indexOf('http://') === 0" in build_content or "match(/^https?:/" in build_content)
+theme_content = open("theme.py", "r", encoding="utf-8").read()
+check("모바일 가로 스크롤용 CSS 존재", "overflow-x: auto;" in theme_content and "-webkit-overflow-scrolling: touch;" in theme_content)
+
+
+print("\n12b) 비교함 내구성 및 보안")
+idx_html = open(idx, encoding="utf-8").read()
+check("compare.html에 noindex,follow가 있음", '<meta name="robots" content="noindex,follow">' in c_html)
+check("홈페이지에는 noindex,follow가 없음", '<meta name="robots" content="noindex,follow">' not in idx_html)
+
+import json
+mock_snap = {
+    "appid": 999,
+    "name": "</script><script>alert(1)</script>",
+    "adult": 0
+}
+# build_detail에 직접 넣어서 렌더링 후 data-snapshot 속성값을 검증
+html_999 = build.build_detail(mock_snap, [mock_snap], "updated", {})
+check("악의적 이름이 상세페이지에서 안전하게 이스케이프됨", 'data-snapshot=' in html_999 and '&lt;/script&gt;' in html_999 and '<script>alert' not in html_999)
+
+build_content = open("build.py", "r", encoding="utf-8").read()
+check("스냅샷 appid 정규화 존재", "Number(g.appid)" in build_content and "isNaN(appid)" in build_content)
+check("스냅샷 name, header_image 문자열 확인", "typeof g.name === 'string'" in build_content and "typeof g.header_image === 'string'" in build_content)
+check("스냅샷 가격 숫자 정규화", "Math.max(0, Number(g.price_final)" in build_content)
+check("스냅샷 더티 체크 후 자동 저장", "if (dirty)" in build_content and "localStorage.setItem" in build_content)
+
+check("compare.html에 {{가 남아있지 않음", "{{" not in c_html)
+check("compare.html에 }}가 남아있지 않음", "}}" not in c_html)
+check("정상 JavaScript 중괄호 생성", "function render() {" in c_html)
+
 print()
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)

@@ -393,6 +393,109 @@ WISHLIST_JS = """<script>
 })();
 </script>"""
 
+COMPARE_JS = '''<script>
+(function(){
+  var C_KEY = 'gamedil-compare-v1';
+  function readC() {
+    try {
+      var raw = localStorage.getItem(C_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+
+      var dirty = false;
+      if (arr.length > 0 && typeof arr[0] === 'string') {
+        localStorage.removeItem(C_KEY);
+        return [];
+      }
+
+      var map = {};
+      var out = [];
+      for (var i = 0; i < arr.length; i++) {
+        var g = arr[i];
+        if (!g || typeof g !== 'object') { dirty = true; continue; }
+
+        var appid = Number(g.appid);
+        if (isNaN(appid) || appid <= 0) { dirty = true; continue; }
+
+        if (g.adult) { dirty = true; continue; }
+        if (map[appid]) { dirty = true; continue; }
+        if (out.length >= 3) { dirty = true; continue; }
+
+        var snap = {
+          appid: appid,
+          name: typeof g.name === 'string' ? g.name : '',
+          header_image: typeof g.header_image === 'string' ? g.header_image : '',
+          price_final: Math.max(0, Number(g.price_final) || 0),
+          discount_pct: Math.max(0, Number(g.discount_pct) || 0),
+          lowest_seen: Math.max(0, Number(g.lowest_seen) || 0),
+          recent_drop_amount: Math.max(0, Number(g.recent_drop_amount) || 0),
+          korean: !!g.korean,
+          has_demo: !!g.has_demo,
+          review_label: typeof g.review_label === 'string' ? g.review_label : '',
+          review_positive_pct: typeof g.review_positive_pct === 'number' || typeof g.review_positive_pct === 'string' ? g.review_positive_pct : '',
+          players_current: Math.max(0, Number(g.players_current) || 0),
+          release_text: typeof g.release_text === 'string' ? g.release_text : '',
+          adult: false
+        };
+
+        if (JSON.stringify(g) !== JSON.stringify(snap)) dirty = true;
+
+        map[appid] = true;
+        out.push(snap);
+      }
+
+      if (dirty) {
+        try { localStorage.setItem(C_KEY, JSON.stringify(out)); } catch(e) {}
+      }
+      return out;
+    } catch(e) { return []; }
+  }
+  function writeC(arr) {
+    try { localStorage.setItem(C_KEY, JSON.stringify(arr)); } catch(e) {}
+  }
+  function toggleC(btn) {
+    var arr = readC();
+    var id = Number(btn.dataset.compareId);
+    var idx = -1;
+    for (var i = 0; i < arr.length; i++) { if (arr[i].appid === id) idx = i; }
+    if (idx > -1) {
+      arr.splice(idx, 1);
+    } else {
+      if (arr.length >= 3) {
+        alert('비교함은 최대 3개까지만 담을 수 있습니다.');
+        return;
+      }
+      try {
+        var snap = JSON.parse(btn.dataset.snapshot);
+        arr.push(snap);
+      } catch(e) {}
+    }
+    writeC(arr);
+    paintC();
+  }
+  function paintC() {
+    var arr = readC();
+    var hasId = {};
+    for (var i = 0; i < arr.length; i++) hasId[arr[i].appid] = true;
+
+    document.querySelectorAll('[data-compare-id]').forEach(function(btn) {
+      if (!btn.dataset.compareBound) {
+        btn.addEventListener('click', function(ev) { ev.preventDefault(); toggleC(btn); });
+        btn.dataset.compareBound = '1';
+      }
+      var on = !!hasId[btn.dataset.compareId];
+      btn.textContent = on ? '비교함에서 제거' : '비교함에 담기';
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+    document.querySelectorAll('.compare-count').forEach(function(el) { el.textContent = arr.length; });
+  }
+  document.addEventListener('DOMContentLoaded', paintC);
+  window.steamCompare = {read: readC, paint: paintC, write: writeC};
+})();
+</script>'''
+
 
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
@@ -409,6 +512,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <a href="{up}index.html#soon">기대작</a>
     <a href="{up}index.html#demo">데모</a>
     <a href="{up}under-10000.html">1만원 이하</a>
+    <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
     <a href="{up}index.html#all">찜 <span class="wish-count">0</span></a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
@@ -457,6 +561,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 {theme.FONTS}
 <link rel="stylesheet" href="{up}style.css?v={CSS_HASH}">
 {WISHLIST_JS}
+{COMPARE_JS}
 </head>
 <body>
 <header class="top"><div class="topin">
@@ -720,7 +825,7 @@ def section(sid: str, title: str, note: str, items: list[dict],
         # feature: 첫 카드만 2칸으로. 모든 섹션에 쓰면 다시 균일해져서 의미가 없다.
         picked = items[:cap]
         cards = "".join(card(g, big=(feature and i == 0)) for i, g in enumerate(picked))
-        body = f'<div class="{cls}">{cards}</div>' 
+        body = f'<div class="{cls}">{cards}</div>'
         cnt = f'<span class="cnt">{len(items)}개</span>'
     note_html = f'<p class="sec-note">{esc(note)}</p>' if note else ""
     more = (f'<a class="more" href="{esc(more_href)}">{esc(more_text)} →</a>'
@@ -765,10 +870,10 @@ def get_recent_drops(games: list[dict]) -> list[dict]:
         for hist in g.get("history", []):
             if hist["on_date"] > max_date:
                 max_date = hist["on_date"]
-    
+
     if not max_date:
         return []
-        
+
     from datetime import datetime, timedelta
     try:
         max_dt = datetime.strptime(max_date, "%Y-%m-%d")
@@ -776,33 +881,33 @@ def get_recent_drops(games: list[dict]) -> list[dict]:
         cutoff_str = cutoff_dt.strftime("%Y-%m-%d")
     except ValueError:
         return []
-        
+
     drops = []
     for g in games:
         if g.get("adult") or not g.get("price_final") or g.get("is_free"):
             continue
-            
+
         history = g.get("history", [])
         valid_hist = [h for h in history if h.get("price_final", 0) > 0]
         if len(valid_hist) < 2:
             continue
-            
+
         last = valid_hist[-1]
         prev = valid_hist[-2]
-        
+
         if last["on_date"] < cutoff_str:
             continue
-            
+
         if prev["price_final"] > last["price_final"]:
             drop_amount = prev["price_final"] - last["price_final"]
             drop_rate = int(round((drop_amount / prev["price_final"]) * 100))
-            
+
             game_copy = dict(g)
             game_copy["recent_drop_amount"] = drop_amount
             game_copy["recent_drop_rate"] = drop_rate
             game_copy["recent_drop_date"] = last["on_date"]
             drops.append(game_copy)
-            
+
     drops.sort(key=lambda x: (
         not x.get("korean"),
         -x["recent_drop_amount"],
@@ -1026,7 +1131,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   }}
   function apply(){{ shown=PAGE; render(); }}
   moreBtn.addEventListener('click',function(){{ shown+=PAGE; render(); }});
-  
+
   function handleInput(v) {{
     if (q) q.value = v;
     if (hq) hq.value = v;
@@ -1034,10 +1139,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     history.replaceState(null, '', newUrl);
     apply();
   }}
-  
+
   if (q) q.addEventListener('input', function() {{ handleInput(q.value); }});
   if (hq) hq.addEventListener('input', function() {{ handleInput(hq.value); }});
-  
+
   sort.addEventListener('change',apply);
   adult.addEventListener('change',apply);
   chips.forEach(function(c){{
@@ -1072,7 +1177,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     var searchStr = params.get('q');
     var h = location.hash||'';
     var v = '';
-    
+
     if (searchStr !== null) {{
       v = searchStr;
     }} else if (h.indexOf('#q=') === 0) {{
@@ -1080,10 +1185,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       try {{ v=decodeURIComponent(v); }} catch(e) {{}}
       history.replaceState(null, '', location.pathname + '?q=' + encodeURIComponent(v));
     }}
-    
+
     if (q) q.value = v;
     if (hq) hq.value = v;
-    
+
     apply();
     if (searchStr !== null || h.indexOf('#q=') === 0) {{
       document.getElementById('all').scrollIntoView();
@@ -1106,7 +1211,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
             "query-input": "required name=search_term_string"
         }
     }
-    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n</script>'
+    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2).replace('<', '\\u003c').replace('>', '\\u003e')}\n</script>'
     return page("GameDil — 지금 많이 하는 한국어 게임과 검증된 핫딜",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
@@ -1173,23 +1278,23 @@ def build_related(g: dict, all_games: list[dict]) -> str:
 
         score = 0
         if bool(o.get("korean")) == g_kr: score += 1
-        
+
         o_genres = set(x.strip() for x in (o.get("genres") or "").split(",") if x.strip())
         overlap = len(g_genres & o_genres)
         score += overlap * 2
-        
+
         if bool(o.get("has_demo") or o.get("app_type") == "demo") == g_demo: score += 1
         if bool(o.get("discount_pct")) == g_disc: score += 1
-            
+
         if score > 0:
             scored.append((score, o.get("release_date") or "", o["appid"], o))
-            
+
     if not scored:
         return ""
-        
+
     scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
     picked = [x[3] for x in scored[:4]]
-    
+
     cards = "".join(card(o, depth=1) for o in picked)
     return f"""
 <div class="panel">
@@ -1322,7 +1427,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
                        '가격이 한 번이라도 바뀌면 이 자리에 추이가 그려집니다.</div>')
         sub = (f"{days}일째 지켜보는 중이고, 아직 가격이 바뀌지 않았습니다."
                if days > 1 else "하루 두 번 자동으로 확인합니다.")
-               
+
     recent_drop_html = ""
     if recent_drop:
         amt = recent_drop["recent_drop_amount"]
@@ -1350,7 +1455,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
                 f' target="_blank" rel="noopener">데모 받기</a>'
                 if (g.get("has_demo") or g.get("app_type") == "demo") else "")
 
-    share_title_js = json.dumps(g['name'], ensure_ascii=False)
+    share_title_js = json.dumps(g['name'], ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e')
     share_text = g['name']
     if g.get('is_free'):
         share_text += " — 무료"
@@ -1363,7 +1468,29 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         low = g.get("lowest_seen", 0)
         if curr <= low and low > 0 and g.get("atl_trustworthy"):
             share_text += " [스팀 역대 최저가]"
-    share_text_js = json.dumps(share_text, ensure_ascii=False)
+    share_text_js = json.dumps(share_text, ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e')
+
+    compare_btn = ""
+    if not g.get("adult"):
+        snap = {
+            "appid": g["appid"],
+            "name": g["name"],
+            "header_image": g.get("header_image") or "",
+            "price_final": g.get("price_final") or 0,
+            "discount_pct": g.get("discount_pct") or 0,
+            "lowest_seen": g.get("lowest_seen") or 0,
+            "recent_drop_amount": recent_drop["recent_drop_amount"] if recent_drop else 0,
+            "korean": bool(g.get("korean")),
+            "has_demo": bool(g.get("has_demo") or g.get("demo_appid")),
+            "review_label": review_label(g),
+            "review_positive_pct": g.get("review_positive_pct"),
+            "players_current": g.get("players_current") or 0,
+            "release_text": g.get("release_text") or "",
+            "adult": bool(g.get("adult"))
+        }
+        snap_json = json.dumps(snap, ensure_ascii=False)
+        compare_btn = f'<button class="btn btn-s compare-btn" data-compare-id="{g["appid"]}" data-snapshot="{esc(snap_json)}" type="button">비교함에 담기</button>'
+
 
     share_js = f"""<script>
 (function(){{
@@ -1412,6 +1539,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
          target="_blank" rel="noopener">스팀 상점에서 보기</a>
       {demo_btn}
       <button class="btn btn-s share-btn" id="shareBtn" type="button" aria-label="공유">공유</button>
+      {compare_btn}
     </div>
   </div>
 </div>
@@ -1475,7 +1603,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         }
         if g.get("discount_pct"):
             schema["offers"]["discount"] = g["discount_pct"]
-            
+
     r_total = g.get("review_total") or g.get("review_count") or 0
     r_pos = g.get("review_positive_pct")
     if r_total > 0 and r_pos is not None:
@@ -1485,8 +1613,8 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             "bestRating": 100,
             "ratingCount": r_total
         }
-        
-    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n</script>'
+
+    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2).replace('<', '\\u003c').replace('>', '\\u003e')}\n</script>'
 
     return page(pt, body, updated, canonical=f"game/{g['appid']}.html",
                 og_image=(g.get("header_image") or ""), desc=d, depth=1,
@@ -1583,7 +1711,7 @@ def build_landing(spec: dict, games: list[dict], updated: str,
             "query-input": "required name=search_term_string"
         }
     }
-    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n</script>'
+    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2).replace('<', '\\u003c').replace('>', '\\u003e')}\n</script>'
     return page(spec["title"], body, updated,
                 canonical=f"{spec['slug']}.html", desc=spec["desc"],
                 og_image=(items[0].get("header_image") if items else ""),
@@ -1611,6 +1739,166 @@ def build_robots() -> str:
     return f"User-agent: *\nAllow: /\n{sm}\n"
 
 
+
+def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops_map: dict) -> str:
+    html = '''
+<div class="dhero" style="text-align:center; padding: 2rem 1rem;">
+  <h1>게임 비교</h1>
+  <p class="sub">비교함 데이터는 이 브라우저에만 임시로 저장됩니다.</p>
+</div>
+
+<div id="compareApp"></div>
+
+<script>
+(function(){
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if(text) e.textContent = text;
+    if(cls) e.className = cls;
+    return e;
+  }
+
+  function render() {
+    var app = document.getElementById('compareApp');
+    app.innerHTML = '';
+    var arr = window.steamCompare ? window.steamCompare.read() : [];
+
+    if (arr.length === 0) {
+      var empty = el('div', '', 'empty-state');
+      empty.textContent = '비교함이 비었습니다.';
+      var br = document.createElement('br');
+      var br2 = document.createElement('br');
+      var a = el('a', '홈으로 돌아가기', 'btn btn-p');
+      a.href = 'index.html';
+      empty.appendChild(br);
+      empty.appendChild(br2);
+      empty.appendChild(a);
+      app.appendChild(empty);
+      return;
+    }
+
+    var container = el('div', '', 'compare-container');
+    var hint = el('div', '← 표를 좌우로 스크롤하여 비교하세요 →', 'scroll-hint');
+    container.appendChild(hint);
+    var table = el('table', '', 'compare-table');
+    var tbody = document.createElement('tbody');
+
+    var rows = [
+      { key: '게임', render: function(g, td) {
+          var a = el('a');
+          a.href = 'game/' + g.appid + '.html';
+          if (g.header_image && (g.header_image.indexOf('http://') === 0 || g.header_image.indexOf('https://') === 0)) {
+            var img = el('img');
+            img.src = g.header_image;
+            img.alt = g.name + ' 표지';
+            a.appendChild(img);
+          }
+          var b = el('b', g.name);
+          a.appendChild(b);
+          td.appendChild(a);
+      } },
+      { key: '현재 가격', render: function(g, td) {
+          if (!g.price_final) { td.textContent = '정보 없음'; return; }
+          var b = el('b', g.price_final.toLocaleString('ko-KR') + '원');
+          td.appendChild(b);
+          if (g.discount_pct) {
+            td.appendChild(document.createElement('br'));
+            var sp = el('span', '-' + g.discount_pct + '%');
+            sp.style.color = 'var(--accent)';
+            td.appendChild(sp);
+          }
+      } },
+      { key: '관측 최저가', render: function(g, td) {
+          td.textContent = g.lowest_seen ? g.lowest_seen.toLocaleString('ko-KR') + '원' : '정보 없음';
+      } },
+      { key: '최근 인하', render: function(g, td) {
+          if (g.recent_drop_amount) {
+            var sp = el('span', '최근 ' + g.recent_drop_amount.toLocaleString('ko-KR') + '원 인하');
+            sp.style.color = 'var(--accent)';
+            td.appendChild(sp);
+          } else {
+            td.textContent = '해당 없음';
+          }
+      } },
+      { key: '한국어', render: function(g, td) { td.textContent = g.korean ? '지원' : '미지원'; } },
+      { key: '데모', render: function(g, td) { td.textContent = g.has_demo ? '있음' : '없음'; } },
+      { key: 'Steam 리뷰', render: function(g, td) {
+          if (!g.review_label) { td.textContent = '정보 없음'; return; }
+          var text = g.review_label;
+          if (g.review_positive_pct) text += ' (' + g.review_positive_pct + '%)';
+          td.textContent = text;
+      } },
+      { key: '현재 플레이어', render: function(g, td) { td.textContent = g.players_current ? g.players_current.toLocaleString('ko-KR') + '명' : '정보 없음'; } },
+      { key: '출시', render: function(g, td) { td.textContent = g.release_text || '정보 없음'; } },
+      { key: '관리', render: function(g, td) {
+          var btn = el('button', '제거', 'btn btn-s del-btn');
+          btn.dataset.remove = g.appid;
+          btn.setAttribute('aria-label', g.name + ' 비교함에서 제거');
+          td.appendChild(btn);
+      } }
+    ];
+
+    rows.forEach(function(r) {
+      var tr = document.createElement('tr');
+      var th = el('th', r.key);
+      th.setAttribute('scope', 'row');
+      tr.appendChild(th);
+
+      arr.forEach(function(g) {
+        var td = document.createElement('td');
+        if (g) r.render(g, td);
+        tr.appendChild(td);
+      });
+
+      for (var i = arr.length; i < 3; i++) {
+        var td = document.createElement('td');
+        var sp = el('span', '비어 있음');
+        sp.style.color = 'var(--ink-3)';
+        td.appendChild(sp);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    container.appendChild(table);
+    app.appendChild(container);
+
+    var divClear = el('div');
+    divClear.style.textAlign = 'center';
+    divClear.style.padding = '2rem';
+    var clearBtn = el('button', '비교함 비우기', 'btn clear-btn');
+    divClear.appendChild(clearBtn);
+    app.appendChild(divClear);
+
+    app.querySelectorAll('.del-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = Number(this.dataset.remove);
+        var cur = window.steamCompare.read();
+        var idx = -1;
+        for (var i=0; i<cur.length; i++) if(cur[i].appid === id) idx = i;
+        if (idx > -1) cur.splice(idx, 1);
+        window.steamCompare.write(cur);
+        if (window.steamCompare.paint) window.steamCompare.paint();
+        render();
+      });
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        window.steamCompare.write([]);
+        if (window.steamCompare.paint) window.steamCompare.paint();
+        render();
+      });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', render);
+})();
+</script>
+'''
+    return page("게임 비교 - GameDil", html, updated, depth=0, freshness=freshness, desc="최대 3개의 게임을 한눈에 비교합니다.", extra_head='<meta name="robots" content="noindex,follow">')
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     log = logging.getLogger("build")
@@ -1632,8 +1920,9 @@ def main() -> int:
     freshness = freshness_info(last_collection)
     updated = freshness["display"] if last_collection else datetime.now(KST).strftime("%Y-%m-%d %H:%M")
     os.makedirs(os.path.join(config.SITE_DIR, "game"), exist_ok=True)
-    
+
     recent_drops = get_recent_drops(games)
+    recent_drops_map = {g['appid']: g for g in recent_drops}
 
     def write(rel: str, text: str) -> None:
         with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
@@ -1643,6 +1932,7 @@ def main() -> int:
     if os.path.exists(os.path.join(config.ROOT, "favicon.svg")):
         write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())
     write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops))
+    write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
     paths = ["index.html"]
 
     for spec in LANDINGS:
@@ -1651,8 +1941,6 @@ def main() -> int:
         else:
             write(f"{spec['slug']}.html", build_landing(spec, games, updated, freshness))
         paths.append(f"{spec['slug']}.html")
-
-    recent_drops_map = {g['appid']: g for g in recent_drops}
 
     # 성인 게임 상세는 만들되 사이트맵에 넣지 않는다 (검색에 내보내지 않음)
     for g in games:
