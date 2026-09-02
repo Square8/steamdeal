@@ -589,6 +589,22 @@ h2 = open(idx, encoding="utf-8").read()
 check("태그 이스케이프", "&lt;b&gt;X&lt;/b&gt;" in h2)
 check("원본 태그 없음", "<b>X</b>" not in h2)
 
+print("\n9f) 같이 볼 만한 게임 추천")
+test_games = [
+    {"appid": 1, "name": "Game A", "korean": 1, "genres": "Action", "adult": 0},
+    {"appid": 2, "name": "Game B", "korean": 1, "genres": "Action", "adult": 0},
+    {"appid": 3, "name": "Game C", "korean": 0, "genres": "Puzzle", "adult": 1},
+    {"appid": 4, "name": "Game D", "korean": 0, "genres": "Puzzle", "adult": 0},
+    {"appid": 5, "name": "Game E", "korean": 0, "genres": "Puzzle", "adult": 1}
+]
+rel_a = build.build_related(test_games[0], test_games)
+check("관련 게임이 있을 때 섹션과 카드가 생성되는지", "같이 볼 만한 게임" in rel_a and 'href="../game/2.html"' in rel_a)
+check("현재 게임이 추천에 포함되지 않는지", 'href="../game/1.html"' not in rel_a)
+check("추천할 게임이 없으면 빈 섹션이 생성되지 않는지", build.build_related({"appid": 99, "korean": 1, "genres": "None", "adult": 0}, [{"appid": 99, "korean": 1, "genres": "None", "adult": 0}]) == "")
+check("성인 게임 정책 - 현재 게임이 일반이면 성인 게임은 추천에서 제외", 'href="../game/3.html"' not in rel_a)
+check("성인 게임 정책 - 현재 게임이 성인이어도 다른 성인 게임은 추천에서 제외",
+      'href="../game/5.html"' not in build.build_related(test_games[2], test_games))
+
 print()
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)

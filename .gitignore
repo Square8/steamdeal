@@ -3,3 +3,5 @@ __pycache__/
 site/
 demo_site/
 shot_*.png
+/games.db
+/test_live*.py

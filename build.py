@@ -608,7 +608,7 @@ def price_html(g: dict) -> str:
             f'{was}</div>')
 
 
-def card(g: dict, big: bool = False) -> str:
+def card(g: dict, big: bool = False, depth: int = 0) -> str:
     """카드에는 고를 때 필요한 것만 남긴다: 표지 · 제목 · 성격 · 가격.
 
     0~100 합성 점수는 뺐다. 이름을 뭘로 바꾸든 한눈에 뜻이 안 잡히고,
@@ -644,7 +644,8 @@ def card(g: dict, big: bool = False) -> str:
         left = ""
     # 왼쪽이 비면 구분선도 없앤다. 빈 줄이 반복되면 그 자체가 잡음이 된다.
     fcls = "card-f" if left else "card-f bare"
-    return f"""<a class="card{' big' if big else ''}" href="./game/{g['appid']}.html"
+    up = "../" * depth
+    return f"""<a class="card{' big' if big else ''}" href="{up}game/{g['appid']}.html"
    data-n="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
    data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
    data-kr="{g.get('korean') or 0}" data-adult="{g.get('adult') or 0}"
@@ -1071,7 +1072,52 @@ def shots_strip(g: dict) -> str:
     return f'<div class="panel"><h3>게임 화면</h3><div class="shots">{imgs}</div></div>'
 
 
-def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
+def build_related(g: dict, all_games: list[dict]) -> str:
+    """현재 게임과 속성이 겹치는 추천 게임을 찾는다."""
+    g_kr = bool(g.get("korean"))
+    g_genres = set(x.strip() for x in (g.get("genres") or "").split(",") if x.strip())
+    g_demo = bool(g.get("has_demo") or g.get("app_type") == "demo")
+    g_disc = bool(g.get("discount_pct"))
+
+    scored = []
+    for o in all_games:
+        if o["appid"] == g["appid"]:
+            continue
+        # 상세페이지의 관련 추천도 기본 공개 목록과 같은 성인 제외 정책을 따른다.
+        if o.get("adult"):
+            continue
+
+        score = 0
+        if bool(o.get("korean")) == g_kr: score += 1
+        
+        o_genres = set(x.strip() for x in (o.get("genres") or "").split(",") if x.strip())
+        overlap = len(g_genres & o_genres)
+        score += overlap * 2
+        
+        if bool(o.get("has_demo") or o.get("app_type") == "demo") == g_demo: score += 1
+        if bool(o.get("discount_pct")) == g_disc: score += 1
+            
+        if score > 0:
+            scored.append((score, o.get("release_date") or "", o["appid"], o))
+            
+    if not scored:
+        return ""
+        
+    scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    picked = [x[3] for x in scored[:4]]
+    
+    cards = "".join(card(o, depth=1) for o in picked)
+    return f"""
+<div class="panel">
+  <h3>같이 볼 만한 게임</h3>
+  <div class="grid" style="margin-top:12px">
+    {cards}
+  </div>
+</div>
+"""
+
+
+def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict | None = None) -> str:
     if g.get("is_free"):
         price_block = '<span class="big">무료</span>'
     elif g.get("price_final"):
@@ -1291,6 +1337,8 @@ def build_detail(g: dict, updated: str, freshness: dict | None = None) -> str:
 {target_panel}
 
 {chart}
+
+{build_related(g, all_games)}
 """
     # 제목에 가격을 넣으면 검색결과에서 클릭할 이유가 생긴다.
     if g.get("is_free"):
@@ -1501,7 +1549,7 @@ def main() -> int:
 
     # 성인 게임 상세는 만들되 사이트맵에 넣지 않는다 (검색에 내보내지 않음)
     for g in games:
-        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, updated, freshness))
+        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, games, updated, freshness))
         if not g.get("adult"):
             paths.append(f"game/{g['appid']}.html")
 
