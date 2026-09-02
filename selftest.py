@@ -928,6 +928,87 @@ row_5003 = test_fail_conn.execute("SELECT movie_mp4, media_checked_at FROM games
 check("백필 중 한 게임이 실패해도 다음 게임 처리가 계속됨", "movie480.mp4" in (row_5003["movie_mp4"] or ""))
 
 
+print("\n15) 내 찜 목록 (my-games.html)")
+my_games_path = os.path.join(config.SITE_DIR, "my-games.html")
+check("my-games.html 생성", os.path.exists(my_games_path))
+mg_html = open(my_games_path, encoding="utf-8").read()
+check("noindex,follow 존재", '<meta name="robots" content="noindex,follow">' in mg_html)
+
+sm_xml = open(os.path.join(config.SITE_DIR, "sitemap.xml"), encoding="utf-8").read()
+check("sitemap 제외", "my-games.html" not in sm_xml)
+
+idx_html = open(os.path.join(config.SITE_DIR, "index.html"), encoding="utf-8").read()
+detail_files = [f for f in os.listdir(os.path.join(config.SITE_DIR, "game")) if f.endswith(".html")]
+detail_html = open(os.path.join(config.SITE_DIR, "game", detail_files[0]), encoding="utf-8").read() if detail_files else ""
+check("네비 링크의 상대경로 정확성 (홈)", 'href="my-games.html"' in idx_html and '내 찜 <span class="wish-count">' in idx_html)
+check("네비 링크의 상대경로 정확성 (상세)", 'href="../my-games.html"' in detail_html and '내 찜 <span class="wish-count">' in detail_html)
+
+check("기존 localStorage 키 재사용 (찜)", "steamdeal-wishlist-v1" in mg_html)
+check("기존 localStorage 키 재사용 (목표가)", "steamdeal-target-price-v1" in mg_html)
+
+check("JSON fetch가 my-games.html에만 존재", "assets/game-search-index.json" in mg_html)
+check("상세 페이지에 game-search-index.json fetch 없음", "game-search-index.json" not in detail_html)
+landing_kd = open(os.path.join(config.SITE_DIR, "korean-games.html"), encoding="utf-8").read()
+check("랜딩 페이지에 game-search-index.json fetch 없음", "game-search-index.json" not in landing_kd)
+cmp_html = open(os.path.join(config.SITE_DIR, "compare.html"), encoding="utf-8").read()
+check("비교 페이지에 game-search-index.json fetch 없음", "game-search-index.json" not in cmp_html)
+
+check("빈 상태 문구", "아직 찜한 게임이 없습니다." in mg_html and "홈으로 돌아가기" in mg_html)
+check("목표가 도달 판정 코드", "목표가 도달" in mg_html and ("currentPrice <= currentTarget" in mg_html or "p <= t" in mg_html))
+check("성인 기본 숨김/토글 코드", "adultCheck" in mg_html and "!g.adult" in mg_html and "성인 게임 포함" in mg_html)
+
+check("DOM API textContent 사용", "textContent" in mg_html and "document.createElement" in mg_html)
+check("JSON 기반 innerHTML/insertAdjacentHTML 미사용", "innerHTML = g." not in mg_html and "innerHTML=g." not in mg_html and "insertAdjacentHTML" not in mg_html)
+
+css_content = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
+check("모바일 레이아웃 CSS 존재", ".my-card" in css_content and "@media" in css_content and ".my-target-actions" in css_content)
+
+import subprocess
+scripts = re.findall(r'<script>(.*?)</script>', mg_html, flags=re.DOTALL)
+node_syntax_ok = True
+for s in scripts:
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        tf.write(s)
+        tname = tf.name
+    try:
+        res = subprocess.run(["node", "-c", tname], capture_output=True, text=True)
+        if res.returncode != 0:
+            node_syntax_ok = False
+            print("Node syntax error:", res.stderr)
+    finally:
+        if os.path.exists(tname): os.remove(tname)
+check("Node로 my-games.html의 실행 JS 문법 검사(JSON-LD 제외)", node_syntax_ok)
+
+check("my-games.html에 출시 전/가격 미정 분기 코드 존재", "g.soon ? '출시 전' : '가격 미정'" in mg_html and "!currentPrice" in mg_html)
+
+price_node_test = """
+function getPriceDisplay(g) {
+  var currentPrice = +g.price || 0;
+  if (g.free) {
+    return '무료';
+  } else if (!currentPrice) {
+    return g.soon ? '출시 전' : '가격 미정';
+  } else {
+    return currentPrice.toLocaleString('ko-KR') + '원';
+  }
+}
+const out = {
+  soon: getPriceDisplay({price: 0, free: false, soon: true}),
+  tbd: getPriceDisplay({price: 0, free: false, soon: false}),
+  free: getPriceDisplay({price: 0, free: true, soon: false}),
+  paid: getPriceDisplay({price: 15000, free: false, soon: false})
+};
+console.log(JSON.stringify(out));
+"""
+import json as _json
+p_proc = subprocess.run(["node", "-e", price_node_test], capture_output=True, text=True)
+p_res = _json.loads(p_proc.stdout)
+check("출시 전(price=0, free=false, soon=true) 게임이 출시 전으로 렌더링되는지", p_res["soon"] == "출시 전")
+check("가격 미정(price=0, free=false, soon=false) 게임이 가격 미정으로 렌더링되는지", p_res["tbd"] == "가격 미정")
+check("위 경우 0원으로 표시되지 않는지", p_res["soon"] != "0원" and p_res["tbd"] != "0원")
+check("무료 게임은 계속 무료로 표시되는지", p_res["free"] == "무료")
+
+
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")

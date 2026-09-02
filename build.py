@@ -388,7 +388,7 @@ WISHLIST_JS = """<script>
       }
     });
   }
-  window.steamWishlist={read:read,paint:paint,toggle:toggle,readTargets:readTargets};
+  window.steamWishlist={read:read,write:write,paint:paint,toggle:toggle,readTargets:readTargets,writeTargets:writeTargets};
   document.addEventListener('DOMContentLoaded',paint);
 })();
 </script>"""
@@ -513,7 +513,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <a href="{up}index.html#demo">데모</a>
     <a href="{up}under-10000.html">1만원 이하</a>
     <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
-    <a href="{up}index.html#all">찜 <span class="wish-count">0</span></a>
+    <a href="{up}my-games.html">내 찜 <span class="wish-count">0</span></a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
     search = (f"""<form class="hsearch" role="search" action="{up}index.html" method="GET">
@@ -2096,6 +2096,412 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
 '''
     return page("게임 비교 - GameDil", html, updated, depth=0, freshness=freshness, desc="최대 3개의 게임을 한눈에 비교합니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
+
+def build_my_games(updated: str, freshness: dict) -> str:
+    html = '''
+<div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
+  <h1>내 찜 목록</h1>
+  <p class="sub">브라우저에 저장된 찜 게임과 목표 가격을 확인합니다.</p>
+</div>
+
+<div class="sec-wrap" style="max-width: 1040px; margin: 0 auto; padding: 0 1rem 3rem;">
+  <div class="tools" id="myTools" style="display:none; justify-content: space-between; margin-bottom: 14px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="cnt" id="myCnt" style="font-weight:700; color:var(--ink-2);">0개</span>
+      <select id="mySort" aria-label="정렬 기준">
+        <option value="default">목표가 도달순</option>
+        <option value="off">할인 큰 순</option>
+        <option value="cheap">낮은 가격순</option>
+        <option value="name">이름순</option>
+      </select>
+    </div>
+    <label class="sw"><input type="checkbox" id="myAdult"> 성인 게임 포함</label>
+  </div>
+
+  <div id="myApp"></div>
+</div>
+
+<script>
+(function(){
+  var WISH_KEY = 'steamdeal-wishlist-v1';
+  var TARGET_KEY = 'steamdeal-target-price-v1';
+
+  function readWish() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(WISH_KEY) || '[]').map(String));
+    } catch(e) {
+      return new Set();
+    }
+  }
+
+  function writeWish(set) {
+    try {
+      localStorage.setItem(WISH_KEY, JSON.stringify(Array.from(set)));
+    } catch(e) {}
+  }
+
+  function readTargets() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(TARGET_KEY) || '{}');
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch(e) {
+      return {};
+    }
+  }
+
+  function writeTargets(targets) {
+    try {
+      localStorage.setItem(TARGET_KEY, JSON.stringify(targets));
+    } catch(e) {}
+  }
+
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  var allGames = null;
+  var isLoading = false;
+  var isError = false;
+
+  var app = document.getElementById('myApp');
+  var tools = document.getElementById('myTools');
+  var sortSelect = document.getElementById('mySort');
+  var adultCheck = document.getElementById('myAdult');
+  var cntSpan = document.getElementById('myCnt');
+
+  function renderStatus() {
+    app.innerHTML = '';
+    if (isLoading) {
+      var loading = el('div', '불러오는 중...', 'empty-state');
+      app.appendChild(loading);
+      return;
+    }
+    if (isError) {
+      var err = el('div', '데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', 'empty-state');
+      app.appendChild(err);
+      return;
+    }
+  }
+
+  function render() {
+    if (isLoading || isError) {
+      renderStatus();
+      return;
+    }
+
+    var saved = readWish();
+    var wishCount = saved.size;
+    document.querySelectorAll('.wish-count').forEach(function(el){ el.textContent = wishCount; });
+
+    if (wishCount === 0) {
+      if (tools) tools.style.display = 'none';
+      app.innerHTML = '';
+      var empty = el('div', '', 'empty-state');
+      var p = el('p', '아직 찜한 게임이 없습니다.');
+      var br = document.createElement('br');
+      var a = el('a', '홈으로 돌아가기', 'btn btn-p');
+      a.href = 'index.html';
+      empty.appendChild(p);
+      empty.appendChild(br);
+      empty.appendChild(a);
+      app.appendChild(empty);
+      return;
+    }
+
+    if (!allGames) {
+      isLoading = true;
+      renderStatus();
+      fetch('assets/game-search-index.json')
+        .then(function(res) {
+          if (!res.ok) throw new Error('Network error');
+          return res.json();
+        })
+        .then(function(data) {
+          isLoading = false;
+          allGames = Array.isArray(data) ? data : [];
+          render();
+        })
+        .catch(function() {
+          isLoading = false;
+          isError = true;
+          renderStatus();
+        });
+      return;
+    }
+
+    var targets = readTargets();
+    var myGames = allGames.filter(function(g) {
+      return saved.has(String(g.appid));
+    });
+
+    var showAdult = adultCheck && adultCheck.checked;
+    if (!showAdult) {
+      myGames = myGames.filter(function(g) {
+        return !g.adult;
+      });
+    }
+
+    if (tools) tools.style.display = 'flex';
+    if (cntSpan) cntSpan.textContent = myGames.length + '개';
+
+    var sortMode = sortSelect ? sortSelect.value : 'default';
+    function isHit(g) {
+      var t = +targets[String(g.appid)] || 0;
+      var p = +g.price || 0;
+      return t > 0 && p > 0 && p <= t;
+    }
+
+    myGames.sort(function(a, b) {
+      if (sortMode === 'default') {
+        var hitA = isHit(a) ? 1 : 0;
+        var hitB = isHit(b) ? 1 : 0;
+        if (hitA !== hitB) return hitB - hitA;
+        var offA = a.off || 0;
+        var offB = b.off || 0;
+        if (offA !== offB) return offB - offA;
+        return (a.name || '').localeCompare(b.name || '');
+      } else if (sortMode === 'off') {
+        var offA = a.off || 0;
+        var offB = b.off || 0;
+        if (offA !== offB) return offB - offA;
+        return (+a.price || 0) - (+b.price || 0);
+      } else if (sortMode === 'cheap') {
+        if ((+a.price || 0) !== (+b.price || 0)) return (+a.price || 0) - (+b.price || 0);
+        return (a.name || '').localeCompare(b.name || '');
+      } else if (sortMode === 'name') {
+        return (a.name || '').localeCompare(b.name || '');
+      }
+      return 0;
+    });
+
+    app.innerHTML = '';
+    if (myGames.length === 0) {
+      var noMsg = el('div', '', 'empty-state');
+      noMsg.appendChild(el('p', '조건에 맞는 찜 게임이 없습니다.'));
+      app.appendChild(noMsg);
+      return;
+    }
+
+    var grid = el('div', '', 'grid');
+
+    myGames.forEach(function(g) {
+      var appidStr = String(g.appid);
+      var currentTarget = +targets[appidStr] || 0;
+      var currentPrice = +g.price || 0;
+      var targetHit = currentTarget > 0 && currentPrice > 0 && currentPrice <= currentTarget;
+
+      var card = el('div', '', 'my-card');
+      if (targetHit) card.classList.add('target-hit');
+
+      var head = el('div', '', 'my-card-head');
+      var imgLink = el('a');
+      imgLink.href = 'game/' + g.appid + '.html';
+
+      if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
+        var img = document.createElement('img');
+        img.src = g.img;
+        img.alt = g.name + ' 표지';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        imgLink.appendChild(img);
+      } else {
+        var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
+        imgLink.appendChild(ph);
+      }
+      head.appendChild(imgLink);
+
+      if (g.off) {
+        var rib = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
+        head.appendChild(rib);
+      }
+
+      if (targetHit) {
+        var hitBadge = el('span', '🎉 목표가 도달', 'my-hit-badge');
+        head.appendChild(hitBadge);
+      }
+      card.appendChild(head);
+
+      var body = el('div', '', 'my-card-body');
+      var title = el('a', g.name, 'my-card-title');
+      title.href = 'game/' + g.appid + '.html';
+      body.appendChild(title);
+
+      var chipsDiv = el('div', '', 'chips');
+      if (g.atl && g.atl_txt) chipsDiv.appendChild(el('span', g.atl_txt, 't atl'));
+      if (g.demo) chipsDiv.appendChild(el('span', '데모', 't demo'));
+      if (g.soon) chipsDiv.appendChild(el('span', '출시예정', 't soon'));
+      else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
+      if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
+      else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+      if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
+
+      var rc = '';
+      if (g.r_lbl) {
+        rc = g.r_lbl + ' · 리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+        if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
+      } else if (g.r_tot >= 10) {
+        rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      }
+      if (rc) {
+        body.appendChild(el('div', rc, 'tagline'));
+      }
+
+      var priceRow = el('div', '', 'my-price-row');
+      var priceBox = el('div', '', 'price');
+      if (g.free) {
+        priceBox.appendChild(el('span', '무료', 'now'));
+      } else if (!currentPrice) {
+        priceBox.appendChild(el('span', g.soon ? '출시 전' : '가격 미정', 'now'));
+      } else {
+        priceBox.appendChild(el('span', currentPrice.toLocaleString('ko-KR') + '원', 'now'));
+        if (g.p_init && g.p_init > currentPrice) {
+          priceBox.appendChild(el('span', g.p_init.toLocaleString('ko-KR') + '원', 'init'));
+        }
+      }
+      priceRow.appendChild(priceBox);
+      body.appendChild(priceRow);
+
+      var targetPanel = el('div', '', 'my-target-panel');
+      var targetView = el('div', '', 'my-target-view');
+      var targetStatus = el('div', '', 'my-target-status' + (targetHit ? ' hit' : ''));
+
+      if (currentTarget > 0) {
+        var tText = el('span', '목표가: ' + currentTarget.toLocaleString('ko-KR') + '원', 'current-target');
+        targetStatus.appendChild(tText);
+        if (targetHit) {
+          targetStatus.appendChild(el('span', '🎉 목표가 도달', 'target-hit-text'));
+        }
+        targetView.appendChild(targetStatus);
+
+        var actions = el('div', '', 'my-target-actions');
+        var editBtn = el('button', '수정', 'btn btn-s');
+        editBtn.type = 'button';
+        var delBtn = el('button', '목표가 삭제', 'btn btn-s');
+        delBtn.type = 'button';
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        targetView.appendChild(actions);
+      } else {
+        targetStatus.appendChild(el('span', '목표 가격 미설정', 'current-target'));
+        targetView.appendChild(targetStatus);
+
+        var actions = el('div', '', 'my-target-actions');
+        var setBtn = el('button', '+ 목표가 설정', 'btn btn-s');
+        setBtn.type = 'button';
+        actions.appendChild(setBtn);
+        targetView.appendChild(actions);
+      }
+      targetPanel.appendChild(targetView);
+
+      var targetEdit = el('div', '', 'my-target-edit');
+      targetEdit.style.display = 'none';
+      var editRow = el('div', '', 'target-row');
+      var input = el('input', '', 'target-input');
+      input.type = 'text';
+      input.placeholder = '목표 가격 입력';
+      if (currentTarget > 0) input.value = currentTarget.toLocaleString('ko-KR');
+
+      input.addEventListener('input', function() {
+        var val = this.value.replace(/[^0-9]/g, '');
+        this.value = val ? Number(val).toLocaleString('ko-KR') : '';
+      });
+
+      var wonSpan = el('span', '원');
+      var saveBtn = el('button', '저장', 'btn btn-s btn-p target-save');
+      saveBtn.type = 'button';
+      var cancelBtn = el('button', '취소', 'btn btn-s target-del');
+      cancelBtn.type = 'button';
+
+      editRow.appendChild(input);
+      editRow.appendChild(wonSpan);
+      editRow.appendChild(saveBtn);
+      editRow.appendChild(cancelBtn);
+      targetEdit.appendChild(editRow);
+      targetPanel.appendChild(targetEdit);
+
+      var showEdit = function() {
+        targetView.style.display = 'none';
+        targetEdit.style.display = 'block';
+        input.focus();
+      };
+      var hideEdit = function() {
+        targetEdit.style.display = 'none';
+        targetView.style.display = 'block';
+      };
+
+      if (targetView.querySelector('button')) {
+        targetView.querySelectorAll('button').forEach(function(b) {
+          if (b.textContent === '수정' || b.textContent === '+ 목표가 설정') {
+            b.addEventListener('click', showEdit);
+          } else if (b.textContent === '목표가 삭제') {
+            b.addEventListener('click', function() {
+              var curT = readTargets();
+              delete curT[appidStr];
+              writeTargets(curT);
+              if (window.steamWishlist && window.steamWishlist.paint) window.steamWishlist.paint();
+              render();
+            });
+          }
+        });
+      }
+
+      saveBtn.addEventListener('click', function() {
+        var n = Number(input.value.replace(/[^0-9]/g, ''));
+        var curT = readTargets();
+        if (n > 0) {
+          curT[appidStr] = n;
+        } else {
+          delete curT[appidStr];
+        }
+        writeTargets(curT);
+        if (window.steamWishlist && window.steamWishlist.paint) window.steamWishlist.paint();
+        render();
+      });
+
+      cancelBtn.addEventListener('click', hideEdit);
+
+      body.appendChild(targetPanel);
+      card.appendChild(body);
+
+      var foot = el('div', '', 'my-card-foot');
+      var detailBtn = el('a', '상세보기', 'btn btn-s');
+      detailBtn.href = 'game/' + g.appid + '.html';
+
+      var removeBtn = el('button', '찜 삭제', 'btn btn-s');
+      removeBtn.type = 'button';
+      removeBtn.setAttribute('aria-label', g.name + ' 찜 목록에서 삭제');
+      removeBtn.addEventListener('click', function() {
+        var curWish = readWish();
+        curWish.delete(appidStr);
+        writeWish(curWish);
+        document.querySelectorAll('.wish-count').forEach(function(el){ el.textContent = curWish.size; });
+        if (window.steamWishlist && window.steamWishlist.paint) window.steamWishlist.paint();
+        render();
+      });
+
+      foot.appendChild(detailBtn);
+      foot.appendChild(removeBtn);
+      card.appendChild(foot);
+
+      grid.appendChild(card);
+    });
+
+    app.appendChild(grid);
+  }
+
+  if (sortSelect) sortSelect.addEventListener('change', render);
+  if (adultCheck) adultCheck.addEventListener('change', render);
+
+  document.addEventListener('DOMContentLoaded', render);
+})();
+</script>
+'''
+    return page("내 찜 목록 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 저장된 찜 게임과 목표 가격을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     log = logging.getLogger("build")
@@ -2168,6 +2574,7 @@ def main() -> int:
         write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())
     write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops))
     write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
+    write("my-games.html", build_my_games(updated, freshness))
     paths = ["index.html"]
 
     for spec in LANDINGS:

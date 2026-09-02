@@ -595,4 +595,112 @@ CSS += '''
 @media (max-width: 600px) {
   .scroll-hint { display: block; }
 }
+
+/* ================= 내 찜 목록 ================= */
+.my-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform .13s, border-color .13s, box-shadow .13s;
+}
+.my-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--ink-3);
+  box-shadow: var(--shadow);
+}
+.my-card.target-hit {
+  border-color: var(--deal);
+}
+.my-card-head {
+  position: relative;
+  background: var(--raised);
+}
+.my-card-head a {
+  display: block;
+}
+.my-card-head img {
+  width: 100%;
+  aspect-ratio: 460/215;
+  object-fit: cover;
+  display: block;
+}
+.my-hit-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--deal);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.my-card-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.my-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  line-height: 1.3;
+}
+.my-card-title:hover {
+  text-decoration: underline;
+}
+.my-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+.my-target-panel {
+  margin-top: auto;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.my-target-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.my-target-status.hit .target-hit-text {
+  color: var(--deal);
+  font-weight: 700;
+}
+.my-target-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.my-card-foot {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.my-card-foot .btn {
+  flex: 1;
+  text-align: center;
+  justify-content: center;
+}
+@media (max-width: 600px) {
+  .my-card-body { padding: 10px; }
+  .my-card-foot { padding: 0 10px 10px; }
+  .my-card-title { font-size: 14px; }
+  .my-target-actions { flex-direction: column; }
+}
 '''
