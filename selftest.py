@@ -631,7 +631,7 @@ t_old = (now - timedelta(days=10)).strftime("%Y-%m-%d")
 
 drop_games = [
     # 1. 10,000원 -> 7,000원 (최근 인하)
-    {"appid": 101, "name": "Drop A", "korean": 1, "adult": 0, "price_final": 7000, 
+    {"appid": 101, "name": "Drop A", "korean": 1, "adult": 0, "price_final": 7000,
      "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 7000, "discount_pct": 30}]},
     # 2. 7,000원 -> 10,000원 (인상)
     {"appid": 102, "name": "Up B", "korean": 1, "adult": 0, "price_final": 10000,
@@ -684,7 +684,7 @@ detail_no_drop = build.build_detail(drop_games[0], drop_games, t_max, None, rece
 check("상세페이지에 조건부 문구 미생성", "최근 3,000원 인하" not in detail_no_drop)
 
 massive_drop_games = [
-    {"appid": 1000 + i, "name": f"Game {i}", "korean": 1, "adult": 0, "price_final": 5000, 
+    {"appid": 1000 + i, "name": f"Game {i}", "korean": 1, "adult": 0, "price_final": 5000,
      "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 5000, "discount_pct": 50}]}
     for i in range(125)
 ]
@@ -766,6 +766,45 @@ check("compare.html에 }}가 남아있지 않음", "}}" not in c_html)
 check("정상 JavaScript 중괄호 생성", "function render() {" in c_html)
 
 print()
+print("\n13) 초기 로딩 지연 최적화 (Lazy Load)")
+idx_path = os.path.join(config.SITE_DIR, "index.html")
+json_path = os.path.join(config.SITE_DIR, "assets/game-search-index.json")
+sitemap_path = os.path.join(config.SITE_DIR, "sitemap.xml")
+
+if os.path.exists(idx_path):
+    index_html = open(idx_path, "r", encoding="utf-8").read()
+    idx_size = os.path.getsize(idx_path)
+else:
+    index_html = ""
+    idx_size = 0
+
+if os.path.exists(json_path):
+    search_json = open(json_path, "r", encoding="utf-8").read()
+else:
+    search_json = ""
+
+check("index.html 렌더링 시 전체 카드 수가 줄어듦 (약 200 미만)", index_html.count('class="card"') < 200)
+check("index.html 크기가 줄어듦", idx_size < 150 * 1024)
+check("assets/game-search-index.json 생성됨", os.path.exists(json_path))
+check("JSON 데이터에 description, history 배열이 없음", '"history":[' not in search_json and '"description":' not in search_json)
+check("sitemap에 JSON 파일이 없음", "game-search-index.json" not in open(sitemap_path).read())
+check("지연 로드 fetch 코드 존재", "fetch('assets/game-search-index.json')" in index_html)
+check("IntersectionObserver 초기 로드 트리거 존재", "new IntersectionObserver" in index_html)
+check("검색 입력/파라미터 진입 시 로드 트리거 존재", "loadIndex()" in index_html)
+check("DOM API textContent를 이용한 안전한 렌더링 존재", "textContent = " in index_html)
+check("createCard 내에서 JSON 필드 렌더링 시 innerHTML / insertAdjacentHTML 사용 안 함", "innerHTML = g." not in index_html and "insertAdjacentHTML" not in index_html)
+check("f-string 보간 잔류 없음: {len(games)}", "{len(games)}" not in index_html)
+check("f-string 보간 잔류 없음: {all_note}", "{all_note}" not in index_html)
+check('f-string 보간 잔류 없음: {"".join(card(g) for g in shown_games)}', '{"".join(card(g) for g in shown_games)}' not in index_html)
+check("f-string 보간 잔류 없음: {tiles}", "{tiles}" not in index_html)
+import re as _re
+_all_match = _re.search(r'<section id="all">.*?</section>', index_html, _re.DOTALL)
+_all_cards = _all_match.group().count('class="card"') if _all_match else 0
+_all_adult = _all_match.group().count('data-adult="1"') if _all_match else 0
+check(f"전체 목록 초기 카드가 24개 이하이며 0이 아님 (실제: {_all_cards}개)", 0 < _all_cards <= 24)
+check(f"전체 목록 초기 카드에 성인 콘텐츠 없음 (실제: {_all_adult}개)", _all_adult == 0)
+
+
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")

@@ -993,13 +993,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     # 홈에 미리 그려두는 카드 수를 제한한다. 전량을 그리면 index.html 이
     # 게임 9천개에서 6.9MB 가 되고(실측) 모바일에서 열리지 않는다.
     # 상한을 넘으면 추천 점수 높은 순으로 자르고, 그 사실을 화면에 밝힌다.
-    shown_games = games
+    shown_games = sorted(safe, key=lambda g: -(g.get("score") or 0))[:24]
     all_note = ""
-    if len(games) > config.MAX_INDEX_CARDS:
-        shown_games = sorted(games, key=lambda g: -(g.get("score") or 0))[:config.MAX_INDEX_CARDS]
-        all_note = (f'<p class="sec-note">추천 점수가 높은 {len(shown_games):,}개만 '
-                    f'미리 불러왔습니다(전체 {len(games):,}개). '
-                    f'조건별 전체 목록은 위 메뉴에서 볼 수 있습니다.</p>')
 
     atl_note = ("" if days >= config.MIN_DAYS_FOR_LOW else
                 f'<p class="sec-note">가격 추적은 {days}일째입니다. '
@@ -1038,7 +1033,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
 <section id="all">
   <div class="sec-head"><h2>전체 게임에서 찾기</h2>
-    <span class="cnt" id="cnt">{len(shown_games)}개</span></div>
+    <span class="cnt" id="cnt">{len(games)}개</span></div>
   {all_note}
   <div class="tools">
     <input type="search" id="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
@@ -1079,38 +1074,230 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   var msg=document.getElementById('noneMsg'), cnt=document.getElementById('cnt');
   var moreWrap=document.getElementById('moreWrap'), moreBtn=document.getElementById('moreBtn');
   var chips=document.querySelectorAll('.presets .chip');
-  var cards=Array.prototype.slice.call(list.querySelectorAll('.card'));
   var f='all';
 
-  function keep(c){{
-    var d=c.dataset;
-    if (d.adult==='1' && !adult.checked) return false;
+  var indexData = null;
+  var fetchPromise = null;
+
+  function createCard(g) {{
+    var a = document.createElement('a');
+    a.className = 'card';
+    a.href = 'game/' + g.appid + '.html';
+
+    a.dataset.n = g.n;
+    a.dataset.demo = g.demo;
+    a.dataset.soon = g.soon;
+    a.dataset.new = g.new;
+    a.dataset.kr = g.kr;
+    a.dataset.adult = g.adult;
+    a.dataset.off = g.off;
+    a.dataset.price = g.price;
+    a.dataset.score = g.score;
+    a.dataset.atl = g.atl;
+    a.dataset.wish = g.appid;
+
+    var shot = document.createElement('div');
+    shot.className = 'shot';
+
+    if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {{
+      var img = document.createElement('img');
+      img.src = g.img;
+      img.alt = g.name + ' 표지';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      shot.appendChild(img);
+    }} else {{
+      var ph = document.createElement('div');
+      ph.className = 'ph';
+      ph.setAttribute('aria-hidden', 'true');
+      ph.textContent = (g.name || '?').trim().substring(0, 2).toUpperCase();
+      shot.appendChild(ph);
+    }}
+
+    if (g.off) {{
+      var rib = document.createElement('span');
+      rib.className = 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo');
+      rib.textContent = '-' + g.off + '%';
+      shot.appendChild(rib);
+    }}
+
+    if (g.players) {{
+      var playing = document.createElement('span');
+      playing.className = 'player-badge';
+      var compact = g.players >= 10000 ? (g.players / 10000).toFixed(1).replace('.0', '') + '만' :
+                    g.players >= 1000 ? (g.players / 1000).toFixed(1).replace('.0', '') + '천' : g.players;
+      playing.textContent = '● ' + compact + '명 플레이 중';
+      shot.appendChild(playing);
+    }}
+    a.appendChild(shot);
+
+    var wishBtn = document.createElement('button');
+    wishBtn.className = 'wish';
+    wishBtn.type = 'button';
+    wishBtn.dataset.wishId = g.appid;
+    wishBtn.setAttribute('aria-pressed', 'false');
+    wishBtn.setAttribute('aria-label', '찜 목록에 추가');
+    wishBtn.textContent = '♡';
+    a.appendChild(wishBtn);
+
+    var cardB = document.createElement('div');
+    cardB.className = 'card-b';
+
+    var nameDiv = document.createElement('div');
+    nameDiv.className = 'name';
+    nameDiv.textContent = g.name;
+    cardB.appendChild(nameDiv);
+
+    var chips = [];
+    if (g.atl && g.atl_txt) chips.push({{cls: 'atl', txt: g.atl_txt}});
+    if (g.demo) chips.push({{cls: 'demo', txt: '데모'}});
+    if (g.soon) chips.push({{cls: 'soon', txt: '출시예정'}});
+    else if (g.new) chips.push({{cls: 'new', txt: '신작'}});
+    if (g.kr_ov) chips.push({{cls: 'kr-ov', txt: '압도적 한국어'}});
+
+    if (chips.length > 0) {{
+      var cDiv = document.createElement('div');
+      cDiv.className = 'chips';
+      for (var i=0; i<chips.length; i++) {{
+        var sp = document.createElement('span');
+        sp.className = 't ' + chips[i].cls;
+        sp.textContent = chips[i].txt;
+        cDiv.appendChild(sp);
+      }}
+      cardB.appendChild(cDiv);
+    }}
+
+    var rc = '';
+    if (g.r_lbl) {{
+      rc = g.r_lbl + ' · 리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
+    }} else {{
+      if (g.r_tot >= 10) rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      else rc = g.dev || '';
+    }}
+    if (g.players && g.p_delta) {{
+      var arrow = g.p_delta > 0 ? '▲ ' : '▼ ';
+      rc = (rc ? rc + ' · ' : '') + arrow + Math.abs(g.p_delta).toLocaleString('ko-KR');
+    }}
+
+    var tagline = document.createElement('div');
+    tagline.className = 'tagline';
+    tagline.textContent = rc;
+    cardB.appendChild(tagline);
+
+    var hasLeft = g.recent_drop || g.free || g.off;
+    var fDiv = document.createElement('div');
+    fDiv.className = hasLeft ? 'card-f' : 'card-f bare';
+
+    if (g.recent_drop) {{
+      var drp = document.createElement('span');
+      drp.className = 'offtag';
+      drp.style.background = 'var(--accent)';
+      drp.textContent = '최근 ' + g.recent_drop.toLocaleString('ko-KR') + '원 인하';
+      fDiv.appendChild(drp);
+    }} else if (g.free) {{
+      // nothing for left side when free
+    }} else if (g.off) {{
+      var offCls = g.off >= 75 ? 'off-hi' : (g.off >= 50 ? 'off-mid' : 'off-lo');
+      var offTag = document.createElement('span');
+      offTag.className = 'offtag ' + offCls;
+      offTag.textContent = '-' + g.off + '%';
+      fDiv.appendChild(offTag);
+    }}
+
+    var pDiv = document.createElement('div');
+    pDiv.className = 'price';
+    var nowSp = document.createElement('span');
+    nowSp.className = 'now';
+
+    if (g.free) {{
+      nowSp.textContent = '무료';
+      pDiv.appendChild(nowSp);
+    }} else if (!g.price) {{
+      nowSp.textContent = g.soon ? '출시 전' : '가격 미정';
+      pDiv.appendChild(nowSp);
+    }} else {{
+      nowSp.textContent = g.price.toLocaleString('ko-KR') + '원';
+      pDiv.appendChild(nowSp);
+      if (g.p_init > g.price) {{
+        var wasSp = document.createElement('span');
+        wasSp.className = 'strike';
+        wasSp.textContent = g.p_init.toLocaleString('ko-KR') + '원';
+        pDiv.appendChild(wasSp);
+      }}
+    }}
+    fDiv.appendChild(pDiv);
+
+    cardB.appendChild(fDiv);
+    a.appendChild(cardB);
+    return a;
+  }}
+
+  function loadIndex() {{
+    if (indexData) return Promise.resolve(indexData);
+    if (fetchPromise) return fetchPromise;
+
+    msg.textContent = '게임 목록 불러오는 중...';
+    msg.hidden = false;
+
+    fetchPromise = fetch('assets/game-search-index.json')
+      .then(function(r) {{
+        if (!r.ok) throw new Error('Network response was not ok');
+        return r.json();
+      }})
+      .then(function(data) {{
+        indexData = data;
+        return data;
+      }})
+      .catch(function(e) {{
+        msg.textContent = '목록을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.';
+        msg.hidden = false;
+        throw e;
+      }});
+    return fetchPromise;
+  }}
+
+  var observer = new IntersectionObserver(function(entries) {{
+    if (entries[0].isIntersecting) {{
+      loadIndex().then(render).catch(function(){{}});
+      observer.disconnect();
+    }}
+  }});
+  var allSec = document.getElementById('all');
+  if (allSec) observer.observe(allSec);
+
+  function keep(g){{
+    if (g.adult===1 && !adult.checked) return false;
     var t=(q.value||'').trim().toLowerCase();
-    if (t && d.n.indexOf(t)===-1) return false;
-    if (f==='demo'  && d.demo!=='1') return false;
-    if (f==='soon'  && d.soon!=='1') return false;
-    if (f==='new'   && d.new!=='1')  return false;
-    if (f==='kr'    && d.kr!=='1')   return false;
-    if (f==='cheap' && !(+d.price>0 && +d.price<=10000)) return false;
-    if (f==='off50' && +d.off<50)    return false;
-    if (f==='wish' && !window.steamWishlist.read().has(String(d.wish))) return false;
+    if (t && g.n.indexOf(t)===-1) return false;
+    if (f==='demo'  && g.demo!==1) return false;
+    if (f==='soon'  && g.soon!==1) return false;
+    if (f==='new'   && g.new!==1)  return false;
+    if (f==='kr'    && g.kr!==1)   return false;
+    if (f==='cheap' && !(g.price>0 && g.price<=10000)) return false;
+    if (f==='off50' && g.off<50)    return false;
+    if (f==='wish' && window.steamWishlist && !window.steamWishlist.read().has(String(g.appid))) return false;
     return true;
   }}
   function cmp(a,b){{
     var s=sort.value;
-    if (s==='off')   return (+b.dataset.off)-(+a.dataset.off);
-    if (s==='name')  return a.dataset.n.localeCompare(b.dataset.n,'ko');
+    if (s==='off')   return b.off - a.off;
+    if (s==='name')  return a.n.localeCompare(b.n,'ko');
     if (s==='cheap'){{
-      // 가격 미정(0)은 '싼 것'이 아니므로 뒤로 보낸다
-      var pa=+a.dataset.price||Infinity, pb=+b.dataset.price||Infinity;
+      var pa=a.price||Infinity, pb=b.price||Infinity;
       return pa-pb;
     }}
-    return (+b.dataset.score)-(+a.dataset.score);
+    return b.score - a.score;
   }}
   function render(){{
-    var vis=cards.filter(keep);
-    cards.forEach(function(c){{ c.hidden=true; }});
-    vis.sort(cmp).forEach(function(c,i){{ if(i<shown) c.hidden=false; list.appendChild(c); }});
+    if (!indexData) return;
+    var vis=indexData.filter(keep);
+    vis.sort(cmp);
+
+    list.innerHTML = '';
+    for (var i = 0; i < Math.min(shown, vis.length); i++) {{
+      list.appendChild(createCard(vis[i]));
+    }}
     list.appendChild(msg);
 
     var hasFilter = f !== 'all' || (q.value||'').trim() !== '' || sort.value !== 'score' || adult.checked;
@@ -1125,11 +1312,21 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       msg.hidden = true;
     }}
     cnt.textContent = vis.length+'개';
-    // 전부 그리지 않고 24개씩 늘린다. 검색은 숨은 카드까지 전부 대상으로 한다.
     moreWrap.hidden = vis.length<=shown;
     moreBtn.textContent = '더 보기 ('+Math.min(shown,vis.length)+' / '+vis.length+')';
+
+    if (window.steamWishlist && window.steamWishlist.paint) window.steamWishlist.paint();
+    if (window.steamCompare && window.steamCompare.paint) window.steamCompare.paint();
   }}
-  function apply(){{ shown=PAGE; render(); }}
+
+  function apply(){{
+    if (!indexData) {{
+      loadIndex().then(render).catch(function(){{}});
+    }} else {{
+      shown=PAGE;
+      render();
+    }}
+  }}
   moreBtn.addEventListener('click',function(){{ shown+=PAGE; render(); }});
 
   function handleInput(v) {{
@@ -1168,10 +1365,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       var allChip = document.querySelector('.presets .chip[data-f="all"]');
       if (allChip) allChip.click();
       history.replaceState(null, '', location.pathname);
+      apply();
     }});
   }}
 
-  // 초기 진입 및 popstate 시 URL 파라미터(?q=) 또는 해시(#q=)를 읽어 검색창에 반영한다.
   window.syncURL=function(){{
     var params = new URLSearchParams(window.location.search);
     var searchStr = params.get('q');
@@ -1189,8 +1386,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (q) q.value = v;
     if (hq) hq.value = v;
 
-    apply();
     if (searchStr !== null || h.indexOf('#q=') === 0) {{
+      apply();
       document.getElementById('all').scrollIntoView();
     }}
   }};
@@ -1923,6 +2120,44 @@ def main() -> int:
 
     recent_drops = get_recent_drops(games)
     recent_drops_map = {g['appid']: g for g in recent_drops}
+
+    os.makedirs(os.path.join(config.SITE_DIR, "assets"), exist_ok=True)
+    index_data = []
+    for g in games:
+        g_copy = dict(g)
+        if g['appid'] in recent_drops_map:
+            g_copy['recent_drop_amount'] = recent_drops_map[g['appid']]['recent_drop_amount']
+
+        index_data.append({
+            "appid": g_copy["appid"],
+            "name": g_copy["name"],
+            "n": g_copy["name"].lower(),
+            "demo": 1 if (g_copy.get('has_demo') or g_copy.get('app_type')=='demo') else 0,
+            "soon": 1 if g_copy.get('coming_soon') else 0,
+            "new": 1 if g_copy.get('tag')=='신작' else 0,
+            "kr": 1 if g_copy.get('korean') else 0,
+            "adult": 1 if g_copy.get('adult') else 0,
+            "off": g_copy.get('discount_pct') or 0,
+            "price": g_copy.get('price_final') or 0,
+            "p_init": g_copy.get('price_initial') or 0,
+            "free": 1 if g_copy.get('is_free') else 0,
+            "score": g_copy.get('score') or 0,
+            "atl": 1 if atl_label(g_copy) else 0,
+            "atl_txt": atl_label(g_copy).replace('<span class="t atl">', "").replace("</span>", "") if atl_label(g_copy) else "",
+            "img": g_copy.get("header_image") or "",
+            "recent_drop": g_copy.get("recent_drop_amount") or 0,
+            "players": g_copy.get("players_current") or 0,
+            "p_delta": g_copy.get("player_delta") or 0,
+            "r_lbl": review_label(g_copy) or "",
+            "r_tot": g_copy.get("review_total") or g_copy.get("review_count") or 0,
+            "r_pct": g_copy.get("review_positive_pct"), # can be None
+            "dev": g_copy.get("developer") or g_copy.get("genres") or "",
+            "kr_ov": 1 if g_copy.get("korean") and g_copy.get("developer") and is_overwhelming(g_copy) else 0
+        })
+
+    import json
+    with open(os.path.join(config.SITE_DIR, "assets", "game-search-index.json"), "w", encoding="utf-8") as f:
+        json.dump(index_data, f, ensure_ascii=False, separators=(',', ':'))
 
     def write(rel: str, text: str) -> None:
         with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
