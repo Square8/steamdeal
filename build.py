@@ -404,6 +404,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
     jump = (f"""<nav class="jump">
     <a href="{up}index.html#popular">지금 인기</a>
+    <a href="{up}recent-drops.html">최근 인하</a>
     <a href="{up}index.html#hot">핫딜</a>
     <a href="{up}index.html#soon">기대작</a>
     <a href="{up}index.html#demo">데모</a>
@@ -631,7 +632,9 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     # 가격이 실제로 변한 적이 있을 때만 추이를 그린다.
     # 2일치 데이터에서 전부 평선을 그리면 아무 정보도 없는 장식이 된다.
     off = g.get("discount_pct") or 0
-    if len({h["price_final"] for h in hist if h["price_final"] > 0}) > 1:
+    if g.get("recent_drop_amount"):
+        left = f'<span class="offtag" style="background:var(--accent);">최근 {g["recent_drop_amount"]:,}원 인하</span>'
+    elif len({h["price_final"] for h in hist if h["price_final"] > 0}) > 1:
         left = sparkline(hist, g.get("price_last"))
     elif g.get("is_free"):
         left = ""          # 가격 칸이 이미 '무료'다. 같은 말을 두 번 쓰지 않는다.
@@ -756,7 +759,60 @@ def lead(games: list[dict], safe: list[dict]) -> str:
 </section>"""
 
 
-def build_index(games: list[dict], updated: str, freshness: dict | None = None) -> str:
+def get_recent_drops(games: list[dict]) -> list[dict]:
+    max_date = ""
+    for g in games:
+        for hist in g.get("history", []):
+            if hist["on_date"] > max_date:
+                max_date = hist["on_date"]
+    
+    if not max_date:
+        return []
+        
+    from datetime import datetime, timedelta
+    try:
+        max_dt = datetime.strptime(max_date, "%Y-%m-%d")
+        cutoff_dt = max_dt - timedelta(days=config.RECENT_DROP_DAYS)
+        cutoff_str = cutoff_dt.strftime("%Y-%m-%d")
+    except ValueError:
+        return []
+        
+    drops = []
+    for g in games:
+        if g.get("adult") or not g.get("price_final") or g.get("is_free"):
+            continue
+            
+        history = g.get("history", [])
+        valid_hist = [h for h in history if h.get("price_final", 0) > 0]
+        if len(valid_hist) < 2:
+            continue
+            
+        last = valid_hist[-1]
+        prev = valid_hist[-2]
+        
+        if last["on_date"] < cutoff_str:
+            continue
+            
+        if prev["price_final"] > last["price_final"]:
+            drop_amount = prev["price_final"] - last["price_final"]
+            drop_rate = int(round((drop_amount / prev["price_final"]) * 100))
+            
+            game_copy = dict(g)
+            game_copy["recent_drop_amount"] = drop_amount
+            game_copy["recent_drop_rate"] = drop_rate
+            game_copy["recent_drop_date"] = last["on_date"]
+            drops.append(game_copy)
+            
+    drops.sort(key=lambda x: (
+        not x.get("korean"),
+        -x["recent_drop_amount"],
+        -x["recent_drop_rate"],
+        x.get("name") or ""
+    ))
+    return drops
+
+
+def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None) -> str:
     # 기본 화면은 성적 콘텐츠를 제외한다. 전체 탐색기에서 토글로 켤 수 있다.
     safe = [g for g in games if not g.get("adult")]
     korean = [g for g in safe if g.get("korean")]
@@ -851,6 +907,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None) 
 {section("popular", popular_title, popular_note, popular,
          "인기 신호를 수집하는 중입니다.", rail=True, cap=8,
          more_href="#all", more_text="전체에서 찾기")}
+
+{(section("drop", "📉 최근 가격이 내려간 게임",
+         f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", recent_drops,
+         "", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체") if recent_drops else "")}
 
 {section("hot", hot_title, hot_note, hot,
          "현재 조건에 맞는 70%+ 핫딜이 없습니다.", rail=True, cap=8,
@@ -1141,7 +1201,7 @@ def build_related(g: dict, all_games: list[dict]) -> str:
 """
 
 
-def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict | None = None) -> str:
+def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict | None = None, recent_drop: dict | None = None) -> str:
     if g.get("is_free"):
         price_block = '<span class="big">무료</span>'
     elif g.get("price_final"):
@@ -1262,8 +1322,16 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
                        '가격이 한 번이라도 바뀌면 이 자리에 추이가 그려집니다.</div>')
         sub = (f"{days}일째 지켜보는 중이고, 아직 가격이 바뀌지 않았습니다."
                if days > 1 else "하루 두 번 자동으로 확인합니다.")
+               
+    recent_drop_html = ""
+    if recent_drop:
+        amt = recent_drop["recent_drop_amount"]
+        dt = recent_drop["recent_drop_date"]
+        recent_drop_html = f'<p style="color:var(--accent); font-weight:bold; margin-bottom:0.5rem; font-size:14px;">최근 {amt:,}원 인하 · {esc(dt)} 관측</p>'
+
     if len(hist) >= 2:
         chart = f"""<div class="panel">
+  {recent_drop_html}
   <h3>원화 가격 추이</h3>
   <p class="sub">{sub}</p>
   {chart_inner}
@@ -1271,6 +1339,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     else:
         # 아직 보여줄 추이가 없다. 접어두고, 열면 왜 비었는지 설명한다.
         chart = f"""<div class="panel">
+  {recent_drop_html}
   <details><summary>원화 가격 추이 — {esc(sub)}</summary>
   {chart_inner}
   </details>
@@ -1475,6 +1544,13 @@ LANDINGS = [
          note="현재 판매가 기준, 낮은 가격 순입니다. 전부 한국어를 지원합니다.",
          pick=lambda g: (g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000),
          sort=lambda g: g.get("price_final") or 0),
+    dict(slug="recent-drops",
+         title="스팀 최근 가격 인하 게임 — 최근 7일 가격이 내려간 것",
+         h1="최근 가격 인하 게임",
+         desc="최근 7일간 이 사이트가 관측한 가격 변동 기준입니다. 최대 120개까지만 보여줍니다.",
+         note="가격 인하폭 및 할인율이 큰 순서입니다. (데이터가 많으면 최대 120개 표시)",
+         pick=lambda g: True,
+         sort=lambda g: 0),
 ]
 
 
@@ -1556,6 +1632,8 @@ def main() -> int:
     freshness = freshness_info(last_collection)
     updated = freshness["display"] if last_collection else datetime.now(KST).strftime("%Y-%m-%d %H:%M")
     os.makedirs(os.path.join(config.SITE_DIR, "game"), exist_ok=True)
+    
+    recent_drops = get_recent_drops(games)
 
     def write(rel: str, text: str) -> None:
         with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
@@ -1564,16 +1642,22 @@ def main() -> int:
     write("style.css", theme.CSS)
     if os.path.exists(os.path.join(config.ROOT, "favicon.svg")):
         write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())
-    write("index.html", build_index(games, updated, freshness))
+    write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops))
     paths = ["index.html"]
 
     for spec in LANDINGS:
-        write(f"{spec['slug']}.html", build_landing(spec, games, updated, freshness))
+        if spec["slug"] == "recent-drops":
+            write(f"{spec['slug']}.html", build_landing(spec, recent_drops[:120], updated, freshness))
+        else:
+            write(f"{spec['slug']}.html", build_landing(spec, games, updated, freshness))
         paths.append(f"{spec['slug']}.html")
+
+    recent_drops_map = {g['appid']: g for g in recent_drops}
 
     # 성인 게임 상세는 만들되 사이트맵에 넣지 않는다 (검색에 내보내지 않음)
     for g in games:
-        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, games, updated, freshness))
+        rd = recent_drops_map.get(g["appid"])
+        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, games, updated, freshness, recent_drop=rd))
         if not g.get("adult"):
             paths.append(f"game/{g['appid']}.html")
 

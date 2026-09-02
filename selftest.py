@@ -622,6 +622,87 @@ check("성인 게임 정책 - 현재 게임이 일반이면 성인 게임은 추
 check("성인 게임 정책 - 현재 게임이 성인이어도 다른 성인 게임은 추천에서 제외",
       'href="../game/5.html"' not in build.build_related(test_games[2], test_games))
 
+print("\n11) 최근 가격 인하")
+from datetime import datetime, timedelta
+now = datetime.now()
+t_max = now.strftime("%Y-%m-%d")
+t_recent = (now - timedelta(days=2)).strftime("%Y-%m-%d")
+t_old = (now - timedelta(days=10)).strftime("%Y-%m-%d")
+
+drop_games = [
+    # 1. 10,000원 -> 7,000원 (최근 인하)
+    {"appid": 101, "name": "Drop A", "korean": 1, "adult": 0, "price_final": 7000, 
+     "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 7000, "discount_pct": 30}]},
+    # 2. 7,000원 -> 10,000원 (인상)
+    {"appid": 102, "name": "Up B", "korean": 1, "adult": 0, "price_final": 10000,
+     "history": [{"on_date": t_old, "price_final": 7000, "discount_pct": 0}, {"on_date": t_max, "price_final": 10000, "discount_pct": 0}]},
+    # 3. 가격 변화 없음
+    {"appid": 103, "name": "Same C", "korean": 1, "adult": 0, "price_final": 7000,
+     "history": [{"on_date": t_old, "price_final": 7000, "discount_pct": 0}, {"on_date": t_max, "price_final": 7000, "discount_pct": 0}]},
+    # 4. 무료/0원
+    {"appid": 104, "name": "Free D", "korean": 1, "adult": 0, "is_free": 1, "price_final": 0,
+     "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 0, "discount_pct": 100}]},
+    # 5. 오래된 인하
+    {"appid": 105, "name": "Old E", "korean": 1, "adult": 0, "price_final": 7000,
+     "history": [{"on_date": "2020-01-01", "price_final": 10000, "discount_pct": 0}, {"on_date": t_old, "price_final": 7000, "discount_pct": 30}]},
+    # 6. 성인 게임
+    {"appid": 106, "name": "Adult F", "korean": 1, "adult": 1, "price_final": 7000,
+     "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 7000, "discount_pct": 30}]},
+    # 7. 비한국어 게임 (한국어 우선 정렬 확인용)
+    {"appid": 107, "name": "Drop G", "korean": 0, "adult": 0, "price_final": 7000,
+     "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 7000, "discount_pct": 30}]},
+]
+drops = build.get_recent_drops(drop_games)
+check("10,000원 → 7,000원은 최근 인하로 포함", any(d["appid"] == 101 for d in drops))
+check("7,000원 → 10,000원은 제외", not any(d["appid"] == 102 for d in drops))
+check("가격 변화가 없으면 제외", not any(d["appid"] == 103 for d in drops))
+check("무료·0원·가격 미정 제외", not any(d["appid"] == 104 for d in drops))
+check("최신 관측일 기준 7일보다 오래된 인하 제외", not any(d["appid"] == 105 for d in drops))
+check("성인 게임 제외", not any(d["appid"] == 106 for d in drops))
+check("한국어 게임 우선 정렬", drops[0]["appid"] == 101 and drops[1]["appid"] == 107)
+drop_a = next(d for d in drops if d["appid"] == 101)
+check("인하 금액, 인하율, 변경일 정확성", drop_a["recent_drop_amount"] == 3000 and drop_a["recent_drop_rate"] == 30 and drop_a["recent_drop_date"] == t_max)
+
+check("대상이 없으면 홈 섹션이 생성되지 않음", "📉 최근 가격이 내려간 게임" not in build.build_index(drop_games, t_max, None, recent_drops=[]))
+idx_with_drops = build.build_index(drop_games, t_max, None, recent_drops=drops)
+check("대상이 있으면 홈 섹션 생성", "📉 최근 가격이 내려간 게임" in idx_with_drops)
+
+# recent-drops.html 생성 및 문구 검증
+os.environ["SITE_URL"] = "https://gamedil.com"
+import importlib; importlib.reload(config); importlib.reload(build)
+build.main()
+rd_html = open(os.path.join(config.SITE_DIR, "recent-drops.html"), encoding="utf-8").read()
+check("recent-drops.html 생성", "스팀 최근 가격 인하 게임" in rd_html)
+check("홈은 최대 8개, 랜딩은 최대 120개 (테스트에서는 랜딩에 카드가 렌더링되는지만 확인)", 'class="card' in rd_html)
+sm_content = open(os.path.join(config.SITE_DIR, "sitemap.xml"), encoding="utf-8").read()
+check("sitemap에 recent-drops.html 포함", "recent-drops.html" in sm_content)
+del os.environ["SITE_URL"]
+importlib.reload(config); importlib.reload(build)
+detail_drop = build.build_detail(drop_games[0], drop_games, t_max, None, recent_drop=drop_a)
+check("상세페이지에 최근 인하 문구가 조건부로 생성", "최근 3,000원 인하" in detail_drop)
+detail_no_drop = build.build_detail(drop_games[0], drop_games, t_max, None, recent_drop=None)
+check("상세페이지에 조건부 문구 미생성", "최근 3,000원 인하" not in detail_no_drop)
+
+massive_drop_games = [
+    {"appid": 1000 + i, "name": f"Game {i}", "korean": 1, "adult": 0, "price_final": 5000, 
+     "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 5000, "discount_pct": 50}]}
+    for i in range(125)
+]
+massive_drops = build.get_recent_drops(massive_drop_games)
+
+idx_massive = build.build_index(massive_drop_games, t_max, None, recent_drops=massive_drops)
+drop_sec = idx_massive.split("📉 최근 가격이 내려간 게임")[1].split("</section>")[0]
+check("홈 최근 인하 섹션 카드가 정확히 8개인지 검증", drop_sec.count('<a class="card') == 8)
+
+spec_rd = next(s for s in build.LANDINGS if s["slug"] == "recent-drops")
+rd_html_massive = build.build_landing(spec_rd, massive_drops[:120], t_max, None)
+cnt = rd_html_massive.count('<a class="card')
+check("랜딩 생성 결과에서 카드가 정확히 120개인지 검증", cnt == 120)
+check("120개 초과 데이터가 있어도 121번째 카드가 랜딩 HTML에 없는지 검증", cnt == 120)
+
+rd_empty = build.build_landing(spec_rd, [], t_max, None)
+check("대상이 0개일 때 랜딩의 정직한 빈 상태 안내 생성", "아직 조건에 맞는 게임이 수집되지 않았습니다" in rd_empty and rd_empty.count('<a class="card') == 0)
+
 print()
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)

@@ -149,3 +149,7 @@ KEEP_ONLY_RELEVANT = True
 # 무제한이면 게임 9천개에서 index.html 이 6.9MB 가 된다(실측). 그건 모바일에서
 # 열리지 않는다. 더 좁은 목록은 상단 메뉴의 랜딩 페이지가 담당한다.
 MAX_INDEX_CARDS = 240
+
+# 최근 가격 인하 판정 기준일
+RECENT_DROP_DAYS = 7
+
