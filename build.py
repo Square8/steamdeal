@@ -262,6 +262,8 @@ def abs_url(rel: str) -> str:
     """sitemap·canonical·og:url 은 절대 URL 이어야 한다.
     SITE_URL 이 없으면(로컬 테스트) 상대 경로를 그대로 둔다."""
     base = (config.SITE_URL or "").rstrip("/")
+    if base.startswith("http://"):
+        base = "https://" + base[7:]
     return f"{base}/{rel.lstrip('./')}" if base else rel
 
 
@@ -2308,7 +2310,11 @@ def build_sitemap(paths: list[str], updated: str) -> str:
     if not config.SITE_URL:
         # 절대 URL 없이는 유효한 사이트맵을 만들 수 없다. 빈 파일보다 낫게 표시만 남긴다.
         return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>\n'
-    day = updated[:10]
+    # sitemaps.org W3C Datetime 규격: YYYY-MM-DD
+    if updated and len(updated) >= 10 and updated[:4].isdigit() and updated[4] == '-':
+        day = updated[:10]
+    else:
+        day = datetime.now(KST).strftime("%Y-%m-%d")
     urls = "".join(
         f"  <url><loc>{esc(abs_url(p))}</loc><lastmod>{day}</lastmod>"
         f"<changefreq>daily</changefreq>"
