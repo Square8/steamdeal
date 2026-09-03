@@ -1363,13 +1363,60 @@ check("404 전용 모바일 CSS 존재", ".err-page" in css_text and "err-action
 # 10. Node로 JSON-LD 제외 실행 JavaScript 문법 검사
 node_syntax_check(p404_html, "404.html")
 
+print("\n22) Google Analytics 4 (gtag.js)")
+# 1. 대상 페이지 로드
+ga_idx_html = open(os.path.join(config.SITE_DIR, "index.html"), encoding="utf-8").read()
+ga_detail_html = open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read()
+ga_landing_html = open(os.path.join(config.SITE_DIR, "korean-games.html"), encoding="utf-8").read()
+ga_hot_html = open(os.path.join(config.SITE_DIR, "hot-deals.html"), encoding="utf-8").read()
+ga_compare_html = open(os.path.join(config.SITE_DIR, "compare.html"), encoding="utf-8").read()
+ga_my_html = open(os.path.join(config.SITE_DIR, "my-games.html"), encoding="utf-8").read()
+ga_recent_html = open(os.path.join(config.SITE_DIR, "recently-viewed.html"), encoding="utf-8").read()
+ga_status_html = open(os.path.join(config.SITE_DIR, "status.html"), encoding="utf-8").read()
+ga_404_html = open(os.path.join(config.SITE_DIR, "404.html"), encoding="utf-8").read()
 
+GA_ID = "G-SVXW1DG02M"
+target_pages = [
+    ("index.html", ga_idx_html),
+    ("game/730.html", ga_detail_html),
+    ("korean-games.html", ga_landing_html),
+    ("hot-deals.html", ga_hot_html),
+    ("compare.html", ga_compare_html),
+    ("my-games.html", ga_my_html),
+    ("recently-viewed.html", ga_recent_html),
+    ("status.html", ga_status_html),
+    ("404.html", ga_404_html),
+]
 
+# 2. Google tag 존재 및 </head> 직전 위치 검사
+for p_name, p_content in target_pages:
+    check(f"{p_name}에 Google tag 스크립트 존재", f"https://www.googletagmanager.com/gtag/js?id={GA_ID}" in p_content)
+    check(f"{p_name}에 gtag config 존재", f"gtag('config', '{GA_ID}')" in p_content)
+    check(f"{p_name} Google tag가 </head> 직전에 위치", 0 < p_content.find("<!-- Google tag (gtag.js) -->") < p_content.find("</head>"))
 
+# 3. GA 측정 ID 선언 횟수 검사 (중복 삽입 방지)
+for p_name, p_content in target_pages:
+    check(f"{p_name}에 gtag config 선언 횟수 1회", p_content.count(f"gtag('config', '{GA_ID}')") == 1)
+    check(f"{p_name}에 gtag.js 스크립트 선언 횟수 1회", p_content.count(f"googletagmanager.com/gtag/js?id={GA_ID}") == 1)
+    check(f"{p_name}에 GA ID 출현 횟수 2회", p_content.count(GA_ID) == 2)
 
+# 4. 기존 noindex/canonical/JSON-LD/자동완성/검색 기능 회귀 검사
+check("홈페이지 JSON-LD 구조화 데이터 유지", 'type="application/ld+json"' in ga_idx_html and "WebSite" in ga_idx_html)
+check("상세 페이지 JSON-LD VideoGame 유지", 'type="application/ld+json"' in ga_detail_html and "VideoGame" in ga_detail_html)
+check("상세 페이지 canonical 유지", 'rel="canonical"' in ga_detail_html and "game/730.html" in ga_detail_html)
+check("랜딩 페이지 canonical 유지", 'rel="canonical"' in ga_landing_html and "korean-games.html" in ga_landing_html)
+check("404.html noindex,follow 유지", '<meta name="robots" content="noindex,follow">' in ga_404_html)
+check("compare.html noindex,follow 유지", '<meta name="robots" content="noindex,follow">' in ga_compare_html)
+check("my-games.html noindex,follow 유지", '<meta name="robots" content="noindex,follow">' in ga_my_html)
+check("recently-viewed.html noindex,follow 유지", '<meta name="robots" content="noindex,follow">' in ga_recent_html)
+check("status.html noindex,follow 유지", '<meta name="robots" content="noindex,follow">' in ga_status_html)
+check("홈페이지 자동완성 스크립트 유지", "setupAutocomplete" in ga_idx_html)
+check("상세 페이지 자동완성 스크립트 유지", "setupAutocomplete" in ga_detail_html)
+check("홈페이지 검색 입력창 유지", 'name="q"' in ga_idx_html)
 
-
-
+# 5. Node.js로 GA 코드를 포함한 실행 스크립트 문법 검사
+for p_name, p_content in target_pages:
+    node_syntax_check(p_content, f"{p_name} (GA4 포함)")
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")

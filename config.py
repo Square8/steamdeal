@@ -23,6 +23,9 @@ SITE_URL = os.environ.get("SITE_URL", "")
 GOOGLE_VERIFY = os.environ.get("GOOGLE_SITE_VERIFICATION", "").strip()
 NAVER_VERIFY = os.environ.get("NAVER_SITE_VERIFICATION", "").strip()
 
+# ---- 웹 분석 (Google Analytics 4) ----
+GA_TRACKING_ID = os.environ.get("GA_TRACKING_ID", "G-SVXW1DG02M").strip()
+
 # ---- 스팀 API ----
 CC = "kr"
 # Steam Store API 언어 코드는 korean 이 아니라 koreana 다.

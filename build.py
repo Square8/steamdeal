@@ -750,6 +750,22 @@ def autocomplete_js(up: str) -> str:
 </script>'''
     return script_tmpl.replace('__UP__', json.dumps(up)).replace('__SEARCH_NORM_JS__', SEARCH_NORM_JS)
 
+def ga_tag() -> str:
+    """Google Analytics 4 (gtag.js) 태그.
+    클라이언트 사이드 측정용이며, 외부 데이터·localStorage와 독립적으로 동작한다."""
+    gid = getattr(config, "GA_TRACKING_ID", "").strip()
+    if not gid:
+        return ""
+    return f"""<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={esc(gid)}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){{dataLayer.push(arguments);}}
+  gtag('js', new Date());
+
+  gtag('config', '{esc(gid)}');
+</script>"""
+
 
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
@@ -817,6 +833,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 {WISHLIST_JS}
 {COMPARE_JS}
 {autocomplete_js(up) if nav else ""}
+{ga_tag()}
 </head>
 <body>
 <header class="top"><div class="topin">
