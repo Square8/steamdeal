@@ -1260,6 +1260,73 @@ check("전체 게임 섹션 초기 카드 24개 이하", 0 < all_initial_cards <
 all_initial_adult = len(re.findall(r'data-adult="1"', all_sec_html))
 check("전체 게임 섹션 초기 성인 카드 0개", all_initial_adult == 0, f"{all_initial_adult}개")
 
+print("\n20) 운영 상태 리포트 (status.html)")
+
+# 1. status.html 생성 확인
+status_path = os.path.join(config.SITE_DIR, "status.html")
+check("status.html 생성 확인", os.path.exists(status_path))
+status_html = open(status_path, encoding="utf-8").read() if os.path.exists(status_path) else ""
+
+# 2. noindex,follow 확인
+check("status.html에 noindex,follow 있음", '<meta name="robots" content="noindex,follow">' in status_html)
+
+# 3. sitemap 제외 확인
+sm_text = open(sm_path, encoding="utf-8").read()
+check("status.html은 sitemap에서 제외", "status.html" not in sm_text)
+
+# 4. 일반 nav/footer에 status.html 링크가 없는지 확인
+check("홈 네비/푸터에 status.html 링크 없음", 'status.html' not in idx_html)
+check("상세 네비/푸터에 status.html 링크 없음", 'status.html' not in detail_730)
+check("랜딩 네비/푸터에 status.html 링크 없음", 'status.html' not in landing_kd)
+
+# 5. 8개 이상의 실제 수치 항목이 존재하는지 확인
+status_metrics = [
+    "마지막 갱신 시각", "갱신 상태", "추적 게임 수", "성인 제외 공개 게임 수",
+    "한국어 지원 게임 수", "데모 가능 게임 수", "출시 예정 게임 수",
+    "가격 이력 보유 게임 수", "트레일러 확보 게임 수", "최근 가격 인하 게임 수"
+]
+check("10개 운영 수치 지표 항목 존재", all(m in status_html for m in status_metrics))
+
+# 6. 정상/지연/멈춤 상태 각각의 픽스처 렌더링 확인
+sample_games = [
+    {"appid": 101, "name": "Test A", "adult": 0, "korean": 1, "has_demo": 1, "coming_soon": 0, "media_checked_at": "2026-09-01", "history": [{"price_final": 1000}]},
+    {"appid": 102, "name": "Test B", "adult": 0, "korean": 1, "has_demo": 0, "coming_soon": 1, "media_checked_at": "2026-09-01", "history": [{"price_final": 2000}]}
+]
+f_ok = {"label": "최신 가격", "class": "ok", "display": "09-03 12:00"}
+html_ok = build.build_status(sample_games, "2026-09-03 12:00", f_ok)
+check("정상 상태 픽스처 렌더링", "수집 상태: 정상" in html_ok and "st-ok" in html_ok)
+
+f_late = {"label": "업데이트 지연", "class": "late", "display": "09-02 12:00"}
+html_late = build.build_status(sample_games, "2026-09-02 12:00", f_late)
+check("지연 상태 픽스처 렌더링", "수집 상태: 갱신 지연" in html_late and "st-late" in html_late and "업데이트 지연" in html_late)
+
+f_stale = {"label": "데이터 오래됨", "class": "stale", "display": "08-30 12:00"}
+html_stale = build.build_status(sample_games, "2026-08-30 12:00", f_stale)
+check("멈춤 상태 픽스처 렌더링", "수집 상태: 갱신 멈춤" in html_stale and "st-stale" in html_stale and "갱신 멈춤" in html_stale)
+
+# 7. 경고 조건 렌더링과 비경고 상태 확인
+check("비경고 정상 상태 안내 렌더링", "alert-ok" in html_ok and "정상 운영" in html_ok)
+
+games_no_hist = [{"appid": i, "name": f"G{i}", "adult": 0, "media_checked_at": "2026-09-01"} for i in range(10)]
+html_warn_price = build.build_status(games_no_hist, "2026-09-03", f_ok)
+check("가격 이력 미수집 비율 높음 경고 렌더링", "가격 이력 미수집 비율 높음" in html_warn_price)
+
+games_no_media = [{"appid": i, "name": f"G{i}", "adult": 0, "history": [{"price_final": 1000}]} for i in range(10)]
+html_warn_media = build.build_status(games_no_media, "2026-09-03", f_ok)
+check("트레일러 미확인 게임 다수 경고 렌더링", "트레일러 미확인 게임 다수" in html_warn_media and "백필 진행 중일 수 있습니다" in html_warn_media)
+
+# 8. 민감한 문자열이 생성물에 없는지 확인
+sensitive_terms = ["steam.sqlite3", "api_key", "apikey", "authorization", "secret", "token", "password"]
+check("민감한 문자열 없음", not any(term in status_html.lower() for term in sensitive_terms))
+
+# 9. 모바일 CSS와 접근성 role/aria 확인
+css_text = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
+check("모바일 CSS 2열 반응형 그리드 확인", ".status-grid" in css_text and "repeat(2, 1fr)" in css_text)
+check("접근성 role=status 확인", 'role="status"' in status_html)
+check("면책 조항 문구 확인", "이 페이지는 운영 현황 참고용이며" in status_html and "구매 전 Steam에서 확인하세요" in status_html)
+
+
+
 
 
 

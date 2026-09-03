@@ -900,4 +900,55 @@ CSS += '''
     right: 0;
   }
 }
+
+/* ================= 운영 상태 (status.html) ================= */
+.status-wrap { max-width: 960px; margin: 0 auto; padding: 10px 0 30px; }
+.status-header { margin-bottom: 20px; }
+.status-header h1 { font-size: 1.8rem; font-weight: 800; margin: 0 0 6px; letter-spacing: -.03em; }
+.status-header p { color: var(--ink-2); font-size: 14px; margin: 0; }
+.status-banner {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 20px; margin-bottom: 24px;
+}
+.status-banner-left { display: flex; align-items: center; gap: 12px; }
+.status-indicator { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.1rem; }
+.status-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.status-dot.st-ok { background: var(--good, #10b981); box-shadow: 0 0 8px rgba(16,185,129,0.4); }
+.status-dot.st-late { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.4); }
+.status-dot.st-stale { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+.status-banner-right { color: var(--ink-3); font-size: 13px; }
+
+.status-alerts { margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }
+.status-alert {
+  padding: 13px 16px; border-radius: 10px; font-size: 13.5px; line-height: 1.5; border: 1px solid var(--line);
+}
+.status-alert.alert-ok { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); color: #10b981; }
+.status-alert.alert-warn { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); color: #f59e0b; }
+.status-alert.alert-error { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); color: #ef4444; }
+.status-alert.alert-info { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); color: #60a5fa; }
+.status-alert strong { font-weight: 700; margin-right: 6px; }
+
+.status-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 28px;
+}
+.status-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; display: flex; flex-direction: column; justify-content: space-between;
+}
+.status-card .st-label { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+.status-card .st-val { font-size: 1.55rem; font-weight: 800; color: var(--ink); margin: 6px 0 2px; }
+.status-card .st-sub { font-size: 12px; color: var(--ink-2); }
+
+.status-disclaimer {
+  font-size: 12px; color: var(--ink-3); line-height: 1.6; padding: 14px 16px;
+  background: var(--surface-2); border-radius: 8px; border: 1px solid var(--line);
+}
+.status-disclaimer p { margin: 0; }
+
+@media (max-width: 700px) {
+  .status-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .status-card { padding: 12px; }
+  .status-card .st-val { font-size: 1.25rem; }
+}
 '''

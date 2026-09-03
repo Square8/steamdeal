@@ -3157,6 +3157,134 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
     return page("최근 본 게임 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 기록된 최근 본 게임 목록을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
 
+def build_status(games: list[dict], updated: str, freshness: dict,
+                 recent_drops: list[dict] | None = None) -> str:
+    """운영 상태 리포트: 수집/빌드 상태, 지표, 데이터 품질 경고."""
+    total_games = len(games)
+    public_games = sum(1 for g in games if not g.get("adult"))
+    korean_games = sum(1 for g in games if g.get("korean"))
+    demo_games = sum(1 for g in games if g.get("has_demo") or g.get("app_type") == "demo")
+    soon_games = sum(1 for g in games if g.get("coming_soon"))
+    history_games = sum(1 for g in games if (g.get("history") or g.get("days_tracked", 0) > 0))
+    trailer_games = sum(1 for g in games if g.get("movie_mp4") or g.get("movie_webm"))
+    recent_drops_count = len(recent_drops) if recent_drops is not None else sum(1 for g in games if g.get("last_drop_date"))
+    unchecked_media_count = sum(1 for g in games if not g.get("media_checked_at"))
+    no_history_count = total_games - history_games
+
+    cls = freshness.get("class", "ok")
+    if cls == "ok":
+        status_text = "정상"
+        dot_class = "st-ok"
+    elif cls == "late":
+        status_text = "갱신 지연"
+        dot_class = "st-late"
+    else:
+        status_text = "갱신 멈춤"
+        dot_class = "st-stale"
+
+    updated_display = freshness.get("display") or updated or "수집 중"
+
+    # 품질 경고 판정
+    alerts = []
+    if cls == "late":
+        alerts.append({
+            "type": "warn",
+            "title": "업데이트 지연",
+            "text": f"마지막 수집 이후 시간이 다소 경과했습니다 ({esc(updated_display)} 기준). GitHub Actions 스케줄 정상 작동 여부를 확인해주세요."
+        })
+    elif cls in ("stale", "needs"):
+        alerts.append({
+            "type": "error",
+            "title": "갱신 멈춤",
+            "text": f"데이터가 장시간 갱신되지 않았습니다 ({esc(updated_display)} 기준). GitHub Actions 실행 상태를 점검해주세요."
+        })
+
+    warn_no_price = getattr(config, "STATUS_WARN_NO_PRICE_RATIO", 0.30)
+    no_history_ratio = (no_history_count / total_games) if total_games > 0 else 0
+    if total_games > 0 and no_history_ratio > warn_no_price:
+        pct = round(no_history_ratio * 100, 1)
+        alerts.append({
+            "type": "warn",
+            "title": "가격 이력 미수집 비율 높음",
+            "text": f"전체 {total_games:,}개 중 {pct}%({no_history_count:,}개)의 가격 이력이 아직 없습니다. 신규 추가된 게임의 가격 수집이 진행 중일 수 있습니다."
+        })
+
+    warn_unchecked = getattr(config, "STATUS_WARN_UNCHECKED_MEDIA_RATIO", 0.40)
+    unchecked_ratio = (unchecked_media_count / total_games) if total_games > 0 else 0
+    if total_games > 0 and unchecked_ratio > warn_unchecked:
+        pct = round(unchecked_ratio * 100, 1)
+        alerts.append({
+            "type": "info",
+            "title": "트레일러 미확인 게임 다수",
+            "text": f"전체 {total_games:,}개 중 {pct}%({unchecked_media_count:,}개)의 미디어 확인이 아직 완료되지 않았습니다. 백필 진행 중일 수 있습니다."
+        })
+
+    if not alerts:
+        alerts_html = '<div class="status-alert alert-ok"><strong>정상 운영:</strong> 모든 데이터 갱신 및 품질 지표가 기준 범위 내에서 정상 동작하고 있습니다.</div>'
+    else:
+        alerts_html = "".join(
+            f'<div class="status-alert alert-{a["type"]}"><strong>{esc(a["title"])}:</strong> {a["text"]}</div>'
+            for a in alerts
+        )
+
+    cards_data = [
+        ("마지막 갱신 시각", updated_display, "Steam 가격 데이터 관측 기준"),
+        ("갱신 상태", status_text, f"상태 코드: {esc(freshness.get('label', status_text))}"),
+        ("추적 게임 수", f"{total_games:,}개" if total_games else "0개", "DB에 등록된 전체 게임"),
+        ("성인 제외 공개 게임 수", f"{public_games:,}개" if total_games else "0개", "기본 공개 노출 게임"),
+        ("한국어 지원 게임 수", f"{korean_games:,}개" if total_games else "0개", "한국어 인터페이스/자막/음성"),
+        ("데모 가능 게임 수", f"{demo_games:,}개" if total_games else "0개", "체험판 플레이 가능"),
+        ("출시 예정 게임 수", f"{soon_games:,}개" if total_games else "0개", "발매 예정 등록 게임"),
+        ("가격 이력 보유 게임 수", f"{history_games:,}개" if total_games else "0개", "1회 이상 가격 관측 기록"),
+        ("트레일러 확보 게임 수", f"{trailer_games:,}개" if total_games else "0개", "미디어 재생 URL 보유"),
+        ("최근 가격 인하 게임 수", f"{recent_drops_count:,}개" if total_games else "0개", "최근 7일 내 가격 인하"),
+    ]
+
+    cards_html = "".join(
+        f'<div class="status-card">'
+        f'<span class="st-label">{esc(label)}</span>'
+        f'<div class="st-val">{esc(val)}</div>'
+        f'<span class="st-sub">{esc(sub)}</span>'
+        f'</div>'
+        for label, val, sub in cards_data
+    )
+
+    body = f"""<div class="status-wrap">
+  <div class="status-header">
+    <h1>GameDil 운영 상태</h1>
+    <p>데이터 수집·빌드 파이프라인 및 서비스 품질 모니터링</p>
+  </div>
+
+  <div class="status-banner" role="status" aria-label="수집 파이프라인 운영 상태">
+    <div class="status-banner-left">
+      <div class="status-indicator">
+        <span class="status-dot {dot_class}" aria-hidden="true"></span>
+        <span>수집 상태: {status_text}</span>
+      </div>
+    </div>
+    <div class="status-banner-right">
+      <span>최근 관측 기준: <b>{esc(updated_display)}</b></span>
+    </div>
+  </div>
+
+  <div class="status-alerts" role="region" aria-label="데이터 품질 경고">
+    {alerts_html}
+  </div>
+
+  <div class="status-grid" role="region" aria-label="주요 운영 지표">
+    {cards_html}
+  </div>
+
+  <div class="status-disclaimer">
+    <p>ℹ️ 이 페이지는 운영 현황 참고용이며, 게임별 가격은 구매 전 Steam에서 확인하세요.</p>
+  </div>
+</div>"""
+
+    return page("GameDil 운영 상태", body, updated, depth=0, freshness=freshness,
+                desc="GameDil 데이터 수집 및 서비스 운영 현황",
+                extra_head='<meta name="robots" content="noindex,follow">')
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     log = logging.getLogger("build")
@@ -3231,6 +3359,7 @@ def main() -> int:
     write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
     write("my-games.html", build_my_games(updated, freshness))
     write("recently-viewed.html", build_recently_viewed(updated, freshness))
+    write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
     paths = ["index.html"]
 
     for spec in LANDINGS:

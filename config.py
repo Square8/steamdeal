@@ -160,3 +160,8 @@ RECENT_DROP_DAYS = 7
 # 현재 약 1,120개의 미확인 대상을 하루 2회 실행 기준 약 9~10일 안에 안전하게 백필 완료한다.
 MEDIA_BACKFILL_LIMIT = 60
 
+# ---- 운영 상태 품질 경고 기준 ----
+# 가격 이력이 전혀 없는 게임 비율 상한 (기본 30% 초과 시 경고)
+STATUS_WARN_NO_PRICE_RATIO = 0.30
+# 미디어(트레일러) 미확인 게임 비율 상한 (기본 40% 초과 시 백필 안내 경고)
+STATUS_WARN_UNCHECKED_MEDIA_RATIO = 0.40
