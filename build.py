@@ -1503,6 +1503,73 @@ def build_related(g: dict, all_games: list[dict]) -> str:
 """
 
 
+def price_judge_summary(g: dict) -> str:
+    """게임 상세 페이지 '원화 가격 추이' 패널 상단에 들어갈 정직한 가격 판단 요약."""
+    if g.get("is_free") or g.get("coming_soon"):
+        return ""
+    curr = g.get("price_final") or 0
+    if curr <= 0:
+        return ""
+
+    days = g.get("days_tracked") or 0
+    low = g.get("lowest_seen") or 0
+    price_last = g.get("price_last")
+    atl_trust = bool(g.get("atl_trustworthy"))
+
+    # 상태 문구 및 타일 값 결정
+    if days < config.MIN_DAYS_FOR_LOW or low <= 0:
+        status_msg = f"{days}일째 추적 중 · 아직 충분한 가격 이력이 쌓이지 않았습니다."
+        status_cls = "pj-warn"
+        diff_text = "이력 축적 중"
+        diff_cls = "pj-muted"
+        low_val_text = f"{low:,}원" if low > 0 else "—"
+    elif curr <= low:
+        if atl_trust:
+            status_msg = f"현재 관측 기간({days}일) 중 역대 최저가입니다."
+            diff_text = "역대 최저가"
+        else:
+            status_msg = f"현재 관측 기간({days}일) 중 최저가입니다."
+            diff_text = "관측 최저가"
+        status_cls = "pj-deal"
+        diff_cls = "pj-deal-text"
+        low_val_text = f"{low:,}원"
+    else:
+        diff_amt = curr - low
+        diff_pct = round((diff_amt / low) * 100)
+        status_msg = f"관측 최저가보다 {diff_amt:,}원 ({diff_pct}%) 높습니다."
+        status_cls = "pj-info"
+        diff_text = f"+{diff_amt:,}원 (+{diff_pct}%)"
+        diff_cls = "pj-up"
+        low_val_text = f"{low:,}원"
+
+    last_html = f'<span class="pj-last">마지막 관측: {esc(price_last)}</span>' if price_last else ""
+
+    return f"""<div class="price-judge" role="region" aria-label="가격 판단 요약">
+  <div class="pj-banner {status_cls}">
+    <span class="pj-msg">{status_msg}</span>
+    {last_html}
+  </div>
+  <div class="pj-tiles">
+    <div class="pj-tile">
+      <span class="pj-k">현재가</span>
+      <strong class="pj-v">{curr:,}원</strong>
+    </div>
+    <div class="pj-tile">
+      <span class="pj-k">관측 최저가</span>
+      <strong class="pj-v">{low_val_text}</strong>
+    </div>
+    <div class="pj-tile">
+      <span class="pj-k">최저가 대비</span>
+      <strong class="pj-v {diff_cls}">{diff_text}</strong>
+    </div>
+    <div class="pj-tile">
+      <span class="pj-k">관측 기간</span>
+      <strong class="pj-v">{days}일</strong>
+    </div>
+  </div>
+</div>"""
+
+
 def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict | None = None, recent_drop: dict | None = None) -> str:
     if g.get("is_free"):
         price_block = '<span class="big">무료</span>'
@@ -1563,30 +1630,6 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
   <ul class="whylist">{why}</ul>
 </div>""" if why else "")
 
-    # 알림 서버 없이도 바로 쓸 수 있는 1단계: 목표가는 이 브라우저에만 저장한다.
-    # 저장할 때 찜에도 넣어두므로 다음 방문에서 찜 필터로 바로 찾을 수 있다.
-    judge_panel = ""
-    if g.get("price_final") and not g.get("is_free"):
-        d = g.get("days_tracked", 0)
-        curr = g.get("price_final", 0)
-        low = g.get("lowest_seen", 0)
-        if d < config.MIN_DAYS_FOR_LOW:
-            j_txt = f"추적 {d}일째 · 아직 가격 판단을 보류합니다."
-        elif curr <= low and low > 0:
-            if g.get("atl_trustworthy"):
-                j_txt = f"<b>역대 최저가</b>입니다. (관측 {d}일 기준)"
-            else:
-                j_txt = f"<b>추적 {d}일 기준 최저가</b>입니다."
-        elif low > 0:
-            diff = curr - low
-            j_txt = f"관측 최저가({low:,}원)보다 <b>{diff:,}원</b> 더 비쌉니다. (추적 {d}일 기준)"
-        else:
-            j_txt = f"추적 {d}일째 · 아직 가격 판단을 보류합니다."
-        judge_panel = f"""<div class="panel">
-  <h3>지금 사도 될까요?</h3>
-  <p style="font-size:13.5px; margin:0; color:var(--ink-2); line-height:1.5;">{j_txt}</p>
-</div>"""
-
     target_panel = ""
     if g.get("price_final") and not g.get("is_free"):
         target_panel = f"""<div class="panel target-panel" data-target-appid="{g['appid']}"
@@ -1631,10 +1674,13 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         dt = recent_drop["recent_drop_date"]
         recent_drop_html = f'<p style="color:var(--accent); font-weight:bold; margin-bottom:0.5rem; font-size:14px;">최근 {amt:,}원 인하 · {esc(dt)} 관측</p>'
 
+    pj_summary = price_judge_summary(g)
+
     if len(hist) >= 2:
         chart = f"""<div class="panel">
   {recent_drop_html}
   <h3>원화 가격 추이</h3>
+  {pj_summary}
   <p class="sub">{sub}</p>
   {chart_inner}
 </div>"""
@@ -1642,6 +1688,8 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         # 아직 보여줄 추이가 없다. 접어두고, 열면 왜 비었는지 설명한다.
         chart = f"""<div class="panel">
   {recent_drop_html}
+  <h3>원화 가격 추이</h3>
+  {pj_summary}
   <details><summary>원화 가격 추이 — {esc(sub)}</summary>
   {chart_inner}
   </details>
@@ -1745,7 +1793,6 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 {shots_strip(g)}
 
 {why_panel}
-{judge_panel}
 
 <div class="panel">
   <h3>정보</h3>

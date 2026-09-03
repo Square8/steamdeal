@@ -703,4 +703,93 @@ CSS += '''
   .my-card-title { font-size: 14px; }
   .my-target-actions { flex-direction: column; }
 }
+
+/* ================= 가격 판단 요약 ================= */
+.price-judge {
+  margin: 12px 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pj-banner {
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pj-banner.pj-deal {
+  background: var(--deal-soft);
+  color: var(--deal);
+  border: 1px solid var(--deal);
+}
+.pj-banner.pj-warn {
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px dashed var(--line);
+}
+.pj-banner.pj-info {
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.pj-msg {
+  font-weight: 600;
+}
+.pj-last {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.pj-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pj-tile {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pj-k {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.pj-v {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.pj-v.pj-deal-text {
+  color: var(--deal);
+}
+.pj-v.pj-up {
+  color: var(--ink-2);
+}
+.pj-v.pj-muted {
+  color: var(--ink-3);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .pj-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .pj-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 '''

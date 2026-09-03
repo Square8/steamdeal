@@ -1009,6 +1009,73 @@ check("위 경우 0원으로 표시되지 않는지", p_res["soon"] != "0원" an
 check("무료 게임은 계속 무료로 표시되는지", p_res["free"] == "무료")
 
 
+print("\n16) 상세 페이지 가격 판단 요약 (원화 가격 추이)")
+# 1. 짧은 관측 기간: 신뢰 부족 문구
+g_short = {"appid": 8101, "name": "ShortTrack", "price_final": 20000, "lowest_seen": 20000,
+           "days_tracked": 5, "price_last": "2026-09-01",
+           "history": [{"on_date": "2026-09-01", "price_final": 20000, "price_initial": 20000, "discount_pct": 0}]}
+d_short = build.build_detail(g_short, [g_short], "2026-09-02", {})
+check("짧은 관측 기간에는 신뢰 부족 문구가 나오는지",
+      "5일째 추적 중 · 아직 충분한 가격 이력이 쌓이지 않았습니다." in d_short)
+check("원화 가격 추이 패널 상단에 가격 판단 요약이 위치하는지",
+      "원화 가격 추이" in d_short and 'aria-label="가격 판단 요약"' in d_short)
+
+# 2. 충분한 관측 기간 + 현재가 = 관측 최저가
+g_low = {"appid": 8102, "name": "LowTrack", "price_final": 15000, "lowest_seen": 15000,
+         "days_tracked": 40, "price_last": "2026-09-01", "atl_trustworthy": False,
+         "history": [{"on_date": "2026-08-01", "price_final": 20000, "price_initial": 20000, "discount_pct": 0},
+                     {"on_date": "2026-09-01", "price_final": 15000, "price_initial": 20000, "discount_pct": 25}]}
+d_low = build.build_detail(g_low, [g_low], "2026-09-02", {})
+check("충분한 관측 기간 + 현재가=관측 최저가 상태",
+      "현재 관측 기간(40일) 중 최저가입니다." in d_low)
+check("atl_trustworthy 아닐 때는 역대 표현 미사용",
+      "역대 최저가" not in d_low.split('aria-label="가격 판단 요약"')[1].split('</div>')[0])
+
+g_atl = {"appid": 8103, "name": "AtlTrack", "price_final": 10000, "lowest_seen": 10000,
+         "days_tracked": 70, "price_last": "2026-09-01", "atl_trustworthy": True,
+         "history": [{"on_date": "2026-07-01", "price_final": 20000, "price_initial": 20000, "discount_pct": 0},
+                     {"on_date": "2026-09-01", "price_final": 10000, "price_initial": 20000, "discount_pct": 50}]}
+d_atl = build.build_detail(g_atl, [g_atl], "2026-09-02", {})
+check("atl_trustworthy 충족 시 역대 최저가 문구 사용",
+      "현재 관측 기간(70일) 중 역대 최저가입니다." in d_atl)
+
+# 3. 현재가 > 관측 최저가일 때 금액/비율 차이
+g_high = {"appid": 8104, "name": "HighTrack", "price_final": 30000, "lowest_seen": 20000,
+          "days_tracked": 45, "price_last": "2026-09-01",
+          "history": [{"on_date": "2026-08-01", "price_final": 20000, "price_initial": 30000, "discount_pct": 33},
+                      {"on_date": "2026-09-01", "price_final": 30000, "price_initial": 30000, "discount_pct": 0}]}
+d_high = build.build_detail(g_high, [g_high], "2026-09-02", {})
+check("현재가>관측 최저가일 때 금액/비율 차이",
+      "관측 최저가보다 10,000원 (50%) 높습니다." in d_high and "+10,000원 (+50%)" in d_high)
+
+# 4. 무료/가격 미정/출시 전 제외
+g_free = {"appid": 8105, "name": "FreeGame", "is_free": 1, "price_final": 0}
+d_free = build.build_detail(g_free, [g_free], "2026-09-02", {})
+check("무료 게임은 가격 판단 요약 제외", 'aria-label="가격 판단 요약"' not in d_free)
+
+g_soon = {"appid": 8106, "name": "SoonGame", "coming_soon": 1, "price_final": 0}
+d_soon = build.build_detail(g_soon, [g_soon], "2026-09-02", {})
+check("출시 전 게임은 가격 판단 요약 제외", 'aria-label="가격 판단 요약"' not in d_soon)
+
+g_noprice = {"appid": 8107, "name": "NoPriceGame", "price_final": 0}
+d_noprice = build.build_detail(g_noprice, [g_noprice], "2026-09-02", {})
+check("가격 미정(0원) 게임은 가격 판단 요약 제외", 'aria-label="가격 판단 요약"' not in d_noprice)
+
+# 5. 기존 recent drop 문구와 목표가 패널 유지
+rd_mock = {"appid": 8104, "recent_drop_amount": 5000, "recent_drop_date": "2026-09-01"}
+d_with_drop = build.build_detail(g_high, [g_high], "2026-09-02", {}, recent_drop=rd_mock)
+check("기존 recent drop 문구 유지", "최근 5,000원 인하 · 2026-09-01 관측" in d_with_drop)
+check("기존 목표가 패널 유지", "target-panel" in d_with_drop and "내 목표 가격" in d_with_drop)
+
+# 6. 상세 HTML에 모바일 CSS와 접근성 문구 확인
+check("접근성 role=region 및 aria-label 존재",
+      'role="region" aria-label="가격 판단 요약"' in d_high)
+check("마지막 가격 관측일 표시", "마지막 관측: 2026-09-01" in d_high)
+css_text = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
+check("style.css에 가격 판단 모바일 레이아웃 CSS 존재",
+      ".price-judge" in css_text and ".pj-tiles" in css_text and "@media" in css_text)
+
+
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")
