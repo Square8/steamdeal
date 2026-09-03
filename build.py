@@ -497,6 +497,36 @@ COMPARE_JS = '''<script>
 </script>'''
 
 
+SEARCH_NORM_JS = '''function normClean(s) {
+  if (!s) return '';
+  return s.toLowerCase()
+    .replace(/['"’`]/g, '')
+    .replace(/[-_:,!·/&+~#()[\\]{}?]/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function normCompact(s) {
+  if (!s) return '';
+  return s.toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+}
+
+function getMatchTier(name, query) {
+  var cq = normClean(query);
+  var cpq = normCompact(query);
+  if (!cq || !cpq) return 0;
+
+  var cn = normClean(name);
+  var cpn = normCompact(name);
+
+  if (cn === cq || cpn === cpq) return 1;
+  if (cn.indexOf(cq) === 0 || cpn.indexOf(cpq) === 0) return 2;
+  if (cn.indexOf(' ' + cq) !== -1) return 3;
+  if (cn.indexOf(cq) !== -1 || cpn.indexOf(cpq) !== -1) return 4;
+  return Infinity;
+}'''
+
+
 def autocomplete_js(up: str) -> str:
     script_tmpl = '''<script>
 (function(){
@@ -504,6 +534,8 @@ def autocomplete_js(up: str) -> str:
   var indexCache = null;
   var isFetching = false;
   var fetchCallbacks = [];
+
+  __SEARCH_NORM_JS__
 
   function getIndex(cb) {
     if (indexCache) { cb(indexCache); return; }
@@ -641,8 +673,8 @@ def autocomplete_js(up: str) -> str:
     }
 
     function search(query) {
-      var q = (query || '').trim().toLowerCase();
-      if (!q) {
+      var qTrim = (query || '').trim();
+      if (!qTrim) {
         close();
         return;
       }
@@ -651,12 +683,17 @@ def autocomplete_js(up: str) -> str:
         for (var i = 0; i < data.length; i++) {
           var g = data[i];
           if (g.adult) continue;
-          if ((g.name || '').toLowerCase().indexOf(q) !== -1) {
-            matches.push(g);
-            if (matches.length >= 6) break;
+          var tier = getMatchTier(g.name, qTrim);
+          if (tier !== Infinity) {
+            matches.push({ g: g, tier: tier });
           }
         }
-        renderDropdown(matches);
+        matches.sort(function(a, b) {
+          if (a.tier !== b.tier) return a.tier - b.tier;
+          return (b.g.score || 0) - (a.g.score || 0);
+        });
+        var top = matches.slice(0, 6).map(function(m) { return m.g; });
+        renderDropdown(top);
       });
     }
 
@@ -709,7 +746,7 @@ def autocomplete_js(up: str) -> str:
   }
 })();
 </script>'''
-    return script_tmpl.replace('__UP__', json.dumps(up))
+    return script_tmpl.replace('__UP__', json.dumps(up)).replace('__SEARCH_NORM_JS__', SEARCH_NORM_JS)
 
 
 def page(title: str, body: str, updated: str, nav: bool = True,
@@ -1248,8 +1285,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 {atl_note}
 
 <section id="all">
-  <div class="sec-head"><h2>전체 게임에서 찾기</h2>
-    <span class="cnt" id="cnt">{len(games)}개</span></div>
+  <div class="sec-head"><h2 id="allTitle">전체 게임에서 찾기</h2>
+    <span class="cnt" id="cnt" aria-live="polite">{len(games)}개</span></div>
   {all_note}
   <div class="tools">
     <input type="search" id="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
@@ -1287,7 +1324,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   var PAGE=24, shown=PAGE;
   var list=document.getElementById('list'), q=document.getElementById('q'), hq=document.querySelector('.hsearch input[name="q"]');
   var sort=document.getElementById('sort'), adult=document.getElementById('adult');
-  var msg=document.getElementById('noneMsg'), cnt=document.getElementById('cnt');
+  var msg=document.getElementById('noneMsg'), cnt=document.getElementById('cnt'), allTitle=document.getElementById('allTitle');
   var moreWrap=document.getElementById('moreWrap'), moreBtn=document.getElementById('moreBtn');
   var chips=document.querySelectorAll('.presets .chip');
   var f='all';
@@ -1453,7 +1490,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (indexData) return Promise.resolve(indexData);
     if (fetchPromise) return fetchPromise;
 
-    msg.textContent = '게임 목록 불러오는 중...';
+    msg.innerHTML = '';
+    var p = document.createElement('p');
+    p.textContent = '게임 목록 불러오는 중...';
+    msg.appendChild(p);
     msg.hidden = false;
 
     fetchPromise = fetch('assets/game-search-index.json')
@@ -1466,7 +1506,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
         return data;
       }})
       .catch(function(e) {{
-        msg.textContent = '목록을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.';
+        msg.innerHTML = '';
+        var pErr = document.createElement('p');
+        pErr.textContent = '목록을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.';
+        msg.appendChild(pErr);
         msg.hidden = false;
         throw e;
       }});
@@ -1482,10 +1525,12 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   var allSec = document.getElementById('all');
   if (allSec) observer.observe(allSec);
 
+  {SEARCH_NORM_JS}
+
   function keep(g){{
     if (g.adult===1 && !adult.checked) return false;
-    var t=(q.value||'').trim().toLowerCase();
-    if (t && g.n.indexOf(t)===-1) return false;
+    var qVal = (q.value||'').trim();
+    if (qVal && getMatchTier(g.name, qVal) === Infinity) return false;
     if (f==='demo'  && g.demo!==1) return false;
     if (f==='soon'  && g.soon!==1) return false;
     if (f==='new'   && g.new!==1)  return false;
@@ -1495,7 +1540,14 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (f==='wish' && window.steamWishlist && !window.steamWishlist.read().has(String(g.appid))) return false;
     return true;
   }}
+
   function cmp(a,b){{
+    var qVal = (q.value||'').trim();
+    if (qVal) {{
+      var ta = getMatchTier(a.name, qVal);
+      var tb = getMatchTier(b.name, qVal);
+      if (ta !== tb) return ta - tb;
+    }}
     var s=sort.value;
     if (s==='off')   return b.off - a.off;
     if (s==='name')  return a.n.localeCompare(b.n,'ko');
@@ -1505,6 +1557,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     }}
     return b.score - a.score;
   }}
+
   function render(){{
     if (!indexData) return;
     var vis=indexData.filter(keep);
@@ -1516,13 +1569,47 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     }}
     list.appendChild(msg);
 
-    var hasFilter = f !== 'all' || (q.value||'').trim() !== '' || sort.value !== 'score' || adult.checked;
+    var qVal = (q.value||'').trim();
+    if (allTitle) {{
+      if (qVal) {{
+        allTitle.textContent = '‘' + qVal + '’ 검색 결과';
+      }} else {{
+        allTitle.textContent = '전체 게임에서 찾기';
+      }}
+    }}
+
+    var hasFilter = f !== 'all' || qVal !== '' || sort.value !== 'score' || adult.checked;
     var resetBtn = document.getElementById('resetBtn');
     if(resetBtn) resetBtn.style.display = hasFilter ? 'inline-block' : 'none';
 
     if(vis.length === 0){{
-      if(f === 'wish' && (q.value||'').trim() === '') msg.textContent = '찜한 게임이 없습니다. 마음에 드는 게임을 찜해보세요.';
-      else msg.textContent = '조건에 맞는 게임이 없습니다. 검색어나 필터를 넓혀보세요.';
+      msg.innerHTML = '';
+      if (qVal) {{
+        var p = document.createElement('p');
+        p.textContent = '‘' + qVal + '’와 일치하는 게임을 찾지 못했습니다.';
+        msg.appendChild(p);
+
+        var clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'btn btn-s';
+        clearBtn.style.marginTop = '10px';
+        clearBtn.textContent = '검색어를 지우고 전체 게임 보기';
+        clearBtn.addEventListener('click', function() {{
+          if (q) q.value = '';
+          if (hq) hq.value = '';
+          history.replaceState(null, '', location.pathname);
+          apply();
+        }});
+        msg.appendChild(clearBtn);
+      }} else if (f === 'wish') {{
+        var pWish = document.createElement('p');
+        pWish.textContent = '찜한 게임이 없습니다. 마음에 드는 게임을 찜해보세요.';
+        msg.appendChild(pWish);
+      }} else {{
+        var pOther = document.createElement('p');
+        pOther.textContent = '조건에 맞는 게임이 없습니다. 검색어나 필터를 넓혀보세요.';
+        msg.appendChild(pOther);
+      }}
       msg.hidden = false;
     }} else {{
       msg.hidden = true;
@@ -1548,7 +1635,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   function handleInput(v) {{
     if (q) q.value = v;
     if (hq) hq.value = v;
-    var newUrl = location.pathname + (v ? '?q=' + encodeURIComponent(v) : '');
+    var trimmed = (v || '').trim();
+    var newUrl = location.pathname + (trimmed ? '?q=' + encodeURIComponent(trimmed) : '');
     history.replaceState(null, '', newUrl);
     apply();
   }}

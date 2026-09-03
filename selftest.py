@@ -1114,7 +1114,7 @@ print("\n18) 발견·재방문 패키지 (검색 자동완성 / 최근 본 게�
 # A. 검색 자동완성 검증
 check("초기 HTML에 검색 JSON이 인라인되지 않음", 'var ALL_GAMES=' not in idx_html and 'var indexData=[' not in idx_html)
 check("검색 입력 시 fetch 코드 존재", "fetch(up + 'assets/game-search-index.json')" in idx_html or 'fetch(up+"assets/game-search-index.json")' in idx_html)
-check("자동완성 최대 6개 제한", "matches.length >= 6" in idx_html or "matches.length>=6" in idx_html)
+check("자동완성 최대 6개 제한", ".slice(0, 6)" in idx_html or "matches.length >= 6" in idx_html or "matches.length>=6" in idx_html)
 check("자동완성에서 성인 게임 제외", "if (g.adult) continue" in idx_html or "if(g.adult)continue" in idx_html)
 check("자동완성 키보드 이동/선택/닫기 지원", "ArrowDown" in idx_html and "ArrowUp" in idx_html and "Enter" in idx_html and "Escape" in idx_html)
 check("자동완성 DOM API createElement 사용", "createElement" in idx_html and "ac-item" in idx_html)
@@ -1192,6 +1192,75 @@ def node_syntax_check(html_code, label):
 node_syntax_check(idx_html, "index.html (자동완성 포함)")
 node_syntax_check(rv_html, "recently-viewed.html")
 node_syntax_check(detail_730, "game/730.html (최근 본 게임 기록 스크립트 포함)")
+
+print("\n19) 검색·탐색 완성 패키지 (결과 상태 / 검색 품질 / 접근성 / 보안)")
+
+# 1. 검색 결과 상태 UI (제목 변경, 빈 상태 문구, 검색어 지우기 버튼, 로딩 안내)
+check("검색 결과 제목 동적 변경 UI 존재", "allTitle" in idx_html and "검색 결과" in idx_html)
+check("검색 결과 없음 정직한 안내 문구 존재", "와 일치하는 게임을 찾지 못했습니다." in idx_html)
+check("검색어 지우고 전체 게임 보기 버튼 존재", "검색어를 지우고 전체 게임 보기" in idx_html)
+check("게임 목록 불러오는 중 안내 존재", "게임 목록 불러오는 중..." in idx_html)
+
+# 2. aria-live="polite" 존재
+check("결과 개수에 aria-live=polite 존재", 'id="cnt" aria-live="polite"' in idx_html)
+
+# 3. URL ?q= 제거 로직 존재
+check("검색어 없을 때 ?q= 제거 및 초기화 로직 존재", "location.pathname" in idx_html and "replaceState" in idx_html)
+
+# 4. 공백/하이픈/특수문자 완화 정규화 함수가 자동완성과 전체 검색에 공통 사용됨
+check("공백/특수문자 완화 정규화 함수 존재", "function normClean" in idx_html and "function normCompact" in idx_html)
+check("자동완성과 전체 검색 모두 getMatchTier 사용", idx_html.count("getMatchTier(") >= 2)
+
+# 5. 정렬 우선순위(정확 일치 → 시작 일치 → 단어 경계 → 포함) 검증
+test_tier_js = f"""
+{build.SEARCH_NORM_JS}
+const items = [
+  {{ name: "Undead Knights", score: 90 }},     // contains (tier 4)
+  {{ name: "Dead", score: 50 }},               // exact (tier 1)
+  {{ name: "Dead Cells", score: 80 }},         // starts with (tier 2)
+  {{ name: "Left 4 Dead", score: 95 }},        // word boundary (tier 3)
+  {{ name: "Cyberpunk", score: 99 }}           // no match
+];
+const q = "dead";
+const matches = items
+  .map(it => ({{ it, tier: getMatchTier(it.name, q) }}))
+  .filter(m => m.tier !== Infinity)
+  .sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : b.it.score - a.it.score);
+const res = matches.map(m => m.it.name).join(",");
+if (res !== "Dead,Dead Cells,Left 4 Dead,Undead Knights") {{
+  console.error("Wrong order: " + res);
+  process.exit(1);
+}}
+if (getMatchTier("Red-Dead", "red dead") !== 1) process.exit(2);
+if (getMatchTier("Red Dead", "reddead") !== 1) process.exit(3);
+if (getMatchTier("Red Dead Redemption", "reddead") !== 2) process.exit(4);
+if (getMatchTier("Baldur's Gate 3", "baldurs gate") !== 2) process.exit(5);
+"""
+tier_run = subprocess.run(["node", "-e", test_tier_js], capture_output=True, text=True)
+check("정렬 우선순위 및 특수문자 완화 로직 검증 (Node 실행)", tier_run.returncode == 0, tier_run.stderr.strip()[:80] if tier_run.returncode != 0 else "")
+
+# 6. 성인 게임 필터링
+check("자동완성에서 성인 게임 제외", "if (g.adult) continue" in idx_html or "if(g.adult)continue" in idx_html)
+check("전체 목록에서 성인 게임 기본 제외", "adult.checked" in idx_html and "!adult.checked" in idx_html)
+
+# 7. JSON 기반 렌더링 경로에 위험한 innerHTML / insertAdjacentHTML 없음
+# (list.innerHTML = '', msg.innerHTML = '', dropdown.innerHTML = '' 같은 컨테이너 초기화는 안전)
+has_unsafe_inner_html = bool(re.search(r'innerHTML\s*=\s*(?![\'"][\'"])\s*[a-zA-Z_]', idx_html))
+check("JSON 데이터 삽입 시 innerHTML 미사용 (안전한 초기화만 사용)", not has_unsafe_inner_html)
+check("insertAdjacentHTML 미사용", "insertAdjacentHTML" not in idx_html)
+
+# 8. 성능 및 크기 제약
+idx_size = os.path.getsize(os.path.join(config.SITE_DIR, "index.html"))
+check("index.html 크기 150KB 이하", idx_size < 150 * 1024, f"{idx_size} bytes")
+total_home_cards = len(re.findall(r'<a class="card"', idx_html))
+check("홈페이지 전체 초기 카드 200개 미만", total_home_cards < 200, f"{total_home_cards}개")
+all_sec_html = idx_html.split('id="all"')[1].split('id="moreWrap"')[0] if 'id="all"' in idx_html else ""
+all_initial_cards = len(re.findall(r'<a class="card"', all_sec_html))
+check("전체 게임 섹션 초기 카드 24개 이하", 0 < all_initial_cards <= 24, f"{all_initial_cards}개")
+all_initial_adult = len(re.findall(r'data-adult="1"', all_sec_html))
+check("전체 게임 섹션 초기 성인 카드 0개", all_initial_adult == 0, f"{all_initial_adult}개")
+
+
 
 
 if FAILS:
