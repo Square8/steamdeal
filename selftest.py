@@ -947,11 +947,12 @@ check("기존 localStorage 키 재사용 (찜)", "steamdeal-wishlist-v1" in mg_h
 check("기존 localStorage 키 재사용 (목표가)", "steamdeal-target-price-v1" in mg_html)
 
 check("JSON fetch가 my-games.html에만 존재", "assets/game-search-index.json" in mg_html)
-check("상세 페이지에 game-search-index.json fetch 없음", "game-search-index.json" not in detail_html)
+# 자동완성 fetch는 초기 실행 코드가 아니라 input 이벤트 흐름 안에서만 시작되어야 함 (초기 즉시 fetch 없음)
+check("상세 페이지에 초기 즉시 fetch 없음", "getIndex()" not in detail_html and "loadIndex()" not in detail_html)
 landing_kd = open(os.path.join(config.SITE_DIR, "korean-games.html"), encoding="utf-8").read()
-check("랜딩 페이지에 game-search-index.json fetch 없음", "game-search-index.json" not in landing_kd)
+check("랜딩 페이지에 초기 즉시 fetch 없음", "getIndex()" not in landing_kd and "loadIndex()" not in landing_kd)
 cmp_html = open(os.path.join(config.SITE_DIR, "compare.html"), encoding="utf-8").read()
-check("비교 페이지에 game-search-index.json fetch 없음", "game-search-index.json" not in cmp_html)
+check("비교 페이지에 초기 즉시 fetch 없음", "getIndex()" not in cmp_html and "loadIndex()" not in cmp_html)
 
 check("빈 상태 문구", "아직 찜한 게임이 없습니다." in mg_html and "홈으로 돌아가기" in mg_html)
 check("목표가 도달 판정 코드", "목표가 도달" in mg_html and ("currentPrice <= currentTarget" in mg_html or "p <= t" in mg_html))
@@ -1106,6 +1107,91 @@ check("상세 페이지 전체 ../ 상대경로 확인", 'href="../index.html#al
 # 6. 기존 찜 필터 칩 유지 확인
 check("홈 필터 칩에 ♡ 찜 목록 유지", 'data-f="wish"' in idx_html and '♡ 찜 목록' in idx_html)
 check("상단 nav에 aria-label 제공", 'aria-label="주요 메뉴"' in idx_html)
+
+
+print("\n18) 발견·재방문 패키지 (검색 자동완성 / 최근 본 게임 / SEO 컬렉션)")
+
+# A. 검색 자동완성 검증
+check("초기 HTML에 검색 JSON이 인라인되지 않음", 'var ALL_GAMES=' not in idx_html and 'var indexData=[' not in idx_html)
+check("검색 입력 시 fetch 코드 존재", "fetch(up + 'assets/game-search-index.json')" in idx_html or 'fetch(up+"assets/game-search-index.json")' in idx_html)
+check("자동완성 최대 6개 제한", "matches.length >= 6" in idx_html or "matches.length>=6" in idx_html)
+check("자동완성에서 성인 게임 제외", "if (g.adult) continue" in idx_html or "if(g.adult)continue" in idx_html)
+check("자동완성 키보드 이동/선택/닫기 지원", "ArrowDown" in idx_html and "ArrowUp" in idx_html and "Enter" in idx_html and "Escape" in idx_html)
+check("자동완성 DOM API createElement 사용", "createElement" in idx_html and "ac-item" in idx_html)
+check("자동완성 JSON 기반 innerHTML/insertAdjacentHTML 미사용", "innerHTML = g." not in idx_html and "innerHTML=g." not in idx_html and "insertAdjacentHTML" not in idx_html)
+check("자동완성 이미지 URL http/https 검증", "indexOf('http://') === 0" in idx_html and "indexOf('https://') === 0" in idx_html)
+
+# 모든 nav=True 페이지에 자동완성 스크립트 존재 검증
+my_html = open(os.path.join(config.SITE_DIR, "my-games.html"), encoding="utf-8").read()
+rv_path = os.path.join(config.SITE_DIR, "recently-viewed.html")
+rv_html = open(rv_path, encoding="utf-8").read() if os.path.exists(rv_path) else ""
+check("상세 페이지(game/730.html)에 자동완성 스크립트 존재", "setupAutocomplete" in detail_730)
+check("랜딩 페이지(korean-games.html)에 자동완성 스크립트 존재", "setupAutocomplete" in landing_kd)
+check("비교 페이지(compare.html)에 자동완성 스크립트 존재", "setupAutocomplete" in cmp_html)
+check("내 찜 페이지(my-games.html)에 자동완성 스크립트 존재", "setupAutocomplete" in my_html)
+check("최근 본 페이지(recently-viewed.html)에 자동완성 스크립트 존재", "setupAutocomplete" in rv_html)
+
+# nav=False 페이지에 자동완성 스크립트 없음 검증
+no_nav_page = build.page("테스트", "본문", "2026-09-03", nav=False)
+check("nav=False 페이지에는 자동완성 스크립트 없음", "setupAutocomplete" not in no_nav_page)
+
+# 자동완성 fetch가 초기 실행 코드가 아니라 input 이벤트 흐름 안에서만 시작됨 확인
+check("자동완성 fetch는 초기 실행 코드가 아니라 input 이벤트 흐름 안에서만 시작됨",
+      "input.addEventListener('input'" in detail_730 and "getIndex()" not in detail_730)
+
+# B. 최근 본 게임 검증
+check("recently-viewed.html 생성", os.path.exists(rv_path))
+check("recently-viewed.html에 noindex,follow 있음", '<meta name="robots" content="noindex,follow">' in rv_html)
+sm_content = open(sm_path, encoding="utf-8").read()
+check("recently-viewed.html은 sitemap에서 제외", "recently-viewed.html" not in sm_content)
+check("새 localStorage 키 gamedil-recently-viewed-v1 사용", "gamedil-recently-viewed-v1" in rv_html)
+detail_730 = open(os.path.join(config.SITE_DIR, "game", "730.html"), encoding="utf-8").read()
+check("상세 페이지에서 gamedil-recently-viewed-v1 기록 코드 존재", "gamedil-recently-viewed-v1" in detail_730)
+detail_adult = open(os.path.join(config.SITE_DIR, "game", "700.html"), encoding="utf-8").read() if os.path.exists(os.path.join(config.SITE_DIR, "game", "700.html")) else ""
+if detail_adult:
+    check("성인 게임 상세 페이지는 최근 본 게임에 기록하지 않음", "gamedil-recently-viewed-v1" not in detail_adult)
+check("최근 본 게임 최대 12개 제한 코드", "next.length >= 12" in detail_730 or "next.length>=12" in detail_730)
+check("최근 본 게임 빈 상태 및 홈 링크", "최근 본 게임이 없습니다." in rv_html and "홈으로 돌아가기" in rv_html)
+check("최근 본 게임 개별 삭제 및 전체 비우기", "전체 비우기" in rv_html and "최근 본 목록에서 삭제" in rv_html)
+check("my-games.html에 최근 본 게임 링크 존재", 'href="recently-viewed.html"' in my_html)
+cmp_html = open(os.path.join(config.SITE_DIR, "compare.html"), encoding="utf-8").read()
+check("compare.html에 최근 본 게임 링크 존재", 'href="recently-viewed.html"' in cmp_html)
+
+# C. SEO 컬렉션 2종 검증
+hd_path = os.path.join(config.SITE_DIR, "hot-deals.html")
+pop_path = os.path.join(config.SITE_DIR, "popular-games.html")
+check("hot-deals.html 생성", os.path.exists(hd_path))
+check("popular-games.html 생성", os.path.exists(pop_path))
+check("sitemap에 hot-deals.html 포함", "hot-deals.html" in sm_content)
+check("sitemap에 popular-games.html 포함", "popular-games.html" in sm_content)
+hd_html = open(hd_path, encoding="utf-8").read() if os.path.exists(hd_path) else ""
+pop_html = open(pop_path, encoding="utf-8").read() if os.path.exists(pop_path) else ""
+check("hot-deals.html 성인 게임 제외", 'data-adult="1"' not in hd_html)
+check("popular-games.html 성인 게임 제외", 'data-adult="1"' not in pop_html)
+check("popular-games.html 실시간 표현 금지 및 현재 플레이어 수 기준 안내", "실시간" not in pop_html and "현재 플레이어 수" in pop_html)
+check("홈 인기 섹션 더 보기가 popular-games.html로 연결", 'href="popular-games.html"' in idx_html)
+check("홈 핫딜 섹션 더 보기가 hot-deals.html로 연결", 'href="hot-deals.html"' in idx_html)
+check("hot-deals.html canonical 확인", 'rel="canonical"' in hd_html and 'hot-deals.html' in hd_html)
+check("popular-games.html canonical 확인", 'rel="canonical"' in pop_html and 'popular-games.html' in pop_html)
+
+# D. Node JS 구문 검사
+def node_syntax_check(html_code, label):
+    scs = re.findall(r'<script(?![^>]*application/ld\+json)[^>]*>(.*?)</script>', html_code, flags=re.DOTALL)
+    for idx_s, s in enumerate(scs):
+        s = s.strip()
+        if not s: continue
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+            tf.write(s)
+            tname = tf.name
+        try:
+            res = subprocess.run(["node", "-c", tname], capture_output=True, text=True)
+            check(f"Node JS 문법 검사: {label} (script #{idx_s+1})", res.returncode == 0, res.stderr.strip()[:80] if res.returncode != 0 else "")
+        finally:
+            if os.path.exists(tname): os.remove(tname)
+
+node_syntax_check(idx_html, "index.html (자동완성 포함)")
+node_syntax_check(rv_html, "recently-viewed.html")
+node_syntax_check(detail_730, "game/730.html (최근 본 게임 기록 스크립트 포함)")
 
 
 if FAILS:

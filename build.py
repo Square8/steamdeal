@@ -497,6 +497,221 @@ COMPARE_JS = '''<script>
 </script>'''
 
 
+def autocomplete_js(up: str) -> str:
+    script_tmpl = '''<script>
+(function(){
+  var up = __UP__;
+  var indexCache = null;
+  var isFetching = false;
+  var fetchCallbacks = [];
+
+  function getIndex(cb) {
+    if (indexCache) { cb(indexCache); return; }
+    fetchCallbacks.push(cb);
+    if (isFetching) return;
+    isFetching = true;
+    fetch(up + 'assets/game-search-index.json')
+      .then(function(r){
+        if (!r.ok) throw new Error('fetch error');
+        return r.json();
+      })
+      .then(function(data){
+        indexCache = Array.isArray(data) ? data : [];
+        isFetching = false;
+        fetchCallbacks.forEach(function(fn){ fn(indexCache); });
+        fetchCallbacks = [];
+      })
+      .catch(function(){
+        isFetching = false;
+        fetchCallbacks = [];
+      });
+  }
+
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  function setupAutocomplete(input) {
+    if (!input || input.dataset.acBound) return;
+    input.dataset.acBound = '1';
+    input.setAttribute('autocomplete', 'off');
+
+    var wrap = input.parentElement;
+    var dropdown = el('div', '', 'ac-dropdown');
+    dropdown.setAttribute('role', 'listbox');
+    dropdown.style.display = 'none';
+
+    if (wrap && wrap.classList.contains('hsearch')) {
+      wrap.appendChild(dropdown);
+    } else if (wrap) {
+      var container = el('div', '', 'ac-wrap');
+      input.parentNode.insertBefore(container, input);
+      container.appendChild(input);
+      container.appendChild(dropdown);
+      wrap = container;
+    } else {
+      input.parentNode.appendChild(dropdown);
+    }
+
+    var activeIdx = -1;
+    var currentMatches = [];
+
+    function close() {
+      dropdown.style.display = 'none';
+      dropdown.innerHTML = '';
+      activeIdx = -1;
+      currentMatches = [];
+    }
+
+    function renderDropdown(matches) {
+      currentMatches = matches;
+      activeIdx = -1;
+      dropdown.innerHTML = '';
+      if (matches.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+      }
+      dropdown.style.display = 'block';
+
+      matches.forEach(function(g, idx) {
+        var a = el('a', '', 'ac-item');
+        a.href = up + 'game/' + g.appid + '.html';
+        a.setAttribute('role', 'option');
+
+        var thumb = el('div', '', 'ac-thumb');
+        if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
+          var img = document.createElement('img');
+          img.src = g.img;
+          img.alt = '';
+          img.loading = 'lazy';
+          img.decoding = 'async';
+          thumb.appendChild(img);
+        } else {
+          var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
+          thumb.appendChild(ph);
+        }
+        a.appendChild(thumb);
+
+        var info = el('div', '', 'ac-info');
+        var nameSpan = el('span', g.name, 'ac-name');
+        info.appendChild(nameSpan);
+
+        var pRow = el('div', '', 'ac-p-row');
+        var priceSpan = el('span', '', 'ac-price');
+        var currentPrice = +g.price || 0;
+        if (g.free) {
+          priceSpan.textContent = '무료';
+        } else if (!currentPrice) {
+          priceSpan.textContent = g.soon ? '출시 전' : '가격 미정';
+        } else {
+          priceSpan.textContent = currentPrice.toLocaleString('ko-KR') + '원';
+        }
+        pRow.appendChild(priceSpan);
+
+        if (g.off) {
+          var offSpan = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
+          pRow.appendChild(offSpan);
+        }
+        info.appendChild(pRow);
+        a.appendChild(info);
+
+        a.addEventListener('mouseenter', function() {
+          setActive(idx);
+        });
+
+        dropdown.appendChild(a);
+      });
+    }
+
+    function setActive(idx) {
+      var items = dropdown.querySelectorAll('.ac-item');
+      items.forEach(function(it, i) {
+        if (i === idx) {
+          it.classList.add('active');
+          it.setAttribute('aria-selected', 'true');
+        } else {
+          it.classList.remove('active');
+          it.setAttribute('aria-selected', 'false');
+        }
+      });
+      activeIdx = idx;
+    }
+
+    function search(query) {
+      var q = (query || '').trim().toLowerCase();
+      if (!q) {
+        close();
+        return;
+      }
+      getIndex(function(data) {
+        var matches = [];
+        for (var i = 0; i < data.length; i++) {
+          var g = data[i];
+          if (g.adult) continue;
+          if ((g.name || '').toLowerCase().indexOf(q) !== -1) {
+            matches.push(g);
+            if (matches.length >= 6) break;
+          }
+        }
+        renderDropdown(matches);
+      });
+    }
+
+    input.addEventListener('input', function() {
+      search(this.value);
+    });
+
+    input.addEventListener('keydown', function(e) {
+      if (dropdown.style.display === 'none') return;
+      var items = dropdown.querySelectorAll('.ac-item');
+      if (items.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        var next = (activeIdx + 1) % items.length;
+        setActive(next);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        var prev = (activeIdx - 1 + items.length) % items.length;
+        setActive(prev);
+      } else if (e.key === 'Enter') {
+        if (activeIdx >= 0 && activeIdx < items.length) {
+          e.preventDefault();
+          items[activeIdx].click();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!wrap || !wrap.contains(e.target)) {
+        close();
+      }
+    });
+  }
+
+  function init() {
+    var hq = document.querySelector('.hsearch input[name="q"]');
+    if (hq) setupAutocomplete(hq);
+    var q = document.getElementById('q');
+    if (q) setupAutocomplete(q);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>'''
+    return script_tmpl.replace('__UP__', json.dumps(up))
+
+
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
          depth: int = 0, freshness: dict | None = None,
@@ -562,6 +777,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <link rel="stylesheet" href="{up}style.css?v={CSS_HASH}">
 {WISHLIST_JS}
 {COMPARE_JS}
+{autocomplete_js(up) if nav else ""}
 </head>
 <body>
 <header class="top"><div class="topin">
@@ -829,7 +1045,7 @@ def section(sid: str, title: str, note: str, items: list[dict],
         cnt = f'<span class="cnt">{len(items)}개</span>'
     note_html = f'<p class="sec-note">{esc(note)}</p>' if note else ""
     more = (f'<a class="more" href="{esc(more_href)}">{esc(more_text)} →</a>'
-            if len(items) > cap else "")
+            if (more_href and (more_href != "#all" or len(items) > cap)) else "")
     return f"""<section id="{sid}">
   <div class="sec-head"><h2>{esc(title)}</h2>{cnt}{more}</div>
   {note_html}
@@ -1006,7 +1222,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
 {section("popular", popular_title, popular_note, popular,
          "인기 신호를 수집하는 중입니다.", rail=True, cap=8,
-         more_href="#all", more_text="전체에서 찾기")}
+         more_href="popular-games.html", more_text="인기 게임 전체")}
 
 {(section("drop", "📉 최근 가격이 내려간 게임",
          f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", recent_drops,
@@ -1014,7 +1230,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
 {section("hot", hot_title, hot_note, hot,
          "현재 조건에 맞는 70%+ 핫딜이 없습니다.", rail=True, cap=8,
-         more_href="#all", more_text="할인 게임 찾기")}
+         more_href="hot-deals.html", more_text="핫딜 전체")}
 
 {section("soon", "🚀 출시 임박 기대작",
          "Steam 상점 노출과 출시일 기준입니다. 공개되지 않은 위시리스트 순위는 사용하지 않습니다.",
@@ -1770,6 +1986,28 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 }})();
 </script>"""
 
+    recent_view_js = ""
+    if not g.get("adult"):
+        recent_view_js = f"""<script>
+(function(){{
+  try {{
+    var KEY = 'gamedil-recently-viewed-v1';
+    var raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+    var cur = Array.isArray(raw) ? raw : [];
+    var id = {g['appid']};
+    var next = [id];
+    for (var i = 0; i < cur.length; i++) {{
+      var n = parseInt(cur[i], 10);
+      if (n > 0 && n !== id && next.indexOf(n) === -1) {{
+        next.push(n);
+        if (next.length >= 12) break;
+      }}
+    }}
+    localStorage.setItem(KEY, JSON.stringify(next));
+  }} catch(e) {{}}
+}})();
+</script>"""
+
     body = f"""
 <a class="back" href="./../index.html">← 목록으로</a>
 <div class="dhero">
@@ -1804,6 +2042,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 {chart}
 
 {build_related(g, all_games)}
+{recent_view_js}
 """
     # 제목에 가격을 넣으면 검색결과에서 클릭할 이유가 생긴다.
     if g.get("is_free"):
@@ -1923,6 +2162,20 @@ LANDINGS = [
          note="가격 인하폭 및 할인율이 큰 순서입니다. (데이터가 많으면 최대 120개 표시)",
          pick=lambda g: True,
          sort=lambda g: 0),
+    dict(slug="hot-deals",
+         title="스팀 70% 이상 할인 게임 — 검증된 핫딜 추천",
+         h1="70% 이상 할인 핫딜",
+         desc="스팀에서 70% 이상 할인 중인 한국어 지원 게임 목록. 할인율과 평가를 함께 검증했습니다.",
+         note="할인율 70% 이상인 한국어 지원 게임입니다. 할인율과 리뷰가 많은 순.",
+         pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) >= 70),
+         sort=lambda g: (-(g.get("discount_pct") or 0), -(g.get("review_total") or g.get("review_count") or 0))),
+    dict(slug="popular-games",
+         title="스팀 인기 게임 — 현재 플레이어 수 순위",
+         h1="지금 많이 하는 스팀 게임",
+         desc="마지막 수집 시점 기준 Steam 현재 플레이어 수가 확인된 한국어 지원 게임 목록입니다.",
+         note="마지막 수집 시점 기준 Steam 현재 플레이어 수 순입니다. 동접 신호가 수집된 게임만 표시합니다.",
+         pick=lambda g: bool(g.get("korean") and (g.get("players_current") or 0) > 0 and not g.get("coming_soon")),
+         sort=lambda g: (-(g.get("players_current") or 0), -(g.get("review_count") or 0))),
 ]
 
 
@@ -1988,7 +2241,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
     html = '''
 <div class="dhero" style="text-align:center; padding: 2rem 1rem;">
   <h1>게임 비교</h1>
-  <p class="sub">비교함 데이터는 이 브라우저에만 임시로 저장됩니다.</p>
+  <p class="sub">비교함 데이터는 이 브라우저에만 임시로 저장됩니다. · <a href="recently-viewed.html" style="color:var(--brand); text-decoration:underline; font-size:13px;">최근 본 게임 보기 →</a></p>
 </div>
 
 <div id="compareApp"></div>
@@ -2148,7 +2401,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
     html = '''
 <div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
   <h1>내 찜 목록</h1>
-  <p class="sub">브라우저에 저장된 찜 게임과 목표 가격을 확인합니다.</p>
+  <p class="sub">브라우저에 저장된 찜 게임과 목표 가격을 확인합니다. · <a href="recently-viewed.html" style="color:var(--brand); text-decoration:underline; font-size:13px;">최근 본 게임 보기 →</a></p>
 </div>
 
 <div class="sec-wrap" style="max-width: 1040px; margin: 0 auto; padding: 0 1rem 3rem;">
@@ -2549,6 +2802,273 @@ def build_my_games(updated: str, freshness: dict) -> str:
     return page("내 찜 목록 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 저장된 찜 게임과 목표 가격을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
 
+def build_recently_viewed(updated: str, freshness: dict) -> str:
+    html = '''
+<div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
+  <h1>최근 본 게임</h1>
+  <p class="sub">이 기기에서 최근 확인한 게임 목록입니다. (최대 12개 저장)
+    <br><a href="my-games.html" style="color:var(--brand); text-decoration:underline; font-size:13px;">내 찜 목록 가기 →</a>
+  </p>
+</div>
+
+<div class="sec-wrap" style="max-width: 1040px; margin: 0 auto; padding: 0 1rem 3rem;">
+  <div class="tools" id="recentTools" style="display:none; justify-content: space-between; margin-bottom: 14px;">
+    <span class="cnt" id="recentCnt" style="font-weight:700; color:var(--ink-2);">0개</span>
+    <button type="button" id="recentClear" class="btn btn-s">전체 비우기</button>
+  </div>
+
+  <div id="recentApp"></div>
+</div>
+
+<script>
+(function(){
+  var KEY = 'gamedil-recently-viewed-v1';
+
+  function readRecent() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+      if (!Array.isArray(raw)) return [];
+      var res = [];
+      for (var i = 0; i < raw.length; i++) {
+        var n = parseInt(raw[i], 10);
+        if (n > 0 && res.indexOf(n) === -1) {
+          res.push(n);
+          if (res.length >= 12) break;
+        }
+      }
+      return res;
+    } catch(e) {
+      return [];
+    }
+  }
+
+  function writeRecent(arr) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(arr));
+    } catch(e) {}
+  }
+
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  var allGames = null;
+  var isLoading = false;
+  var isError = false;
+
+  var app = document.getElementById('recentApp');
+  var tools = document.getElementById('recentTools');
+  var cntSpan = document.getElementById('recentCnt');
+  var clearBtn = document.getElementById('recentClear');
+
+  function renderStatus() {
+    app.innerHTML = '';
+    if (isLoading) {
+      app.appendChild(el('div', '불러오는 중...', 'empty-state'));
+      return;
+    }
+    if (isError) {
+      app.appendChild(el('div', '데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', 'empty-state'));
+      return;
+    }
+  }
+
+  function render() {
+    if (isLoading || isError) {
+      renderStatus();
+      return;
+    }
+
+    var recentIds = readRecent();
+    if (recentIds.length === 0) {
+      if (tools) tools.style.display = 'none';
+      app.innerHTML = '';
+      var empty = el('div', '', 'empty-state');
+      empty.appendChild(el('p', '최근 본 게임이 없습니다.'));
+      empty.appendChild(document.createElement('br'));
+      var a = el('a', '홈으로 돌아가기', 'btn btn-p');
+      a.href = 'index.html';
+      empty.appendChild(a);
+      app.appendChild(empty);
+      return;
+    }
+
+    if (!allGames) {
+      isLoading = true;
+      renderStatus();
+      fetch('assets/game-search-index.json')
+        .then(function(res) {
+          if (!res.ok) throw new Error('Network error');
+          return res.json();
+        })
+        .then(function(data) {
+          isLoading = false;
+          allGames = Array.isArray(data) ? data : [];
+          render();
+        })
+        .catch(function() {
+          isLoading = false;
+          isError = true;
+          renderStatus();
+        });
+      return;
+    }
+
+    var gameMap = {};
+    for (var i = 0; i < allGames.length; i++) {
+      var g = allGames[i];
+      gameMap[g.appid] = g;
+    }
+
+    var validGames = [];
+    var cleanedIds = [];
+    var dirty = false;
+
+    for (var j = 0; j < recentIds.length; j++) {
+      var id = recentIds[j];
+      var gObj = gameMap[id];
+      if (gObj) {
+        if (gObj.adult) {
+          dirty = true;
+          continue;
+        }
+        validGames.push(gObj);
+        cleanedIds.push(id);
+      } else {
+        cleanedIds.push(id);
+      }
+    }
+
+    if (dirty) {
+      writeRecent(cleanedIds);
+    }
+
+    if (validGames.length === 0) {
+      if (tools) tools.style.display = 'none';
+      app.innerHTML = '';
+      var emptyNoValid = el('div', '', 'empty-state');
+      emptyNoValid.appendChild(el('p', '최근 본 게임이 없습니다.'));
+      emptyNoValid.appendChild(document.createElement('br'));
+      var aBack = el('a', '홈으로 돌아가기', 'btn btn-p');
+      aBack.href = 'index.html';
+      emptyNoValid.appendChild(aBack);
+      app.appendChild(emptyNoValid);
+      return;
+    }
+
+    if (tools) tools.style.display = 'flex';
+    if (cntSpan) cntSpan.textContent = validGames.length + '개';
+
+    app.innerHTML = '';
+    var grid = el('div', '', 'grid');
+
+    validGames.forEach(function(g) {
+      var card = el('div', '', 'my-card');
+
+      var head = el('div', '', 'my-card-head');
+      var imgLink = el('a');
+      imgLink.href = 'game/' + g.appid + '.html';
+
+      if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
+        var img = document.createElement('img');
+        img.src = g.img;
+        img.alt = g.name + ' 표지';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        imgLink.appendChild(img);
+      } else {
+        var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
+        imgLink.appendChild(ph);
+      }
+      head.appendChild(imgLink);
+
+      if (g.off) {
+        var rib = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
+        head.appendChild(rib);
+      }
+      card.appendChild(head);
+
+      var body = el('div', '', 'my-card-body');
+      var title = el('a', g.name, 'my-card-title');
+      title.href = 'game/' + g.appid + '.html';
+      body.appendChild(title);
+
+      var chipsDiv = el('div', '', 'chips');
+      if (g.atl && g.atl_txt) chipsDiv.appendChild(el('span', g.atl_txt, 't atl'));
+      if (g.demo) chipsDiv.appendChild(el('span', '데모', 't demo'));
+      if (g.soon) chipsDiv.appendChild(el('span', '출시예정', 't soon'));
+      else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
+      if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
+      else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+      if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
+
+      var rc = '';
+      if (g.r_lbl) {
+        rc = g.r_lbl + ' · 리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+        if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
+      } else if (g.r_tot >= 10) {
+        rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      }
+      if (rc) body.appendChild(el('div', rc, 'tagline'));
+
+      var priceRow = el('div', '', 'my-price-row');
+      var priceBox = el('div', '', 'price');
+      var currentPrice = +g.price || 0;
+      if (g.free) {
+        priceBox.appendChild(el('span', '무료', 'now'));
+      } else if (!currentPrice) {
+        priceBox.appendChild(el('span', g.soon ? '출시 전' : '가격 미정', 'now'));
+      } else {
+        priceBox.appendChild(el('span', currentPrice.toLocaleString('ko-KR') + '원', 'now'));
+        if (g.p_init && g.p_init > currentPrice) {
+          priceBox.appendChild(el('span', g.p_init.toLocaleString('ko-KR') + '원', 'init'));
+        }
+      }
+      priceRow.appendChild(priceBox);
+      body.appendChild(priceRow);
+      card.appendChild(body);
+
+      var foot = el('div', '', 'my-card-foot');
+      var detailBtn = el('a', '상세보기', 'btn btn-s');
+      detailBtn.href = 'game/' + g.appid + '.html';
+
+      var removeBtn = el('button', '삭제', 'btn btn-s');
+      removeBtn.type = 'button';
+      removeBtn.setAttribute('aria-label', g.name + ' 최근 본 목록에서 삭제');
+      removeBtn.addEventListener('click', function() {
+        var cur = readRecent();
+        var nextArr = cur.filter(function(x) { return x !== g.appid; });
+        writeRecent(nextArr);
+        render();
+      });
+
+      foot.appendChild(detailBtn);
+      foot.appendChild(removeBtn);
+      card.appendChild(foot);
+
+      grid.appendChild(card);
+    });
+
+    app.appendChild(grid);
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      writeRecent([]);
+      render();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', render);
+})();
+</script>
+'''
+    return page("최근 본 게임 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 기록된 최근 본 게임 목록을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     log = logging.getLogger("build")
@@ -2622,6 +3142,7 @@ def main() -> int:
     write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops))
     write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
     write("my-games.html", build_my_games(updated, freshness))
+    write("recently-viewed.html", build_recently_viewed(updated, freshness))
     paths = ["index.html"]
 
     for spec in LANDINGS:
