@@ -505,7 +505,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     up = "../" * depth
     freshness = freshness or {"label": "자동 갱신 정상", "class": "ok", "display": updated}
     # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
-    jump = (f"""<nav class="jump">
+    jump = (f"""<nav class="jump" aria-label="주요 메뉴">
     <a href="{up}index.html#popular">지금 인기</a>
     <a href="{up}recent-drops.html">최근 인하</a>
     <a href="{up}index.html#hot">핫딜</a>

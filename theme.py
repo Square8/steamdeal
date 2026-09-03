@@ -114,6 +114,7 @@ nav.jump a{
   color:var(--ink-2);
 }
 nav.jump a:hover{background:var(--raised); color:var(--ink)}
+nav.jump a:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
 .updated{color:var(--ink-3); font-size:11.5px}
 
 /* 헤더 검색: 처음 온 사람이 검색 기능의 존재를 알 수 있어야 한다.
@@ -552,15 +553,20 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
   .buyrow .btn{flex:1; justify-content:center}
+}
+@media (max-width:700px){
+  /* 모바일(700px 이하) 상단 nav: 한 줄 유지, 가로 스와이프, scrollbar 숨김, 충분한 탭 영역 */
   nav.jump{
-    order:3; width:100%; overflow-x:auto; padding-bottom:2px;
-    flex-wrap:nowrap;                 /* 줄바꿈하면 헤더가 두 줄이 된다 */
-    scrollbar-width:none;
+    order:3; width:100%; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch;
+    padding:2px 0 6px; flex-wrap:nowrap;
+    scrollbar-width:none; -ms-overflow-style:none;
   }
   nav.jump::-webkit-scrollbar{display:none}
-  nav.jump a{white-space:nowrap}
-  /* 모바일: [로고 | 갱신] / [검색] / [메뉴]. */
-  .topin{padding:10px 13px; gap:10px}
+  nav.jump a{
+    white-space:nowrap; flex:0 0 auto;
+    padding:7px 11px; min-height:36px; display:inline-flex; align-items:center;
+  }
+  .topin{padding:10px 13px; gap:10px; max-width:100%}
   .logo span{display:none}
   .logo{margin-right:0; flex:none}
   .freshness{margin-left:auto}

@@ -1076,6 +1076,38 @@ check("style.css에 가격 판단 모바일 레이아웃 CSS 존재",
       ".price-judge" in css_text and ".pj-tiles" in css_text and "@media" in css_text)
 
 
+print("\n17) 상단 네비게이션 정리 및 모바일 최적화")
+idx_html = open(os.path.join(config.SITE_DIR, "index.html"), encoding="utf-8").read()
+detail_files = [f for f in os.listdir(os.path.join(config.SITE_DIR, "game")) if f.endswith(".html")]
+detail_html = open(os.path.join(config.SITE_DIR, "game", detail_files[0]), encoding="utf-8").read() if detail_files else ""
+css_text = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
+
+# 1. 상단 내 찜 링크 유지
+check("상단 내 찜 링크 유지 (홈)", 'href="my-games.html">내 찜 <span class="wish-count">' in idx_html)
+
+# 2. 상단의 중복 찜 앵커 링크 제거 확인
+nav_chunk = idx_html.split('<nav class="jump"')[1].split('</nav>')[0]
+check("상단의 중복 찜 앵커 링크 제거 확인", '>찜 <span' not in nav_chunk and 'href="index.html#all">찜' not in nav_chunk)
+
+# 3. 비교 링크와 전체 링크 유지
+check("비교 링크 유지", 'href="compare.html">비교 <span class="compare-count">' in idx_html)
+check("전체 링크 유지", 'href="index.html#all">전체</a>' in idx_html)
+
+# 4. 모바일 nav의 nowrap, overflow-x auto, scrollbar 숨김 CSS 확인
+check("모바일 nav CSS에 nowrap 확인", "flex-wrap:nowrap" in css_text and "white-space:nowrap" in css_text)
+check("모바일 nav CSS에 overflow-x auto 확인", "overflow-x:auto" in css_text)
+check("모바일 nav CSS에 scrollbar 숨김 확인", "scrollbar-width:none" in css_text and "nav.jump::-webkit-scrollbar{display:none}" in css_text)
+
+# 5. 상세 페이지의 ../ 상대경로 확인
+check("상세 페이지 내 찜 ../ 상대경로 확인", 'href="../my-games.html">내 찜 <span class="wish-count">' in detail_html)
+check("상세 페이지 비교 ../ 상대경로 확인", 'href="../compare.html">비교 <span class="compare-count">' in detail_html)
+check("상세 페이지 전체 ../ 상대경로 확인", 'href="../index.html#all">전체</a>' in detail_html)
+
+# 6. 기존 찜 필터 칩 유지 확인
+check("홈 필터 칩에 ♡ 찜 목록 유지", 'data-f="wish"' in idx_html and '♡ 찜 목록' in idx_html)
+check("상단 nav에 aria-label 제공", 'aria-label="주요 메뉴"' in idx_html)
+
+
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")
