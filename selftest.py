@@ -1325,6 +1325,46 @@ check("모바일 CSS 2열 반응형 그리드 확인", ".status-grid" in css_tex
 check("접근성 role=status 확인", 'role="status"' in status_html)
 check("면책 조항 문구 확인", "이 페이지는 운영 현황 참고용이며" in status_html and "구매 전 Steam에서 확인하세요" in status_html)
 
+print("\n21) 자체 404 페이지 (404.html)")
+
+# 1. 404.html 생성 확인
+p404_path = os.path.join(config.SITE_DIR, "404.html")
+check("404.html 생성됨", os.path.exists(p404_path))
+p404_html = open(p404_path, encoding="utf-8").read() if os.path.exists(p404_path) else ""
+
+# 2. 제목, 안내 문구, 홈 버튼, 인기 게임 링크 존재
+check("404 페이지 제목 확인", "페이지를 찾을 수 없어요 — GameDil" in p404_html and "찾는 페이지가 없어요" in p404_html)
+check("404 안내 문구 확인", "주소가 바뀌었거나 존재하지 않는 페이지입니다." in p404_html)
+check("홈으로 돌아가기 버튼 확인", 'href="index.html"' in p404_html and "홈으로 돌아가기" in p404_html)
+check("지금 인기 게임 보기 링크 확인", 'href="index.html#popular"' in p404_html and "지금 인기 게임 보기" in p404_html)
+
+# 3. noindex,follow 존재
+check("404.html에 noindex,follow 있음", '<meta name="robots" content="noindex,follow">' in p404_html)
+
+# 4. sitemap.xml에 404.html 없음
+check("sitemap.xml에 404.html 없음", "404.html" not in sm_text)
+
+# 5. canonical 태그 없음
+check("404.html에 canonical 태그 없음", 'rel="canonical"' not in p404_html)
+
+# 6. status.html 링크 없음
+check("404.html에 status.html 링크 없음", 'status.html' not in p404_html)
+
+# 7. 홈의 정상 index.html에는 404 전용 문구가 섞이지 않음
+check("index.html에 404 전용 문구 미포함", "찾는 페이지가 없어요" not in idx_html and "err-page" not in idx_html)
+
+# 8. 자동완성 스크립트는 있으나 페이지 초기 즉시 JSON fetch가 없음
+check("404.html에 자동완성 스크립트 존재", "setupAutocomplete" in p404_html)
+check("404.html에 초기 즉시 fetch 없음", "getIndex()" not in p404_html and "loadIndex()" not in p404_html)
+
+# 9. 모바일 CSS 존재
+check("404 전용 모바일 CSS 존재", ".err-page" in css_text and "err-actions" in css_text)
+
+# 10. Node로 JSON-LD 제외 실행 JavaScript 문법 검사
+node_syntax_check(p404_html, "404.html")
+
+
+
 
 
 

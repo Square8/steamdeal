@@ -3285,6 +3285,22 @@ def build_status(games: list[dict], updated: str, freshness: dict,
                 extra_head='<meta name="robots" content="noindex,follow">')
 
 
+def build_404(updated: str, freshness: dict) -> str:
+    """404 Not Found 페이지."""
+    body = """<div class="err-page">
+  <div class="err-code" aria-hidden="true">404</div>
+  <h1 class="err-title">찾는 페이지가 없어요</h1>
+  <p class="err-desc">주소가 바뀌었거나 존재하지 않는 페이지입니다.</p>
+  <div class="err-actions">
+    <a class="btn btn-p" href="index.html">홈으로 돌아가기</a>
+    <a class="btn btn-s" href="index.html#popular">지금 인기 게임 보기</a>
+  </div>
+</div>"""
+    return page("페이지를 찾을 수 없어요 — GameDil", body, updated, depth=0,
+                freshness=freshness, desc="주소가 바뀌었거나 존재하지 않는 페이지입니다.",
+                extra_head='<meta name="robots" content="noindex,follow">')
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     log = logging.getLogger("build")
@@ -3360,6 +3376,7 @@ def main() -> int:
     write("my-games.html", build_my_games(updated, freshness))
     write("recently-viewed.html", build_recently_viewed(updated, freshness))
     write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
+    write("404.html", build_404(updated, freshness))
     paths = ["index.html"]
 
     for spec in LANDINGS:

@@ -951,4 +951,66 @@ CSS += '''
   .status-card { padding: 12px; }
   .status-card .st-val { font-size: 1.25rem; }
 }
+
+/* ================= 404 Not Found ================= */
+.err-page {
+  text-align: center;
+  padding: 80px 20px 100px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+.err-code {
+  font-family: "Inter", sans-serif;
+  font-size: 5rem;
+  font-weight: 900;
+  letter-spacing: -.05em;
+  line-height: 1;
+  color: var(--ink-3);
+  opacity: 0.6;
+  margin-bottom: 12px;
+}
+.err-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+.err-desc {
+  font-size: 15px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  margin: 0 0 28px;
+}
+.err-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.err-actions .btn {
+  padding: 11px 20px;
+  font-size: 14px;
+}
+@media (max-width: 700px) {
+  .err-page {
+    padding: 50px 16px 70px;
+  }
+  .err-code {
+    font-size: 4rem;
+  }
+  .err-title {
+    font-size: 1.45rem;
+  }
+  .err-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+  .err-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
 '''
