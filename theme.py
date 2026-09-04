@@ -316,8 +316,9 @@ section{margin-top:4rem; scroll-margin-top:76px}
   font-weight:800; font-size:15.5px; line-height:1.3; letter-spacing:-.02em;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
   overflow:hidden; word-break:break-word; overflow-wrap:anywhere;
+  min-height:40px;
 }
-.chips{display:flex; gap:4px; flex-wrap:wrap}
+.chips{display:flex; gap:4px; flex-wrap:wrap; min-height:22px}
 /* 리뷰수·개발사는 3순위다. 제목과 같은 무게로 두면 스캔이 느려진다. */
 .tagline{
   color:var(--ink-3); font-size:11px; overflow:hidden; text-overflow:ellipsis;

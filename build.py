@@ -992,7 +992,6 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     """
     score = g.get("score") or 0
     players = g.get("players_current") or 0
-    delta = g.get("player_delta") or 0
     if review_label(g):
         total = g.get("review_total") or g.get("review_count") or 0
         positive = g.get("review_positive_pct")
@@ -1001,18 +1000,9 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     else:
         rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
               else esc(g.get("developer") or g.get("genres") or ""))
-    # 동접은 이미지 배지에서 이미 보여주므로 카드 본문에서 같은 숫자를 반복하지 않는다.
-    # 두 번째 측정부터만 증감 화살표를 보조 정보로 붙인다.
-    if players and delta:
-        rc = f"{rc} · {'▲' if delta > 0 else '▼'} {abs(delta):,}" if rc else f"{'▲' if delta > 0 else '▼'} {abs(delta):,}"
-    hist = g.get("history") or []
-    # 가격이 실제로 변한 적이 있을 때만 추이를 그린다.
-    # 2일치 데이터에서 전부 평선을 그리면 아무 정보도 없는 장식이 된다.
     off = g.get("discount_pct") or 0
     if g.get("recent_drop_amount"):
         left = f'<span class="offtag" style="background:var(--accent);">최근 {g["recent_drop_amount"]:,}원 인하</span>'
-    elif len({h["price_final"] for h in hist if h["price_final"] > 0}) > 1:
-        left = sparkline(hist, g.get("price_last"))
     elif g.get("is_free"):
         left = ""          # 가격 칸이 이미 '무료'다. 같은 말을 두 번 쓰지 않는다.
     elif off:
@@ -1421,6 +1411,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     cardB.appendChild(nameDiv);
 
     var chips = [];
+    if (g.r_lbl) chips.push({{cls: 'review', txt: g.r_lbl}});
     if (g.atl && g.atl_txt) chips.push({{cls: 'atl', txt: g.atl_txt}});
     if (g.demo) chips.push({{cls: 'demo', txt: '데모'}});
     if (g.soon) chips.push({{cls: 'soon', txt: '출시예정'}});
@@ -1446,10 +1437,6 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     }} else {{
       if (g.r_tot >= 10) rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
       else rc = g.dev || '';
-    }}
-    if (g.players && g.p_delta) {{
-      var arrow = g.p_delta > 0 ? '▲ ' : '▼ ';
-      rc = (rc ? rc + ' · ' : '') + arrow + Math.abs(g.p_delta).toLocaleString('ko-KR');
     }}
 
     var tagline = document.createElement('div');

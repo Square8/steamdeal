@@ -277,12 +277,14 @@ def player_signal_appids(conn, limit: int) -> list[int]:
 
 
 def review_signal_appids(conn, limit: int) -> list[int]:
-    """평가 등급 후보. 할인율 50% 이상인 한국어 게임을 오래된 측정부터 갱신한다."""
+    """평가 등급 후보: 동접자가 많은 인기작, 할인율 50% 이상, 또는 리뷰 1천개 이상인 한국어 게임 우선."""
     sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
       WHERE g.korean=1 AND g.adult=0 AND g.app_type='game'
-        AND COALESCE(p.discount_pct,0)>=50 AND COALESCE(g.review_count,0)>=100
-      ORDER BY COALESCE(g.reviews_checked_at,'') ASC,
-               COALESCE(p.discount_pct,0) DESC, COALESCE(g.review_count,0) DESC
+        AND (COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=50 OR COALESCE(g.review_count,0)>=1000)
+      ORDER BY (CASE WHEN g.reviews_checked_at IS NULL OR g.reviews_checked_at='' THEN 0 ELSE 1 END) ASC,
+               COALESCE(g.players_current,0) DESC,
+               COALESCE(p.discount_pct,0) DESC,
+               COALESCE(g.review_count,0) DESC
       LIMIT ?""")
     return [r[0] for r in conn.execute(sql, (limit,))]
 
