@@ -995,8 +995,12 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     if review_label(g):
         total = g.get("review_total") or g.get("review_count") or 0
         positive = g.get("review_positive_pct")
-        extra = f" · 긍정 {positive}%" if positive is not None else ""
-        rc = f"{review_label(g)} · 리뷰 {total:,}{extra}"
+        if positive is not None:
+            rc = f"리뷰 {total:,} · 긍정 {positive}%"
+        elif total:
+            rc = f"리뷰 {total:,}"
+        else:
+            rc = ""
     else:
         rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
               else esc(g.get("developer") or g.get("genres") or ""))
@@ -1432,7 +1436,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
     var rc = '';
     if (g.r_lbl) {{
-      rc = g.r_lbl + ' · 리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
       if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
     }} else {{
       if (g.r_tot >= 10) rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
