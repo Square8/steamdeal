@@ -1722,7 +1722,9 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
             "query-input": "required name=search_term_string"
         }
     }
-    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2).replace('<', '\\u003c').replace('>', '\\u003e')}\n</script>'
+    _schema_json = (json.dumps(schema, ensure_ascii=False, indent=2)
+                    .replace('<', '\\u003c').replace('>', '\\u003e'))
+    extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
     return page("GameDil — 지금 많이 하는 한국어 게임과 검증된 핫딜",
                 body, updated, canonical="index.html",
                 og_image=(top.get("header_image") or ""),
@@ -2195,7 +2197,9 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             "ratingCount": r_total
         }
 
-    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2).replace('<', '\\u003c').replace('>', '\\u003e')}\n</script>'
+    _schema_json = (json.dumps(schema, ensure_ascii=False, indent=2)
+                    .replace('<', '\\u003c').replace('>', '\\u003e'))
+    extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
 
     return page(pt, body, updated, canonical=f"game/{g['appid']}.html",
                 og_image=(g.get("header_image") or ""), desc=d, depth=1,
@@ -2306,7 +2310,9 @@ def build_landing(spec: dict, games: list[dict], updated: str,
             "query-input": "required name=search_term_string"
         }
     }
-    extra_head = f'<script type="application/ld+json">\n{json.dumps(schema, ensure_ascii=False, indent=2).replace('<', '\\u003c').replace('>', '\\u003e')}\n</script>'
+    _schema_json = (json.dumps(schema, ensure_ascii=False, indent=2)
+                    .replace('<', '\\u003c').replace('>', '\\u003e'))
+    extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
     return page(spec["title"], body, updated,
                 canonical=f"{spec['slug']}.html", desc=spec["desc"],
                 og_image=(items[0].get("header_image") if items else ""),
