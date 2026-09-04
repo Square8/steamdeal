@@ -14,10 +14,97 @@
 """
 import logging
 import sys
+from datetime import datetime, timezone
 
 import config
 import steam
 import store
+
+
+def _collect_signals(conn, log) -> tuple[int, int]:
+    """홈 트렌드용 리뷰 등급·현재 동접을 제한된 후보에만 붙인다."""
+    review_ok = player_ok = 0
+    review_ids = store.review_signal_appids(conn, config.REVIEW_SIGNAL_LIMIT)
+    player_ids = store.player_signal_appids(conn, config.PLAYER_SIGNAL_LIMIT)
+    log.info("트렌드 신호 — 리뷰 후보 %d / 동접 후보 %d",
+             len(review_ids), len(player_ids))
+
+    for i, appid in enumerate(review_ids, 1):
+        summary = steam.fetch_review_summary(appid)
+        if summary is not None:
+            store.save_review_summary(conn, appid, summary)
+            review_ok += 1
+        if i % 20 == 0:
+            conn.commit()
+
+    for i, appid in enumerate(player_ids, 1):
+        count = steam.fetch_current_players(appid)
+        if count is not None:
+            store.save_player_count(conn, appid, count)
+            player_ok += 1
+        if i % 20 == 0:
+            conn.commit()
+    conn.commit()
+    log.info("트렌드 신호 완료 — 리뷰 %d/%d, 동접 %d/%d",
+             review_ok, len(review_ids), player_ok, len(player_ids))
+    return review_ok, player_ok
+
+
+def _collect_media_backfill(conn, log, exclude_appids: set[int] | None = None) -> dict:
+    """트레일러 정보가 비어 있는 기존 게임의 미디어를 안전하게 백필한다."""
+    limit = config.MEDIA_BACKFILL_LIMIT
+    remaining_before = store.count_media_unchecked(conn)
+    backfill_ids = store.media_backfill_appids(conn, limit, exclude_appids=exclude_appids)
+
+    log.info("미디어 백필 — 대상 %d개 (전체 미확인 %d개)", len(backfill_ids), remaining_before)
+    if not backfill_ids:
+        return {"targets": 0, "fallback": 0, "found": 0, "no_video": 0, "failed": 0, "remaining": remaining_before}
+
+    found = 0
+    fallback = 0
+    no_video = 0
+    failed = 0
+
+    for i, appid in enumerate(backfill_ids, 1):
+        prev_fallback = steam.MEDIA_STATS.get("fallback_mp4", 0)
+        try:
+            app = steam.fetch_app(appid)
+        except Exception as e:
+            log.warning("미디어 백필 fetch 실패 (appid %s): %s", appid, e)
+            app = None
+
+        if app is None:
+            # 네트워크 일시 실패, API 오류 등일 수 있으므로 media_checked_at을 기록하지 않고
+            # 다음 실행에서 재시도할 수 있도록 남겨둔다.
+            failed += 1
+        else:
+            used_fallback = (steam.MEDIA_STATS.get("fallback_mp4", 0) > prev_fallback) or (
+                "movie480.mp4" in (app.get("movie_mp4") or "")
+            )
+            if used_fallback:
+                fallback += 1
+            has_vid = bool(app.get("movie_mp4") or app.get("movie_webm"))
+            if has_vid:
+                found += 1
+            else:
+                no_video += 1
+            store.save(conn, app)
+
+        if i % 20 == 0:
+            conn.commit()
+
+    conn.commit()
+    remaining_after = store.count_media_unchecked(conn)
+    log.info("미디어 백필 완료 — 이번 실행 대상: %d개, 영상 발견: %d개, 실제 영상 없음: %d개, API 실패: %d개 (fallback MP4 생성: %d개) | 남은 미확인 대상: %d개",
+             len(backfill_ids), found, no_video, failed, fallback, remaining_after)
+    return {
+        "targets": len(backfill_ids),
+        "fallback": fallback,
+        "found": found,
+        "no_video": no_video,
+        "failed": failed,
+        "remaining": remaining_after,
+    }
 
 
 def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
@@ -96,6 +183,14 @@ def main() -> int:
     log = logging.getLogger("collect")
     conn = store.connect()
 
+    if "--signals-only" in sys.argv:
+        review_ok, player_ok = _collect_signals(conn, log)
+        if review_ok or player_ok:
+            store.set_meta(conn, "last_signal_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+            conn.commit()
+        conn.close()
+        return 0 if review_ok or player_ok else 1
+
     targets, explore_ids = _plan(conn, log)
     if not targets:
         log.error("부를 대상이 없다. 스팀 API 응답을 확인할 것.")
@@ -123,28 +218,32 @@ def main() -> int:
                      i, len(targets), ok, dropped, failed)
     conn.commit()
 
+    # appdetails 전체 수집과 분리된 작은 후보군만 확인한다. 이 단계가 실패해도
+    # 가격 수집 결과는 유지되고, 홈은 기존 리뷰 수 기반으로 안전하게 폴백한다.
+    _collect_signals(conn, log)
+
+    # 미디어 백필: 기존 수집 대상과 중복되지 않게 배제하고 백필 진행
+    regular_appids = {appid for appid, _ in targets}
+    _collect_media_backfill(conn, log, regular_appids)
+
+    store.set_meta(conn, "last_collection_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    conn.commit()
+
     if ex_seen:
         log.info("개척 적중률 %d/%d (%.1f%%) — 낮으면 훑는 위치가 틀린 것이다",
                  ex_ok, ex_seen, 100 * ex_ok / ex_seen)
     # 응답에 미디어가 실제로 오는지. 트레일러가 0 이면 여기서 원인이 드러난다.
     ms = steam.MEDIA_STATS
     if ms["apps"]:
-        log.info("미디어 — 앱 %d개 중 스크린샷 %d / movies 키 있음 %d / 항목 있음 %d / 영상URL %d",
+        log.info("미디어 — 앱 %d개 중 스크린샷 %d / movies 키 있음 %d / 항목 있음 %d / 영상URL %d (fallback %d)",
                  ms["apps"], ms["screenshots"], ms["movies_key"],
-                 ms["movies_items"], ms["got_mp4"])
+                 ms["movies_items"], ms["got_mp4"], ms.get("fallback_mp4", 0))
         if ms["sample_movie_keys"]:
             log.info("  movies[0] 키: %s", ms["sample_movie_keys"])
             log.info("  mp4/webm 키: %s", ms["sample_src_keys"] or "(사전 아님)")
         elif ms["movies_key"] == 0:
             log.warning("  appdetails 응답에 movies 필드 자체가 없다 "
                         "— 스팀이 더 이상 주지 않는 것으로 보인다. 스크린샷만 쓴다.")
-    rs = steam.REVIEW_STATS
-    if rs["tried"]:
-        log.info("리뷰등급 — 시도 %d개 중 query_summary 응답 %d개", rs["tried"], rs["got_summary"])
-        if rs["sample_keys"]:
-            log.info("  query_summary 키: %s", rs["sample_keys"])
-        elif rs["got_summary"] == 0:
-            log.warning("  appreviews 응답에 query_summary 가 안 온다 — URL/파라미터를 다시 볼 것")
     q = lambda s: conn.execute(s).fetchone()[0]
     log.info("완료 — 저장 %d, 무관 %d, 제외 %d | 누적 %d개 (한국어 %d, 데모 %d), 수집일수 %d일",
              ok, dropped, failed,

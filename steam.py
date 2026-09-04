@@ -16,18 +16,19 @@ HEADERS = {
 _last = 0.0
 
 
-def _throttle() -> None:
+def _throttle(delay: float | None = None) -> None:
     global _last
-    gap = config.REQUEST_DELAY - (time.monotonic() - _last)
+    delay = config.REQUEST_DELAY if delay is None else delay
+    gap = delay - (time.monotonic() - _last)
     if gap > 0:
         time.sleep(gap)
-    time.sleep(random.uniform(0, 0.4))
+    time.sleep(random.uniform(0, min(0.4, delay / 3)))
     _last = time.monotonic()
 
 
-def _get_json(url: str, params: dict | None = None):
+def _get_json(url: str, params: dict | None = None, delay: float | None = None):
     for attempt in range(config.MAX_RETRY + 1):
-        _throttle()
+        _throttle(delay)
         try:
             r = requests.get(url, params=params, headers=HEADERS, timeout=config.TIMEOUT)
             if r.status_code == 200:
@@ -43,6 +44,47 @@ def _get_json(url: str, params: dict | None = None):
             log.warning("요청 실패 (%s/%s): %s", attempt + 1, config.MAX_RETRY + 1, e)
             time.sleep(3 * (attempt + 1))
     return None
+
+
+def fetch_current_players(appid: int) -> int | None:
+    """현재 Steam 접속 플레이어 수. 실패와 실제 0명을 구분해 None 을 쓴다."""
+    data = _get_json(config.PLAYERS_URL, {"appid": appid},
+                     delay=config.SIGNAL_REQUEST_DELAY)
+    if not isinstance(data, dict):
+        return None
+    response = data.get("response") or {}
+    try:
+        count = int(response.get("player_count"))
+    except (TypeError, ValueError):
+        return None
+    return max(count, 0)
+
+
+def fetch_review_summary(appid: int) -> dict | None:
+    """리뷰 본문은 받지 않고 집계만 저장한다.
+
+    query_summary 는 평가 등급·긍정/부정·전체 리뷰 수를 한 번에 준다.
+    카드에는 이 집계만 필요하므로 num_per_page=1 로 응답을 작게 유지한다.
+    """
+    data = _get_json(
+        config.REVIEWS_URL.format(appid=appid),
+        {"json": 1, "filter": "all", "language": "all", "day_range": 365,
+         "review_type": "all", "purchase_type": "all", "num_per_page": 1},
+        delay=config.SIGNAL_REQUEST_DELAY,
+    )
+    if not isinstance(data, dict) or data.get("success") != 1:
+        return None
+    q = data.get("query_summary") or {}
+    try:
+        return {
+            "score": int(q.get("review_score") or 0),
+            "desc": str(q.get("review_score_desc") or "")[:60],
+            "positive": int(q.get("total_positive") or 0),
+            "negative": int(q.get("total_negative") or 0),
+            "total": int(q.get("total_reviews") or 0),
+        }
+    except (TypeError, ValueError):
+        return None
 
 
 def discover() -> dict[int, str]:
@@ -132,37 +174,7 @@ MAX_SCREENSHOTS = 4      # 상세 페이지 스트립용. 늘리면 페이지가
 # 하나는 되고 하나는 안 됐으니 movies 의 형태가 예상과 다르다는 뜻이다.
 # 추측으로 또 고치지 말고, 다음 실행이 스스로 답을 알려주게 한다.
 MEDIA_STATS = {"apps": 0, "screenshots": 0, "movies_key": 0, "movies_items": 0,
-               "got_mp4": 0, "sample_movie_keys": "", "sample_src_keys": ""}
-
-# 리뷰 등급 호출 진단. movies 때와 같은 이유로 미리 만든다 —
-# appreviews 응답 모양을 이 환경에서 검증할 수 없으므로 다음 실행 로그가
-# 스스로 답하게 한다 (호출은 됐는지, query_summary 가 왔는지, 실제 키는 뭔지).
-REVIEW_STATS = {"tried": 0, "got_summary": 0, "sample_keys": ""}
-
-
-def fetch_review_summary(appid: int) -> tuple[int, int]:
-    """(review_score 0~9, 긍정비율 0~100). 실패하면 (0, 0) — 조용히 등급 없음 취급."""
-    REVIEW_STATS["tried"] += 1
-    data = _get_json(config.REVIEWS_URL.format(appid=appid))
-    if not isinstance(data, dict):
-        return 0, 0
-    qs = data.get("query_summary")
-    if not isinstance(qs, dict):
-        return 0, 0
-    REVIEW_STATS["got_summary"] += 1
-    if not REVIEW_STATS["sample_keys"]:
-        REVIEW_STATS["sample_keys"] = ",".join(sorted(qs.keys()))[:160]
-    try:
-        score = int(qs.get("review_score") or 0)
-    except (TypeError, ValueError):
-        score = 0
-    try:
-        pos = int(qs.get("total_positive") or 0)
-        tot = int(qs.get("total_reviews") or 0)
-    except (TypeError, ValueError):
-        pos = tot = 0
-    pct = round(100 * pos / tot) if tot > 0 else 0
-    return score, pct
+               "got_mp4": 0, "fallback_mp4": 0, "sample_movie_keys": "", "sample_src_keys": ""}
 
 
 def _pick_url(node) -> str:
@@ -220,7 +232,7 @@ def parse_release(date_text: str | None) -> str | None:
 
 
 def fetch_app(appid: int) -> dict | None:
-    """게임 하나의 상세 정보. 방송 판단에 필요한 항목까지 함께 가져온다."""
+    """게임 하나의 상세 정보. 추천 판단에 필요한 항목까지 함께 가져온다."""
     data = _get_json(config.APPDETAILS_URL,
                      {"appids": appid, "cc": config.CC, "l": config.LANG})
     if not isinstance(data, dict):
@@ -250,12 +262,6 @@ def fetch_app(appid: int) -> dict | None:
         review_count = 0
     devs = [x for x in (d.get("developers") or []) if isinstance(x, str)]
 
-    # 등급 텍스트('매우 긍정적')와 긍정 비율은 요청이 하나 더 든다.
-    # 카드에 어차피 리뷰 수를 안 보여줄 만큼 적은 게임까지 부르면 낭비다.
-    review_score = review_positive_pct = 0
-    if review_count >= config.MIN_REVIEWS_FOR_SENTIMENT:
-        review_score, review_positive_pct = fetch_review_summary(appid)
-
     # 스크린샷·트레일러는 이 응답 안에 이미 들어 있다 — 추가 호출이 없다.
     # 표지(header_image)는 460x215 배너라 대부분 로고와 제목뿐이어서
     # '이게 무슨 게임인지'를 답하지 못한다. 실제 화면과 영상이 그 답을 한다.
@@ -277,6 +283,11 @@ def fetch_app(appid: int) -> dict | None:
         mp4 = _pick_url(mv.get("mp4"))
         webm = _pick_url(mv.get("webm"))
         poster = _pick_url(mv.get("thumbnail"))
+        
+        # mp4, webm이 모두 비어있지만 movie_id가 있는 경우 (hls_h264 등 최신 형식 대응)
+        if not mp4 and not webm and mv.get("id"):
+            mp4 = f"https://cdn.akamai.steamstatic.com/steam/apps/{mv['id']}/movie480.mp4"
+            MEDIA_STATS["fallback_mp4"] += 1
         if not MEDIA_STATS["sample_movie_keys"]:
             MEDIA_STATS["sample_movie_keys"] = ",".join(sorted(mv.keys()))[:160]
             src = mv.get("mp4") or mv.get("webm")
@@ -300,7 +311,7 @@ def fetch_app(appid: int) -> dict | None:
         "discount_pct": int(po.get("discount_percent", 0)) if po else 0,
         "header_image": d.get("header_image") or "",
         "short_description": (d.get("short_description") or "")[:300],
-        # --- 방송 판단용 ---
+        # --- 추천 판단용 ---
         "coming_soon": 1 if rel.get("coming_soon") else 0,
         "release_text": (rel.get("date") or "")[:40],
         "release_date": parse_release(rel.get("date")),
@@ -311,8 +322,6 @@ def fetch_app(appid: int) -> dict | None:
         # --- 화면 정리용 ---
         "adult": is_adult(d, genres),
         "review_count": review_count,
-        "review_score": review_score,
-        "review_positive_pct": review_positive_pct,
         "developer": (devs[0][:60] if devs else ""),
         # --- '이게 무슨 게임인가'에 답하는 것들 ---
         "screenshots": "\n".join(shots),
