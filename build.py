@@ -1116,8 +1116,8 @@ def lead(games: list[dict], safe: list[dict]) -> str:
     facts = [("한국어 게임", n_kr), ("무료 데모", n_demo), ("지금 할인", n_sale)]
     fh = "".join(f"<span>{esc(k)} <b>{v:,}</b></span>" for k, v in facts)
     return f"""<section class="lead" id="top">
-  <p class="lead-kicker">STEAM DEAL RADAR</p>
-  <h1>한국어로 할 수 있는 스팀 게임,<br>지금 살 만한 것부터.</h1>
+  <p class="lead-kicker">GAMEDIL</p>
+  <h1>지금 많이 하는 한국어 게임,<br>검증된 핫딜부터.</h1>
   <p class="facts">{fh}</p>
   <div class="quick-actions" aria-label="빠른 조건">
     <button type="button" data-jump-filter="off50">🔥 50%+ 할인</button>
@@ -1918,7 +1918,10 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         if total:
             value += f" ({total:,}개)"
         facts.append(("Steam 평가", esc(value)))
-    if (g.get("review_count") or 0) > 0:
+    elif (g.get("review_count") or 0) > 0:
+        # Steam 평가 줄이 없을 때만 보여준다 — 있으면 그 안에 총수가 이미
+        # 들어있어서, 여길 따로 또 보여주면 서로 다른 소스라 숫자가 어긋난다
+        # (review_count=구필드/appdetails, review_total=신필드/appreviews).
         facts.append(("스팀 리뷰 수", f'{g["review_count"]:,}개'))
     if g.get("has_demo") or g.get("app_type") == "demo":
         demo_id = g.get("demo_appid") or g["appid"]
