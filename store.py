@@ -1,7 +1,7 @@
 """저장소. 게임 정보 + 일별 가격 이력."""
 import os
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date
 
 import config
 
@@ -23,14 +23,8 @@ CREATE TABLE IF NOT EXISTS games (
     is_free       INTEGER DEFAULT 0,
     adult         INTEGER DEFAULT 0,   -- 성적 콘텐츠. 기본 화면에서 감춘다
     review_count  INTEGER DEFAULT 0,   -- 인지도 대리 지표
-    review_score  INTEGER DEFAULT 0,
-    review_desc   TEXT,
-    review_positive INTEGER DEFAULT 0,
-    review_negative INTEGER DEFAULT 0,
-    reviews_checked_at TEXT,
-    players_current INTEGER DEFAULT 0,
-    players_previous INTEGER DEFAULT 0,
-    players_checked_at TEXT,
+    review_score  INTEGER DEFAULT 0,   -- 스팀 등급 0~9. 0 = 등급 없음/미조회
+    review_positive_pct INTEGER DEFAULT 0,  -- 긍정 비율 0~100
     developer     TEXT,
     -- '이게 무슨 게임인가'에 답하는 것들. appdetails 응답에 이미 들어 있어
     -- 추가 호출 없이 얻는다. screenshots 는 줄바꿈으로 이어붙인 URL 목록.
@@ -38,7 +32,6 @@ CREATE TABLE IF NOT EXISTS games (
     movie_mp4     TEXT,
     movie_webm    TEXT,
     movie_poster  TEXT,
-    media_checked_at TEXT,
     -- 가격을 '관측한' 첫/마지막 날. 가격 행은 변동 시에만 쌓기 때문에
     -- 관측 기간을 이력 행 개수로 셀 수 없다. 그래서 따로 기록한다.
     price_first   TEXT,
@@ -66,13 +59,6 @@ CREATE TABLE IF NOT EXISTS probed (
     on_date TEXT
 );
 
--- 마지막으로 전체 가격 수집이 완료된 시각. 날짜만 담는 games.checked_at 과 달리
--- 예약 실행 지연을 화면에서 판별할 수 있도록 UTC 초 단위로 저장한다.
-CREATE TABLE IF NOT EXISTS meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_prices_appid ON prices(appid);
 CREATE INDEX IF NOT EXISTS idx_games_checked ON games(checked_at);
 """
@@ -89,17 +75,6 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def set_meta(conn, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO meta(key,value) VALUES(?,?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
-
-
-def get_meta(conn, key: str, default: str | None = None) -> str | None:
-    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-    return row[0] if row else default
-
-
 def _migrate(conn) -> None:
     """예전 스키마로 만든 DB에 새 칼럼을 붙인다 (데이터 유지)."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(games)")}
@@ -110,26 +85,14 @@ def _migrate(conn) -> None:
         "has_demo": "INTEGER DEFAULT 0", "demo_appid": "INTEGER",
         "is_free": "INTEGER DEFAULT 0", "checked_at": "TEXT",
         "adult": "INTEGER DEFAULT 0", "review_count": "INTEGER DEFAULT 0",
-        "review_score": "INTEGER DEFAULT 0", "review_desc": "TEXT",
-        "review_positive": "INTEGER DEFAULT 0",
-        "review_negative": "INTEGER DEFAULT 0",
-        "reviews_checked_at": "TEXT",
-        "players_current": "INTEGER DEFAULT 0",
-        "players_previous": "INTEGER DEFAULT 0",
-        "players_checked_at": "TEXT",
+        "review_score": "INTEGER DEFAULT 0", "review_positive_pct": "INTEGER DEFAULT 0",
         "developer": "TEXT", "price_first": "TEXT", "price_last": "TEXT",
         "screenshots": "TEXT", "movie_mp4": "TEXT", "movie_webm": "TEXT",
-        "movie_poster": "TEXT", "media_checked_at": "TEXT",
+        "movie_poster": "TEXT",
     }
     for col, decl in add.items():
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {decl}")
-    # 기존에 이미 트레일러 URL(MP4 또는 WebM)이 채워져 있는 게임은 이미 확인된 것으로 간주한다.
-    conn.execute("""
-        UPDATE games SET media_checked_at = checked_at
-        WHERE media_checked_at IS NULL
-          AND ((movie_mp4 IS NOT NULL AND movie_mp4 != '')
-               OR (movie_webm IS NOT NULL AND movie_webm != ''))""")
     # 예전 방식(매일 1행)으로 쌓인 DB 에서 관측 구간을 복원한다.
     # 새 칼럼이 방금 추가됐다면 값이 NULL 이므로 기존 prices 에서 채워준다.
     conn.execute("""
@@ -165,14 +128,14 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
     if not known and not is_relevant(app, tag):
         return False
     today = date.today().isoformat()
-    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute(
         """INSERT INTO games (appid,name,app_type,tag,header_image,description,genres,
                               korean,coming_soon,release_text,release_date,
-                              has_demo,demo_appid,is_free,adult,review_count,developer,
+                              has_demo,demo_appid,is_free,adult,review_count,
+                              review_score,review_positive_pct,developer,
                               screenshots,movie_mp4,movie_webm,movie_poster,
-                              first_seen,last_seen,checked_at,media_checked_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                              first_seen,last_seen,checked_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(appid) DO UPDATE SET
              name=excluded.name, app_type=excluded.app_type,
              header_image=excluded.header_image, description=excluded.description,
@@ -181,11 +144,15 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
              release_date=excluded.release_date, has_demo=excluded.has_demo,
              demo_appid=excluded.demo_appid, is_free=excluded.is_free,
              adult=excluded.adult, review_count=excluded.review_count,
+             -- 리뷰가 적어 이번 호출에서 등급을 안 물었으면(0,0) 예전 값을 지우지 않는다.
+             review_score=CASE WHEN excluded.review_score > 0
+                           THEN excluded.review_score ELSE games.review_score END,
+             review_positive_pct=CASE WHEN excluded.review_score > 0
+                           THEN excluded.review_positive_pct ELSE games.review_positive_pct END,
              developer=excluded.developer,
              screenshots=excluded.screenshots, movie_mp4=excluded.movie_mp4,
              movie_webm=excluded.movie_webm, movie_poster=excluded.movie_poster,
              last_seen=excluded.last_seen, checked_at=excluded.checked_at,
-             media_checked_at=excluded.media_checked_at,
              -- 태그는 처음 발견된 것을 유지한다 (신작으로 잡힌 게 나중에 '할인'으로 덮이면
              -- 언제 새로 나왔는지 알 수 없게 되므로)
              tag=COALESCE(games.tag, excluded.tag)""",
@@ -193,10 +160,11 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
          app["short_description"], app["genres"], app["korean"], app["coming_soon"],
          app["release_text"], app["release_date"], app["has_demo"], app["demo_appid"],
          1 if app["is_free"] else 0, app.get("adult", 0), app.get("review_count", 0),
+         app.get("review_score", 0), app.get("review_positive_pct", 0),
          app.get("developer", ""),
          app.get("screenshots", ""), app.get("movie_mp4", ""),
          app.get("movie_webm", ""), app.get("movie_poster", ""),
-         today, today, today, app.get("media_checked_at") or now_iso),
+         today, today, today),
     )
     # 가격이 있는 것만 이력에 남긴다 (무료/출시예정은 가격이 없다)
     if app["price_final"] > 0:
@@ -258,92 +226,6 @@ def stale_appids(conn, limit: int) -> list[int]:
         "SELECT appid FROM games ORDER BY COALESCE(checked_at,'') ASC LIMIT ?", (limit,))]
 
 
-def _current_price_join() -> str:
-    """게임별 가장 최근 가격을 붙이는 공통 SQL 조각."""
-    return """
-      LEFT JOIN prices p ON p.appid=g.appid AND p.on_date=(
-        SELECT MAX(p2.on_date) FROM prices p2 WHERE p2.appid=g.appid)
-    """
-
-
-def player_signal_appids(conn, limit: int) -> list[int]:
-    """동접을 물어볼 후보. 한국어·비성인 정식 게임 중 검증된 인기작을 우선한다."""
-    sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
-      WHERE g.korean=1 AND g.adult=0 AND g.coming_soon=0 AND g.app_type='game'
-      ORDER BY CASE WHEN COALESCE(p.discount_pct,0)>0 THEN 0 ELSE 1 END,
-               COALESCE(g.review_count,0) DESC, g.appid DESC
-      LIMIT ?""")
-    return [r[0] for r in conn.execute(sql, (limit,))]
-
-
-def review_signal_appids(conn, limit: int) -> list[int]:
-    """평가 등급 후보: 동접자가 많은 인기작, 할인율 50% 이상, 또는 리뷰 1천개 이상인 한국어 게임 우선."""
-    sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
-      WHERE g.korean=1 AND g.adult=0 AND g.app_type='game'
-        AND (COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=50 OR COALESCE(g.review_count,0)>=1000)
-      ORDER BY (CASE WHEN g.reviews_checked_at IS NULL OR g.reviews_checked_at='' THEN 0 ELSE 1 END) ASC,
-               COALESCE(g.players_current,0) DESC,
-               COALESCE(p.discount_pct,0) DESC,
-               COALESCE(g.review_count,0) DESC
-      LIMIT ?""")
-    return [r[0] for r in conn.execute(sql, (limit,))]
-
-
-def media_backfill_appids(conn, limit: int, exclude_appids: set[int] | None = None) -> list[int]:
-    """미디어 백필 우선 대상: 성인 제외, 정식 게임 우선, media_checked_at 비어 있는 게임 우선."""
-    exclude = exclude_appids or set()
-    sql = """
-        SELECT appid FROM games
-        WHERE adult = 0
-          AND (media_checked_at IS NULL OR media_checked_at = '')
-        ORDER BY CASE WHEN app_type = 'game' THEN 0 ELSE 1 END,
-                 COALESCE(review_count, 0) DESC, appid DESC
-    """
-    out = []
-    for r in conn.execute(sql):
-        aid = r[0]
-        if aid in exclude:
-            continue
-        out.append(aid)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def count_media_unchecked(conn) -> int:
-    """미디어 확인이 필요한 비성인 게임 수."""
-    row = conn.execute(
-        "SELECT COUNT(*) FROM games WHERE adult=0 AND (media_checked_at IS NULL OR media_checked_at='')"
-    ).fetchone()
-    return int(row[0]) if row else 0
-
-
-def mark_media_checked(conn, appid: int) -> None:
-    """미디어 확인 시각만 기록 (실제 영상이 없는 경우, API 실패 등 재시도 방지)."""
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    conn.execute("UPDATE games SET media_checked_at=? WHERE appid=?", (now, appid))
-
-
-def save_player_count(conn, appid: int, count: int) -> None:
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    conn.execute(
-        """UPDATE games SET
-             players_previous=CASE WHEN players_checked_at IS NULL
-                                   THEN ? ELSE COALESCE(players_current,0) END,
-             players_current=?, players_checked_at=?
-           WHERE appid=?""", (max(int(count), 0), max(int(count), 0), now, appid))
-
-
-def save_review_summary(conn, appid: int, summary: dict) -> None:
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    conn.execute(
-        """UPDATE games SET review_score=?, review_desc=?,
-             review_positive=?, review_negative=?, reviews_checked_at=?
-           WHERE appid=?""",
-        (summary.get("score", 0), summary.get("desc", ""),
-         summary.get("positive", 0), summary.get("negative", 0), now, appid))
-
-
 def observed_days(first: str | None, last: str | None) -> int:
     """가격을 지켜본 날짜 폭(양끝 포함). 가격 행 개수와 다르다."""
     if not first or not last:
@@ -393,19 +275,13 @@ def all_games(conn) -> list[dict]:
             g.update({"price_final": 0, "discount_pct": 0, "price_initial": 0,
                       "lowest_seen": 0, "days_tracked": 0,
                       "at_lowest": False, "atl_trustworthy": False})
-        pos = g.get("review_positive") or 0
-        neg = g.get("review_negative") or 0
-        g["review_total"] = pos + neg
-        g["review_positive_pct"] = round(pos * 100 / (pos + neg)) if pos + neg else 0
-        g["player_delta"] = ((g.get("players_current") or 0)
-                             - (g.get("players_previous") or 0))
         g["score"], g["why"] = score_broadcast(g)
         out.append(g)
     return out
 
 
 def score_broadcast(g: dict) -> tuple[int, list[str]]:
-    """추천 적합도 점수(0~100)와 그 근거.
+    """방송 적합도 점수(0~100)와 그 근거.
 
     일부러 '역대 최저가와의 거리' 는 넣지 않았다. 그 지표는 수집 60일이 넘어야
     의미가 생기는데(MIN_DAYS_FOR_ATL) 지금은 이력이 며칠뿐이라, 넣으면 근거 없는
@@ -458,7 +334,7 @@ def score_broadcast(g: dict) -> tuple[int, list[str]]:
 
 
 def broadcast_candidates(games: list[dict], include_adult: bool = False) -> list[dict]:
-    """추천 후보: 한국어 지원 + 가격 조건 + (데모 있음 또는 신작/출시예정).
+    """방송 후보: 한국어 지원 + 가격 조건 + (데모 있음 또는 신작/출시예정).
     기준은 config 에서 조절한다. 점수 높은 순으로 돌려준다."""
     out = []
     for g in games:

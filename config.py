@@ -1,7 +1,12 @@
 """
-GameDil — 설정
+스팀 방송 소재 레이더 — 설정
 
-목적: 스팀 게임 할인과 최저가를 한눈에 모아서 보여준다.
+목적: 스팀 신작·데모·출시예정을 매일 자동으로 모아서
+      "이번 주 방송할 만한 게임"을 뽑아준다. 가격 추적은 부수 기능.
+
+이 도구의 첫 사용자는 만든 사람 자신이다. 그래서 방문자 0명이어도 가치가 있다.
+
+스팀 공식 상점 API 사용. API 키 불필요, 무료.
 """
 import os
 
@@ -9,8 +14,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE_DIR = os.environ.get("SITE_DIR") or os.path.join(ROOT, "site")
 DB_PATH = os.environ.get("DB_PATH") or os.path.join(ROOT, "data", "steam.sqlite3")
 
-SITE_NAME = "GameDil"
-SITE_TAGLINE = "게임 할인과 최저가를 한눈에"
+SITE_NAME = "스팀딜 레이더"
+SITE_TAGLINE = "한국어로 할 수 있는 게임을 가장 먼저"
 # 절대 URL(사이트맵·canonical·og:url)에 쓴다. GitHub Actions 에서 주입한다.
 # 비어 있으면 상대 경로로만 동작한다 (로컬 테스트용).
 SITE_URL = os.environ.get("SITE_URL", "")
@@ -23,25 +28,12 @@ SITE_URL = os.environ.get("SITE_URL", "")
 GOOGLE_VERIFY = os.environ.get("GOOGLE_SITE_VERIFICATION", "").strip()
 NAVER_VERIFY = os.environ.get("NAVER_SITE_VERIFICATION", "").strip()
 
-# ---- 웹 분석 (Google Analytics 4) ----
-GA_TRACKING_ID = os.environ.get("GA_TRACKING_ID", "G-SVXW1DG02M").strip()
-
 # ---- 스팀 API ----
 CC = "kr"
-# Steam Store API 언어 코드는 korean 이 아니라 koreana 다.
-# 잘못된 값은 설명이 독일어 등 다른 언어로 섞여 들어오는 원인이 된다.
-LANG = "koreana"
+LANG = "korean"
 REQUEST_DELAY = 1.5      # 스팀 appdetails 는 요청수 제한이 있다. 줄이지 말 것.
 TIMEOUT = 20
 MAX_RETRY = 2
-
-# 홈의 트렌드 섹션에 쓰는 보조 신호. appdetails 와 달리 후보 게임에만 붙인다.
-# 전체 게임에 매번 요청하면 수집 시간이 폭증하므로, 검증된 인기/할인 후보만 갱신한다.
-PLAYERS_URL = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
-REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
-SIGNAL_REQUEST_DELAY = 0.8
-PLAYER_SIGNAL_LIMIT = 80
-REVIEW_SIGNAL_LIMIT = 60
 
 # 한 실행에서 상세조회할 최대 게임 수.
 # REQUEST_DELAY(1.5초)를 지키므로 800개 = 약 20분. Actions 단일 잡 상한은 6시간이고
@@ -108,6 +100,22 @@ SKIP_NAME_WORDS = (
 FEATURED_URL = "https://store.steampowered.com/api/featuredcategories/?cc={cc}&l={lang}"
 APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
 
+# ---- 리뷰 평가 등급 ('매우 긍정적' 등) ----
+# appdetails 의 recommendations.total 은 리뷰 '수'만 준다. '매우 긍정적' 같은
+# 등급 텍스트와 긍정 비율은 appreviews 라는 별도 엔드포인트에만 있다 — 게임당
+# 요청이 하나 더 늘어난다. 그래서 리뷰가 거의 없어 등급 자체가 의미 없는
+# 게임까지 다 부르지 않고, 카드에 어차피 '리뷰 수'를 보여주는 문턱과 맞춘다.
+REVIEWS_URL = ("https://store.steampowered.com/appreviews/{appid}"
+               "?json=1&language=all&purchase_type=all&num_per_page=0")
+MIN_REVIEWS_FOR_SENTIMENT = 10
+
+# review_score(0~9)는 스팀이 문서화해 안정적으로 유지해온 정수 등급이다.
+# 등급 '텍스트'(review_score_desc)는 응답 로캘/필드 이름이 이 샌드박스에서
+# 검증 불가능하므로(appreviews 를 직접 호출해볼 수 없음) 신뢰하지 않고,
+# 정수 등급만 받아 아래 REVIEW_LABELS(build.py)로 우리가 직접 한국어를 붙인다.
+# — GetAppList 때 API 응답 모양을 3번 잘못 추측했던 것과 같은 실수를
+#   반복하지 않기 위한 선택.
+
 # featuredcategories 응답의 버킷 이름 → 우리 태그
 BUCKETS = {
     "new_releases": "신작",
@@ -119,9 +127,9 @@ BUCKETS = {
 # 항상 추적할 게임 (스팀 상점 URL 의 /app/<숫자>/ 가 앱ID)
 SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520]
 
-# ---- 추천 후보 판정 ----
-# 추천 목록에 띄울 기준. 취향에 맞게 바꾸면 된다.
-REQUIRE_KOREAN = True    # 한국어 지원 안 하면 추천 목록에서 제외
+# ---- 방송 후보 판정 ----
+# 방송에 쓸 만한지 걸러내는 기준. 취향에 맞게 바꾸면 된다.
+REQUIRE_KOREAN = True    # 한국어 지원 안 하면 방송 후보에서 제외
 BROADCAST_MAX_PRICE = 80000   # 이 가격 넘으면 후보에서 빼기 (0 = 제한 없음)
 
 # ---- 역대최저 표기 정직성 ----
@@ -135,7 +143,7 @@ MIN_DAYS_FOR_ATL = 60
 # 30일은 스팀 주말/미드위크 세일이 최소 한 번은 지나가는 길이다.
 MIN_DAYS_FOR_LOW = 30
 
-SKIP_FREE_IN_PRICE = True   # 무료 게임은 가격 추적에서 제외 (추천 후보에는 포함)
+SKIP_FREE_IN_PRICE = True   # 무료 게임은 가격 추적에서 제외 (방송 후보에는 포함)
 
 # ---- 무엇을 '보관'할지 ----
 # 개척은 넓게 하되 저장은 좁게 한다.
@@ -151,20 +159,4 @@ KEEP_ONLY_RELEVANT = True
 # 홈의 '전체에서 찾기' 격자에 서버가 미리 그려두는 카드 수 상한.
 # 무제한이면 게임 9천개에서 index.html 이 6.9MB 가 된다(실측). 그건 모바일에서
 # 열리지 않는다. 더 좁은 목록은 상단 메뉴의 랜딩 페이지가 담당한다.
-MAX_INDEX_CARDS = 240
-
-# 최근 가격 인하 판정 기준일
-RECENT_DROP_DAYS = 7
-
-# ---- 미디어 백필 ----
-# 상세 페이지 트레일러(movie_mp4)가 비어 있는 기존 게임을 점진적으로 재수집한다.
-# 스팀 appdetails 요청 제한(1.5초 딜레이) 하에서 60개 = 약 90초(1.5분).
-# Actions 총 45분 제한 중 일반 수집(~20분) 후에도 여유 시간(약 20분 버퍼)을 충분히 남기면서,
-# 현재 약 1,120개의 미확인 대상을 하루 2회 실행 기준 약 9~10일 안에 안전하게 백필 완료한다.
-MEDIA_BACKFILL_LIMIT = 60
-
-# ---- 운영 상태 품질 경고 기준 ----
-# 가격 이력이 전혀 없는 게임 비율 상한 (기본 30% 초과 시 경고)
-STATUS_WARN_NO_PRICE_RATIO = 0.30
-# 미디어(트레일러) 미확인 게임 비율 상한 (기본 40% 초과 시 백필 안내 경고)
-STATUS_WARN_UNCHECKED_MEDIA_RATIO = 0.40
+MAX_INDEX_CARDS = 400
