@@ -267,10 +267,28 @@ def _current_price_join() -> str:
 
 
 def player_signal_appids(conn, limit: int) -> list[int]:
-    """동접을 물어볼 후보. 한국어·비성인 정식 게임 중 검증된 인기작을 우선한다."""
+    """동접을 물어볼 후보. 한국어·비성인 정식 게임 중 검증된 인기작을 우선하되,
+    '오래전에 확인한 게임'을 최우선으로 돌린다.
+
+    예전엔 할인 중 여부로 먼저 나누고 그 안에서 review_count 로 정렬했다.
+    할인 중인 게임이 80개(=한도)를 넘어서자, 할인이 아예 없는 CS2·PUBG·
+    스타듀 밸리 같은 무료/정가 인기작이 순위표에서 영구히 밀려나 며칠째
+    갱신이 안 되는 채로 방치됐다(실측: CS2 3일째, 스타듀 밸리 4일째 정지).
+    할인 여부·리뷰 수는 동점일 때만 쓰는 tie-break 로 내리고, '가장 오래
+    확인 안 한 것부터'를 1순위로 둬서 전체가 돌아가게 고쳤다.
+    """
+    # 1순위: 리뷰 300개 이상(=CS2·PUBG·스타듀 밸리 같은 실제 인기작) 은 항상 포함시킨다.
+    # 이 묶음은 44개 안팎(실측)이라 한도(80) 안에 항상 들어가므로, 매 실행 예외 없이
+    # 갱신된다 — '인기 있는데 며칠째 그대로'가 다시는 안 생기게 하는 안전판이다.
+    # 2순위: 남는 자리는 '한번도 확인 안 한 것 → 오래전에 확인한 것' 순으로 채워서
+    # 새로 편입되는 후보를 계속 넓혀간다.
     sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
       WHERE g.korean=1 AND g.adult=0 AND g.coming_soon=0 AND g.app_type='game'
-      ORDER BY CASE WHEN COALESCE(p.discount_pct,0)>0 THEN 0 ELSE 1 END,
+      ORDER BY (CASE WHEN COALESCE(g.review_count,0)>=300 THEN 0 ELSE 1 END) ASC,
+               (CASE WHEN g.players_checked_at IS NULL OR g.players_checked_at=''
+                     THEN 0 ELSE 1 END) ASC,
+               g.players_checked_at ASC,
+               CASE WHEN COALESCE(p.discount_pct,0)>0 THEN 0 ELSE 1 END,
                COALESCE(g.review_count,0) DESC, g.appid DESC
       LIMIT ?""")
     return [r[0] for r in conn.execute(sql, (limit,))]

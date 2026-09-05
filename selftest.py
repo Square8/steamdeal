@@ -153,6 +153,38 @@ check("리뷰 긍정 비율 계산", signal_game["review_positive_pct"] == 95)
 check("동접 수집 후보", 730 in store.player_signal_appids(conn, 20))
 check("리뷰 수집 후보", 730 in store.review_signal_appids(conn, 20))
 
+print("\n4b) 동접 후보가 '할인 중인 게임'에 파묻히지 않는다 (실제 버그 재현)")
+# 실측: 할인 중인 정식 게임이 PLAYER_SIGNAL_LIMIT(80)보다 많아지자, 할인 안 하는
+# CS2/PUBG/스타듀 밸리 같은 무료·정가 인기작이 순위표에서 영구히 밀려나
+# 며칠째 동접이 안 바뀌었다. 실제 크기(수백~수천 리뷰) 그대로 재현한다.
+_mem = __import__("sqlite3").connect(":memory:")
+_mem.row_factory = __import__("sqlite3").Row
+_mem.executescript(store.SCHEMA)
+_today = __import__("datetime").date.today().isoformat()
+# 할인 중인 '흔한' 게임 100개 — 전부 리뷰는 적당히 있지만 300 미만
+for i in range(100):
+    _mem.execute(
+        """INSERT INTO games (appid,name,app_type,korean,adult,coming_soon,
+                              review_count,first_seen,last_seen,checked_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (900000 + i, f"할인게임{i}", "game", 1, 0, 0, 50, _today, _today, _today))
+    _mem.execute(
+        "INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct) VALUES (?,?,?,?,?)",
+        (900000 + i, _today, 1000, 2000, 50))
+# CS2 처럼 할인은 없지만(무료) 리뷰가 아주 많고, 동접 확인은 오래전인 게임
+_mem.execute(
+    """INSERT INTO games (appid,name,app_type,korean,adult,coming_soon,
+                          review_count,players_current,players_checked_at,
+                          first_seen,last_seen,checked_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+    (730, "CS2 시뮬레이션", "game", 1, 0, 0, 9800000, 468786,
+     "2026-09-02T01:24:35+00:00", _today, _today, _today))
+_mem.commit()
+_candidates = store.player_signal_appids(_mem, 80)
+check("할인 게임이 100개 있어도 리뷰 많은 무료 게임은 후보에서 안 빠진다",
+      730 in _candidates, f"후보 {len(_candidates)}개 중 CS2 포함 여부={730 in _candidates}")
+_mem.close()
+
 print("\n5) 정가는 스팀 값을 쓴다 (관측 최고가로 추정하지 않음)")
 games = store.all_games(conn)
 g = next(x for x in games if x["appid"] == 730)
