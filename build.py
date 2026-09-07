@@ -1746,17 +1746,22 @@ def media_main(g: dict) -> str:
     mp4, webm = g.get("movie_mp4") or "", g.get("movie_webm") or ""
     if not (mp4 or webm):
         return f'<div class="dmedia">{shot(g, ribbon=False)}</div>'
+    is_hls = ".m3u8" in mp4
     src = ""
     if webm:
         src += f'<source src="{esc(webm)}" type="video/webm">'
     if mp4:
-        src += f'<source src="{esc(mp4)}" type="video/mp4">'
+        if is_hls:
+            src += f'<source src="{esc(mp4)}" type="application/vnd.apple.mpegurl">'
+        else:
+            src += f'<source src="{esc(mp4)}" type="video/mp4">'
     alt = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지">'
            if g.get("header_image") else "")
+    hls_attr = f' data-hls="{esc(mp4)}"' if is_hls else ""
     return f"""<div class="dmedia">
   <div class="dmedia-title">Steam 트레일러</div>
   <video class="dvid" playsinline muted loop controls preload="none"
-         poster="{esc(poster)}" aria-label="{esc(g['name'])} 트레일러">
+         poster="{esc(poster)}" aria-label="{esc(g['name'])} 트레일러"{hls_attr}>
     {src}{alt}
   </video>
 </div>"""
@@ -2111,6 +2116,38 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 }})();
 </script>"""
 
+    trailer_js = ""
+    if g.get("movie_mp4") or g.get("movie_webm"):
+        trailer_js = """<script>
+(function(){
+  var v = document.querySelector('video.dvid');
+  if(!v) return;
+  v.addEventListener('error', function(){
+    var p = v.closest('.dmedia');
+    if(p && v.poster){
+      p.innerHTML = '<div class="dmedia-title">Steam 대표 이미지</div><img src="' + v.poster + '" alt="대표 이미지" style="width:100%;border-radius:12px;aspect-ratio:16/9;object-fit:cover;display:block;">';
+    }
+  }, true);
+  var hlsUrl = v.getAttribute('data-hls');
+  if(hlsUrl){
+    if(v.canPlayType('application/vnd.apple.mpegurl')){
+      v.src = hlsUrl;
+    } else {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.light.min.js';
+      s.onload = function(){
+        if(window.Hls && Hls.isSupported()){
+          var hls = new Hls();
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(v);
+        }
+      };
+      document.head.appendChild(s);
+    }
+  }
+})();
+</script>"""
+
     body = f"""
 <a class="back" href="./../index.html">← 목록으로</a>
 <div class="dhero">
@@ -2146,6 +2183,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 
 {build_related(g, all_games)}
 {recent_view_js}
+{trailer_js}
 """
     # 제목에 가격을 넣으면 검색결과에서 클릭할 이유가 생긴다.
     if g.get("is_free"):
