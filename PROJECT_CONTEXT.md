@@ -39,6 +39,34 @@
 7. 비밀값을 코드에 넣지 않는다. 향후 키가 필요하면 GitHub Secrets를 사용한다.
 8. 커밋과 push는 사용자가 명시적으로 요청한 경우에만 한다.
 
+## 같은 규칙이 여러 곳에 흩어져 있다 (수정 전 반드시 읽을 것)
+
+카드에 보이는 표기 규칙은 **서버(Python)와 클라이언트(JS)가 같은 문장을 각자 만든다.**
+그래서 표기를 한 군데만 고치면 페이지마다 다르게 보인다. 실제로 그랬다 — 찜 목록과
+최근 본 게임 페이지는 등급 라벨을 칩에도, 설명줄에도 넣어서 "매우 긍정적"이 한 카드에
+두 번 나왔다(2026-09-09 수정).
+
+표기를 바꿀 때는 `rg -n` 으로 아래를 **전부** 찾아서 같이 고친다:
+
+| 바꾸려는 것 | 찾을 패턴 | 곳 수 |
+|---|---|---|
+| 카드 설명줄 (리뷰 수·긍정률·등급) | `rg -n "r_lbl" build.py` + Python `card()` | 5 |
+| 칩 (데모/신작/한국어/출시예정) | `rg -n "'t demo'" build.py` + `chips_for()` | 3 |
+| 가격 표기 (원 단위·정가 취소선) | `rg -n "ko-KR'\) \+ '원'" build.py` + `price_html()` | 10 |
+| DOM 헬퍼 `el(tag,text,cls)` | `rg -n "function el\(tag" build.py` | 4 |
+
+**규칙**: 표기를 바꾼 뒤에는 반드시 생성 결과를 비교해서 의도한 페이지만 바뀌었는지 본다.
+
+```bash
+DB_PATH=$PWD/data/steam.sqlite3 SITE_DIR=/tmp/before python3 -c "import build; build.main()"
+# ... 코드 수정 ...
+DB_PATH=$PWD/data/steam.sqlite3 SITE_DIR=/tmp/after  python3 -c "import build; build.main()"
+diff -rq /tmp/before /tmp/after
+```
+
+`diff -rq` 가 의도한 파일만 뱉으면 안전하다. 2,800장이 넘는 페이지를 눈으로 볼 수는 없으므로
+이 방법이 유일하게 믿을 수 있는 검증이다.
+
 ## 변경 후 검증
 
 - 기본 회귀 테스트: `python3 selftest.py`

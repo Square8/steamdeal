@@ -2789,7 +2789,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
 
       var rc = '';
       if (g.r_lbl) {
-        rc = g.r_lbl + ' · 리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+        rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
         if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
       } else if (g.r_tot >= 10) {
         rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
@@ -3156,7 +3156,7 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
 
       var rc = '';
       if (g.r_lbl) {
-        rc = g.r_lbl + ' · 리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+        rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
         if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
       } else if (g.r_tot >= 10) {
         rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
