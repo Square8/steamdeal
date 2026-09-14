@@ -267,23 +267,20 @@ def _current_price_join() -> str:
 
 
 def player_signal_appids(conn, limit: int) -> list[int]:
-    """동접을 물어볼 후보. 한국어·비성인 정식 게임 중 검증된 인기작을 우선하되,
-    '오래전에 확인한 게임'을 최우선으로 돌린다.
+    """동접을 물어볼 후보. 한국어 정식 게임 중 검증된 인기작을 우선하되,
+    '오래전에 확인한 게임'을 순환하며 넓혀간다.
 
-    예전엔 할인 중 여부로 먼저 나누고 그 안에서 review_count 로 정렬했다.
-    할인 중인 게임이 80개(=한도)를 넘어서자, 할인이 아예 없는 CS2·PUBG·
-    스타듀 밸리 같은 무료/정가 인기작이 순위표에서 영구히 밀려나 며칠째
-    갱신이 안 되는 채로 방치됐다(실측: CS2 3일째, 스타듀 밸리 4일째 정지).
-    할인 여부·리뷰 수는 동점일 때만 쓰는 tie-break 로 내리고, '가장 오래
-    확인 안 한 것부터'를 1순위로 둬서 전체가 돌아가게 고쳤다.
+    주의:
+    1. 플레이테스트(Playtest)는 Steam API가 통계를 미제공(result 42)하므로 제외하여
+       수집 대기열 낭비 및 슬롯 병목을 원천 방지한다.
+    2. 사이버펑크 2077, 위쳐 3 등 성인(adult) 태그 대작도 상세 페이지 동접 표시를 위해
+       포함한다 (홈 화면 배너는 build.py safe 필터에서 안전하게 성인 제외).
     """
-    # 1순위: 리뷰 300개 이상(=CS2·PUBG·스타듀 밸리 같은 실제 인기작) 은 항상 포함시킨다.
-    # 이 묶음은 44개 안팎(실측)이라 한도(80) 안에 항상 들어가므로, 매 실행 예외 없이
-    # 갱신된다 — '인기 있는데 며칠째 그대로'가 다시는 안 생기게 하는 안전판이다.
-    # 2순위: 남는 자리는 '한번도 확인 안 한 것 → 오래전에 확인한 것' 순으로 채워서
-    # 새로 편입되는 후보를 계속 넓혀간다.
     sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
-      WHERE g.korean=1 AND g.adult=0 AND g.coming_soon=0 AND g.app_type='game'
+      WHERE g.korean=1 AND g.coming_soon=0 AND g.app_type='game'
+        AND LOWER(g.name) NOT LIKE '%playtest%'
+        AND LOWER(g.name) NOT LIKE '%play test%'
+        AND g.name NOT LIKE '%플레이테스트%'
       ORDER BY (CASE WHEN COALESCE(g.review_count,0)>=300 THEN 0 ELSE 1 END) ASC,
                (CASE WHEN g.players_checked_at IS NULL OR g.players_checked_at=''
                      THEN 0 ELSE 1 END) ASC,
@@ -297,7 +294,10 @@ def player_signal_appids(conn, limit: int) -> list[int]:
 def review_signal_appids(conn, limit: int) -> list[int]:
     """평가 등급 후보: 동접자가 많은 인기작, 할인율 50% 이상, 또는 리뷰 1천개 이상인 한국어 게임 우선."""
     sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
-      WHERE g.korean=1 AND g.adult=0 AND g.app_type='game'
+      WHERE g.korean=1 AND g.app_type='game'
+        AND LOWER(g.name) NOT LIKE '%playtest%'
+        AND LOWER(g.name) NOT LIKE '%play test%'
+        AND g.name NOT LIKE '%플레이테스트%'
         AND (COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=50 OR COALESCE(g.review_count,0)>=1000)
       ORDER BY (CASE WHEN g.reviews_checked_at IS NULL OR g.reviews_checked_at='' THEN 0 ELSE 1 END) ASC,
                COALESCE(g.players_current,0) DESC,
@@ -340,6 +340,18 @@ def mark_media_checked(conn, appid: int) -> None:
     """미디어 확인 시각만 기록 (실제 영상이 없는 경우, API 실패 등 재시도 방지)."""
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute("UPDATE games SET media_checked_at=? WHERE appid=?", (now, appid))
+
+
+def touch_player_checked(conn, appid: int) -> None:
+    """동접 확인 시각만 기록 (스팀 API 응답 없거나 통계 미제공 시 무한 재시도 방지)."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute("UPDATE games SET players_checked_at=? WHERE appid=?", (now, appid))
+
+
+def touch_review_checked(conn, appid: int) -> None:
+    """리뷰 확인 시각만 기록 (미제공 또는 실패 시 무한 재시도 방지)."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute("UPDATE games SET reviews_checked_at=? WHERE appid=?", (now, appid))
 
 
 def save_player_count(conn, appid: int, count: int) -> None:

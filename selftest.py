@@ -185,6 +185,37 @@ check("할인 게임이 100개 있어도 리뷰 많은 무료 게임은 후보�
       730 in _candidates, f"후보 {len(_candidates)}개 중 CS2 포함 여부={730 in _candidates}")
 _mem.close()
 
+print("\n4c) 플레이테스트는 동접 후보에서 제외되고 성인 대작은 포함된다")
+_mem2 = __import__("sqlite3").connect(":memory:")
+_mem2.row_factory = __import__("sqlite3").Row
+_mem2.executescript(store.SCHEMA)
+_today = __import__("datetime").date.today().isoformat()
+_mem2.execute(
+    """INSERT INTO games (appid,name,app_type,korean,adult,coming_soon,
+                          review_count,first_seen,last_seen,checked_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+    (888888, "Test Game Playtest", "game", 1, 0, 0, 0, _today, _today, _today))
+_mem2.execute(
+    """INSERT INTO games (appid,name,app_type,korean,adult,coming_soon,
+                          review_count,first_seen,last_seen,checked_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+    (888889, "어떤 게임 플레이테스트", "game", 1, 0, 0, 0, _today, _today, _today))
+_mem2.execute(
+    """INSERT INTO games (appid,name,app_type,korean,adult,coming_soon,
+                          review_count,first_seen,last_seen,checked_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+    (1091500, "Cyberpunk 2077 성인대작", "game", 1, 1, 0, 800000, _today, _today, _today))
+_mem2.commit()
+_candidates2 = store.player_signal_appids(_mem2, 80)
+check("플레이테스트 영문명 제외", 888888 not in _candidates2)
+check("플레이테스트 한글명 제외", 888889 not in _candidates2)
+check("성인 대작은 동접 후보에 포함", 1091500 in _candidates2)
+_mem2.close()
+
+players_no_stats = with_fake({"response": {"result": 42}},
+                             lambda: steam.fetch_current_players(999999))
+check("Steam 통계 미제공(result 42)은 0 반환", players_no_stats == 0)
+
 print("\n5) 정가는 스팀 값을 쓴다 (관측 최고가로 추정하지 않음)")
 games = store.all_games(conn)
 g = next(x for x in games if x["appid"] == 730)

@@ -40,7 +40,7 @@ MAX_RETRY = 2
 PLAYERS_URL = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 SIGNAL_REQUEST_DELAY = 0.8
-PLAYER_SIGNAL_LIMIT = 80
+PLAYER_SIGNAL_LIMIT = 100
 REVIEW_SIGNAL_LIMIT = 60
 
 # 한 실행에서 상세조회할 최대 게임 수.
@@ -100,7 +100,8 @@ EXPLORE_NEWEST_FIRST = True
 SKIP_NAME_WORDS = (
     "soundtrack", "ost", " sdk", "dedicated server", "trailer", "teaser",
     "artbook", "art book", "wallpaper", "digital deluxe upgrade",
-    "season pass", "bonus content", "upgrade pack", "playtest",
+    "season pass", "bonus content", "upgrade pack", "playtest", "play test",
+    "플레이테스트",
 )
 
 # ---- 발견 경로 ----

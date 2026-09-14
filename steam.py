@@ -47,16 +47,22 @@ def _get_json(url: str, params: dict | None = None, delay: float | None = None):
 
 
 def fetch_current_players(appid: int) -> int | None:
-    """현재 Steam 접속 플레이어 수. 실패와 실제 0명을 구분해 None 을 쓴다."""
+    """현재 Steam 접속 플레이어 수.
+    네트워크/요청 실패 시 None을 반환하되,
+    Steam이 정상 응답(HTTP 200)했으나 통계가 없는 경우(result != 1, 예: result 42 k_EResultNoMatch)는
+    0으로 처리하여 대기열 무한 재시도 및 슬롯 점유 병목을 방지한다.
+    """
     data = _get_json(config.PLAYERS_URL, {"appid": appid},
                      delay=config.SIGNAL_REQUEST_DELAY)
     if not isinstance(data, dict):
         return None
     response = data.get("response") or {}
+    if response.get("result") != 1:
+        return 0
     try:
         count = int(response.get("player_count"))
     except (TypeError, ValueError):
-        return None
+        return 0
     return max(count, 0)
 
 
@@ -241,6 +247,9 @@ def fetch_app(appid: int) -> dict | None:
     if not isinstance(entry, dict) or not entry.get("success"):
         return None
     d = entry.get("data") or {}
+    name = str(d.get("name") or "")
+    if _junk_name(name):
+        return None
     app_type = d.get("type")
     if app_type not in ("game", "demo"):
         return None      # dlc / music / video 등은 제외

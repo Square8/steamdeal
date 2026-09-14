@@ -592,8 +592,14 @@ def autocomplete_js(up: str) -> str:
 
     var activeIdx = -1;
     var currentMatches = [];
+    var searchVersion = 0;
+    var isComposing = false;
+
+    input.addEventListener('compositionstart', function() { isComposing = true; });
+    input.addEventListener('compositionend', function() { isComposing = false; });
 
     function close() {
+      searchVersion++;
       dropdown.style.display = 'none';
       dropdown.innerHTML = '';
       activeIdx = -1;
@@ -675,12 +681,15 @@ def autocomplete_js(up: str) -> str:
     }
 
     function search(query) {
+      searchVersion++;
+      var currentVersion = searchVersion;
       var qTrim = (query || '').trim();
       if (!qTrim) {
         close();
         return;
       }
       getIndex(function(data) {
+        if (currentVersion !== searchVersion) return;
         var matches = [];
         for (var i = 0; i < data.length; i++) {
           var g = data[i];
@@ -717,6 +726,7 @@ def autocomplete_js(up: str) -> str:
         var prev = (activeIdx - 1 + items.length) % items.length;
         setActive(prev);
       } else if (e.key === 'Enter') {
+        if (isComposing || e.isComposing) return;
         if (activeIdx >= 0 && activeIdx < items.length) {
           e.preventDefault();
           items[activeIdx].click();
@@ -770,9 +780,9 @@ def ga_tag() -> str:
 def page(title: str, body: str, updated: str, nav: bool = True,
          desc: str = "", canonical: str = "", og_image: str = "",
          depth: int = 0, freshness: dict | None = None,
-         extra_head: str = "") -> str:
+         extra_head: str = "", root_path: str = "") -> str:
     """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
-    up = "../" * depth
+    up = root_path if root_path else "../" * depth
     freshness = freshness or {"label": "자동 갱신 정상", "class": "ok", "display": updated}
     # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
     jump = (f"""<nav class="jump" aria-label="주요 메뉴">
@@ -854,7 +864,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <footer>
   <p class="updated">가격 기준 시각: {esc(updated)} KST</p>
   <p>가격은 스팀 공식 상점 API(한국 스토어·원화)에서 하루 두 번 자동 수집합니다. 표시 시점과 실제 가격이 다를 수 있으니 구매 전 스팀에서 확인하세요.</p>
-  <p>최저가 표시는 가격을 {config.MIN_DAYS_FOR_LOW}일 이상 지켜본 게임에만 답니다. '역대 최저'는 {config.MIN_DAYS_FOR_ATL}일 이상 관측한 경우이며, 이 사이트가 추적을 시작한 뒤의 최저값이라 스팀의 전체 가격 역사와는 다를 수 있습니다.</p>
+  <p>최저가 표시는 가격을 {config.MIN_DAYS_FOR_LOW}일 이상 지켜본 게임에만 답니다. 'GameDil 관측 최저가'는 {config.MIN_DAYS_FOR_ATL}일 이상 관측한 경우이며, 이 사이트가 추적을 시작한 뒤의 최저값이라 스팀의 전체 가격 역사와는 다를 수 있습니다.</p>
   <p>성적 콘텐츠가 포함된 게임은 기본 화면에서 숨겨집니다.</p>
 </footer>
 </div>
@@ -931,10 +941,10 @@ def atl_label(g: dict) -> str:
     """최저가 표기.
 
     관측 2일차의 "2일 최저"는 사실상 '수집한 뒤 가격이 안 바뀌었다'는 뜻인데,
-    초록 배지로 달면 진짜 역대최저처럼 읽힌다. 그래서 아예 달지 않는다.
+    초록 배지로 달면 전체 기간 최저가처럼 읽힐 수 있다. 그래서 아예 달지 않는다.
       30일 미만  → 배지 없음
       30~59일    → "N일 최저" (기간을 밝힌 제한적 주장)
-      60일 이상  → "역대최저" (MIN_DAYS_FOR_ATL)
+      60일 이상  → "관측 최저가" (MIN_DAYS_FOR_ATL)
     """
     days = g.get("days_tracked", 0)
     if not (g.get("at_lowest") and days >= config.MIN_DAYS_FOR_LOW):
@@ -1254,7 +1264,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
         ]
     )
 
-    # 최저가 판정은 관측 30일부터 배지로 나가고 60일부터 '역대최저'가 된다.
+    # 최저가 판정은 관측 30일부터 배지로 나간다.
     # 그 전까지는 왜 최저가 표시가 없는지 밝혀두는 편이 낫다.
     # 홈에 미리 그려두는 카드 수를 제한한다. 전량을 그리면 index.html 이
     # 게임 9천개에서 6.9MB 가 되고(실측) 모바일에서 열리지 않는다.
@@ -1264,8 +1274,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
     atl_note = ("" if days >= config.MIN_DAYS_FOR_LOW else
                 f'<p class="sec-note">가격 추적은 {days}일째입니다. '
-                f'최저가 표시는 {config.MIN_DAYS_FOR_LOW}일, '
-                f'"역대 최저"는 {config.MIN_DAYS_FOR_ATL}일이 모여야 나옵니다.</p>')
+                f'최저가 표시는 {config.MIN_DAYS_FOR_LOW}일이 모여야 나옵니다.</p>')
 
     body = f"""
 {lead(games, safe)}
@@ -1846,10 +1855,10 @@ def price_judge_summary(g: dict) -> str:
         low_val_text = f"{low:,}원" if low > 0 else "—"
     elif curr <= low:
         if atl_trust:
-            status_msg = f"현재 관측 기간({days}일) 중 역대 최저가입니다."
-            diff_text = "역대 최저가"
+            status_msg = f"현재 관측 기간({days}일) 중 GameDil 관측 최저가입니다."
+            diff_text = "GameDil 관측 최저가"
         else:
-            status_msg = f"현재 관측 기간({days}일) 중 최저가입니다."
+            status_msg = f"현재 관측 기간({days}일) 중 관측 최저가입니다."
             diff_text = "관측 최저가"
         status_cls = "pj-deal"
         diff_cls = "pj-deal-text"
@@ -1941,7 +1950,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             facts.append(("가격 추적 시작", f'{esc(g.get("price_first") or "—")} ({d}일째)'))
         else:
             low = f'{g["lowest_seen"]:,}원' if g.get("lowest_seen") else "—"
-            label = "역대 최저" if g.get("atl_trustworthy") else f"추적 {d}일 최저"
+            label = "GameDil 관측 최저가" if g.get("atl_trustworthy") else f"추적 {d}일 최저"
             facts.append((label, low))
     fact_rows = "".join(f'<tr><th>{esc(k)}</th><td>{v}</td></tr>' for k, v in facts)
 
@@ -1950,7 +1959,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     why_panel = (f"""<div class="panel">
   <h3>이 게임을 고른 이유</h3>
   <p class="sub">아래 항목은 스팀 상점 정보에서 그대로 확인한 사실입니다.
-     '역대 최저가와의 차이'는 가격 이력이 충분히 쌓인 뒤에 반영합니다.</p>
+     '관측 최저가와의 차이'는 가격 이력이 충분히 쌓인 뒤에 반영합니다.</p>
   <ul class="whylist">{why}</ul>
 </div>""" if why else "")
 
@@ -2036,7 +2045,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         curr = g.get("price_final", 0)
         low = g.get("lowest_seen", 0)
         if curr <= low and low > 0 and g.get("atl_trustworthy"):
-            share_text += " [스팀 역대 최저가]"
+            share_text += " [GameDil 관측 최저가]"
     share_text_js = json.dumps(share_text, ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e')
 
     compare_btn = ""
@@ -3348,18 +3357,19 @@ def build_status(games: list[dict], updated: str, freshness: dict,
 
 def build_404(updated: str, freshness: dict) -> str:
     """404 Not Found 페이지."""
-    body = """<div class="err-page">
+    base = f"{config.SITE_URL}/" if config.SITE_URL else "/"
+    body = f"""<div class="err-page">
   <div class="err-code" aria-hidden="true">404</div>
   <h1 class="err-title">찾는 페이지가 없어요</h1>
   <p class="err-desc">주소가 바뀌었거나 존재하지 않는 페이지입니다.</p>
   <div class="err-actions">
-    <a class="btn btn-p" href="index.html">홈으로 돌아가기</a>
-    <a class="btn btn-s" href="index.html#popular">지금 인기 게임 보기</a>
+    <a class="btn btn-p" href="{base}index.html">홈으로 돌아가기</a>
+    <a class="btn btn-s" href="{base}index.html#popular">지금 인기 게임 보기</a>
   </div>
 </div>"""
     return page("페이지를 찾을 수 없어요 — GameDil", body, updated, depth=0,
                 freshness=freshness, desc="주소가 바뀌었거나 존재하지 않는 페이지입니다.",
-                extra_head='<meta name="robots" content="noindex,follow">')
+                extra_head='<meta name="robots" content="noindex,follow">', root_path=base)
 
 
 def main() -> int:

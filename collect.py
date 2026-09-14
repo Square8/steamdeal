@@ -34,6 +34,8 @@ def _collect_signals(conn, log) -> tuple[int, int]:
         if summary is not None:
             store.save_review_summary(conn, appid, summary)
             review_ok += 1
+        else:
+            store.touch_review_checked(conn, appid)
         if i % 20 == 0:
             conn.commit()
 
@@ -42,6 +44,8 @@ def _collect_signals(conn, log) -> tuple[int, int]:
         if count is not None:
             store.save_player_count(conn, appid, count)
             player_ok += 1
+        else:
+            store.touch_player_checked(conn, appid)
         if i % 20 == 0:
             conn.commit()
     conn.commit()

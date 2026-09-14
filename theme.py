@@ -6,7 +6,7 @@
 
 색 역할 분리 (지킬 것):
   --brand   = 브랜드/링크/데이터 시리즈. 파랑. 좋다/나쁘다 의미 없음
-  --deal    = 상태색. '역대 최저' 전용. 라임. 다른 데 재사용 안 함
+  --deal    = 상태색. '관측 최저가' 전용. 라임. 다른 데 재사용 안 함
   --warn    = 상태색. '곧 끝남/주의' 전용. 주황
 상태색은 색만으로 뜻을 전하지 않도록 항상 글자(또는 아이콘+글자)와 함께 쓴다.
 라이트/다크 3중 스코프(:root / prefers-color-scheme / [data-theme])를 모두 정의한다.
@@ -585,7 +585,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 BADGE_ATL = (
     '<span class="badge">'
     '<svg viewBox="0 0 10 10" aria-hidden="true" fill="currentColor">'
-    '<path d="M5 9.5L.7 4h2.6V.5h3.4V4h2.6z"/></svg>역대최저</span>'
+    '<path d="M5 9.5L.7 4h2.6V.5h3.4V4h2.6z"/></svg>관측 최저가</span>'
 )
 
 CSS += '''
