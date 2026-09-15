@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone, timedelta
 import config
 import store
 import theme
+import editorial
 
 KST = timezone(timedelta(hours=9))
 
@@ -1616,7 +1617,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
         clearBtn.addEventListener('click', function() {{
           if (q) q.value = '';
           if (hq) hq.value = '';
-          history.replaceState(null, '', location.pathname);
+          updateQuery('');
           apply();
         }});
         msg.appendChild(clearBtn);
@@ -1641,6 +1642,16 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (window.steamCompare && window.steamCompare.paint) window.steamCompare.paint();
   }}
 
+  function updateQuery(newQ) {{
+    var u = new URL(location.href);
+    if (newQ) {{
+      u.searchParams.set('q', newQ);
+    }} else {{
+      u.searchParams.delete('q');
+    }}
+    history.replaceState(null, '', u.pathname + u.search + u.hash);
+  }}
+
   function apply(){{
     if (!indexData) {{
       loadIndex().then(render).catch(function(){{}});
@@ -1655,8 +1666,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (q) q.value = v;
     if (hq) hq.value = v;
     var trimmed = (v || '').trim();
-    var newUrl = location.pathname + (trimmed ? '?q=' + encodeURIComponent(trimmed) : '');
-    history.replaceState(null, '', newUrl);
+    updateQuery(trimmed);
     apply();
   }}
 
@@ -1687,7 +1697,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       adult.checked = false;
       var allChip = document.querySelector('.presets .chip[data-f="all"]');
       if (allChip) allChip.click();
-      history.replaceState(null, '', location.pathname);
+      updateQuery('');
       apply();
     }});
   }}
@@ -1703,7 +1713,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     }} else if (h.indexOf('#q=') === 0) {{
       v = h.slice(3);
       try {{ v=decodeURIComponent(v); }} catch(e) {{}}
-      history.replaceState(null, '', location.pathname + '?q=' + encodeURIComponent(v));
+      var u = new URL(location.href);
+      u.searchParams.set('q', v);
+      u.hash = '';
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
     }}
 
     if (q) q.value = v;
@@ -3475,6 +3488,8 @@ def main() -> int:
     if not config.SITE_URL:
         log.warning("SITE_URL 이 비어 있어 사이트맵/canonical 이 절대 URL 이 아니다 "
                     "(로컬 테스트면 정상, Actions 면 환경변수 확인)")
+    write("assets/editorial-picks.json", editorial.generate_picks(games, config.SITE_URL))
+
     log.info("생성 완료 — 게임 %d개(성인 %d 숨김), 추천후보 %d, 데모 %d, "
              "랜딩 %d, 사이트맵 %d개 URL → %s",
              len(games), adult, cands, demos, len(LANDINGS), len(paths), config.SITE_DIR)

@@ -234,7 +234,7 @@ check(f"{config.MIN_DAYS_FOR_LOW}일부터 기간을 밝힌 배지",
       "35일 최저" in build.atl_label(
           {"at_lowest": True, "days_tracked": 35, "atl_trustworthy": False}))
 check(f"{config.MIN_DAYS_FOR_ATL}일부터 역대최저 배지",
-      "역대최저" in build.atl_label(
+      "관측 최저가" in build.atl_label(
           {"at_lowest": True, "days_tracked": 70, "atl_trustworthy": True}))
 for i in range(1, config.MIN_DAYS_FOR_ATL + 2):
     d = (dt.date(2026, 1, 1) + dt.timedelta(days=i)).isoformat()
@@ -527,7 +527,7 @@ check("카드에 합성 점수 없음", 'class="score-n"' not in h and 'class="b
 check("헤더에 검색창", 'class="hsearch"' in h and 'name="q"' in h)
 check("?q= 쿼리 파라미터 기반 검색 스크립트", 'new URLSearchParams' in h and 'params.get(\'q\')' in h)
 check("기존 #q= 하위 호환 스크립트", "h.indexOf('#q=')" in h)
-check("초기화 시 q 파라미터 제거", "history.replaceState(null, '', location.pathname)" in h)
+check("초기화 시 q 파라미터 제거", "updateQuery('')" in h)
 
 idx_s_action = re.search(r'"target":\s*"([^"]+)"', h)
 if idx_s_action:
@@ -1091,7 +1091,7 @@ g_low = {"appid": 8102, "name": "LowTrack", "price_final": 15000, "lowest_seen":
                      {"on_date": "2026-09-01", "price_final": 15000, "price_initial": 20000, "discount_pct": 25}]}
 d_low = build.build_detail(g_low, [g_low], "2026-09-02", {})
 check("충분한 관측 기간 + 현재가=관측 최저가 상태",
-      "현재 관측 기간(40일) 중 최저가입니다." in d_low)
+      "현재 관측 기간(40일) 중 관측 최저가입니다." in d_low)
 check("atl_trustworthy 아닐 때는 역대 표현 미사용",
       "역대 최저가" not in d_low.split('aria-label="가격 판단 요약"')[1].split('</div>')[0])
 
@@ -1101,7 +1101,7 @@ g_atl = {"appid": 8103, "name": "AtlTrack", "price_final": 10000, "lowest_seen":
                      {"on_date": "2026-09-01", "price_final": 10000, "price_initial": 20000, "discount_pct": 50}]}
 d_atl = build.build_detail(g_atl, [g_atl], "2026-09-02", {})
 check("atl_trustworthy 충족 시 역대 최저가 문구 사용",
-      "현재 관측 기간(70일) 중 역대 최저가입니다." in d_atl)
+      "현재 관측 기간(70일) 중 GameDil 관측 최저가입니다." in d_atl)
 
 # 3. 현재가 > 관측 최저가일 때 금액/비율 차이
 g_high = {"appid": 8104, "name": "HighTrack", "price_final": 30000, "lowest_seen": 20000,
@@ -1268,7 +1268,7 @@ check("게임 목록 불러오는 중 안내 존재", "게임 목록 불러오�
 check("결과 개수에 aria-live=polite 존재", 'id="cnt" aria-live="polite"' in idx_html)
 
 # 3. URL ?q= 제거 로직 존재
-check("검색어 없을 때 ?q= 제거 및 초기화 로직 존재", "location.pathname" in idx_html and "replaceState" in idx_html)
+check("검색어 없을 때 ?q= 제거 및 초기화 로직 존재", "updateQuery" in idx_html and "searchParams.delete('q')" in idx_html)
 
 # 4. 공백/하이픈/특수문자 완화 정규화 함수가 자동완성과 전체 검색에 공통 사용됨
 check("공백/특수문자 완화 정규화 함수 존재", "function normClean" in idx_html and "function normCompact" in idx_html)
@@ -1398,8 +1398,8 @@ p404_html = open(p404_path, encoding="utf-8").read() if os.path.exists(p404_path
 # 2. 제목, 안내 문구, 홈 버튼, 인기 게임 링크 존재
 check("404 페이지 제목 확인", "페이지를 찾을 수 없어요 — GameDil" in p404_html and "찾는 페이지가 없어요" in p404_html)
 check("404 안내 문구 확인", "주소가 바뀌었거나 존재하지 않는 페이지입니다." in p404_html)
-check("홈으로 돌아가기 버튼 확인", 'href="index.html"' in p404_html and "홈으로 돌아가기" in p404_html)
-check("지금 인기 게임 보기 링크 확인", 'href="index.html#popular"' in p404_html and "지금 인기 게임 보기" in p404_html)
+check("홈으로 돌아가기 버튼 확인", ('href="/index.html"' in p404_html or 'href="https://gamedil.com/index.html"' in p404_html) and "홈으로 돌아가기" in p404_html)
+check("지금 인기 게임 보기 링크 확인", ('href="/index.html#popular"' in p404_html or 'href="https://gamedil.com/index.html#popular"' in p404_html) and "지금 인기 게임 보기" in p404_html)
 
 # 3. noindex,follow 존재
 check("404.html에 noindex,follow 있음", '<meta name="robots" content="noindex,follow">' in p404_html)
