@@ -786,13 +786,13 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     up = root_path if root_path else "../" * depth
     freshness = freshness or {"label": "자동 갱신 정상", "class": "ok", "display": updated}
     # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
-    jump = (f"""<nav class="jump" aria-label="주요 메뉴">
+    jump = (f"""<nav class="jump" aria-label="주요 탐색">
     <a href="{up}index.html#popular">지금 인기</a>
-    <a href="{up}recent-drops.html">최근 인하</a>
+    <a href="{up}index.html#drop">최근 인하</a>
     <a href="{up}index.html#hot">핫딜</a>
     <a href="{up}index.html#soon">기대작</a>
     <a href="{up}index.html#demo">데모</a>
-    <a href="{up}under-10000.html">1만원 이하</a>
+    <a href="{up}index.html#under-10000">1만원 이하</a>
     <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
     <a href="{up}my-games.html">내 찜 <span class="wish-count">0</span></a>
     <a href="{up}index.html#all">전체</a>
@@ -860,6 +860,37 @@ def page(title: str, body: str, updated: str, nav: bool = True,
   {search}
   {jump}
 </div></header>
+<script>
+(function() {{
+  var header = document.querySelector('header.top');
+  if (header && window.ResizeObserver) {{
+    new ResizeObserver(function(entries) {{
+      var h = entries[0].borderBoxSize ? entries[0].borderBoxSize[0].blockSize : header.offsetHeight;
+      document.documentElement.style.setProperty('--header-height', h + 'px');
+    }}).observe(header);
+  }}
+
+  document.addEventListener('click', function(e) {{
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.defaultPrevented) return;
+    var a = e.target.closest('a');
+    if (!a || !a.hash || a.hash === '#q=' || a.origin !== location.origin) return;
+
+    var cur = location.pathname.replace(/\\/index\\.html$/, '/');
+    var tgt = a.pathname.replace(/\\/index\\.html$/, '/');
+
+    if (cur === tgt) {{
+      var targetEl = null;
+      try {{ targetEl = document.querySelector(a.hash); }} catch(err) {{}}
+      if (targetEl) {{
+        e.preventDefault();
+        history.replaceState(null, '', location.search + a.hash);
+        var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        targetEl.scrollIntoView({{ behavior: prefersReduced ? 'auto' : 'smooth' }});
+      }}
+    }}
+  }});
+}})();
+</script>
 <div class="wrap">
 {body}
 <footer>
@@ -1032,7 +1063,8 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
    data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
    data-kr="{g.get('korean') or 0}" data-adult="{g.get('adult') or 0}"
    data-off="{g.get('discount_pct') or 0}" data-price="{g.get('price_final') or 0}"
-   data-score="{score}" data-atl="{1 if atl_label(g) else 0}" data-wish="{g['appid']}">
+   data-score="{score}" data-atl="{1 if atl_label(g) else 0}" data-wish="{g['appid']}" data-free="{1 if g.get('is_free') else 0}"
+   data-rev="{g.get('review_total') or g.get('review_count') or 0}" data-pos="{g.get('review_positive_pct') if g.get('review_positive_pct') is not None else -1}">
   {shot(g)}
   <button class="wish" type="button" data-wish-id="{g['appid']}" aria-pressed="false"
           aria-label="찜 목록에 추가">♡</button>
@@ -1242,13 +1274,15 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     demos = sorted([g for g in korean
                     if g.get("has_demo") or g.get("app_type") == "demo"],
                    key=lambda g: -(g.get("review_count") or 0))
+    under_10k = sorted([g for g in safe if g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000],
+                       key=lambda g: g.get("price_final") or 0)
     fresh = sorted([g for g in korean if g.get("tag") == "신작"],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
                    reverse=True)
     soon = sorted([g for g in korean if g.get("coming_soon")],
                   key=lambda g: (g.get("release_date") or "9999",
                                  -(g.get("review_count") or 0), g.get("name") or ""))
-    top = (hot or popular or demos or fresh or soon or safe or games)[0]
+    top = (hot or popular or demos or under_10k or fresh or soon or safe or games)[0]
 
     days = max((g.get("days_tracked", 0) for g in games), default=0)
     n_demo = sum(1 for g in korean if g.get("has_demo") or g.get("app_type") == "demo")
@@ -1286,7 +1320,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
 {(section("drop", "📉 최근 가격이 내려간 게임",
          f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", recent_drops,
-         "", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체") if recent_drops else "")}
+         "", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체") if recent_drops else
+   section("drop", "📉 최근 가격이 내려간 게임",
+         f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", [],
+         "최근 가격이 내려간 게임이 없습니다.", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체"))}
 
 {section("hot", hot_title, hot_note, hot,
          "현재 조건에 맞는 70%+ 핫딜이 없습니다.", rail=True, cap=8,
@@ -1302,6 +1339,11 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          "한국어 데모가 아직 수집되지 않았습니다.", rail=True,
          more_href="korean-demo.html", more_text="무료 데모 전체")}
 
+{section("under-10000", "💸 1만원 이하 게임",
+         "현재 판매가 기준, 낮은 가격 순입니다.", under_10k,
+         "조건에 맞는 게임이 없습니다.", rail=True, cap=8,
+         more_href="under-10000.html", more_text="1만원 이하 전체")}
+
 {section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순으로 보여줍니다.", fresh,
          "한국어 신작 목록이 아직 비어 있습니다.", rail=True,
          more_href="korean-new.html", more_text="신작 전체")}
@@ -1315,8 +1357,11 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     <input type="search" id="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
     <select id="sort" aria-label="정렬 기준">
       <option value="score">추천순</option>
-      <option value="off">할인율순</option>
+      <option value="pos">평가 좋은 순</option>
+      <option value="rev">리뷰 많은 순</option>
       <option value="cheap">낮은 가격순</option>
+      <option value="exp">높은 가격순</option>
+      <option value="off">할인율순</option>
       <option value="name">이름순</option>
     </select>
     <label class="sw"><input type="checkbox" id="adult"> 성인 게임 포함</label>
@@ -1332,6 +1377,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     <button class="chip" data-f="wish" aria-pressed="false">♡ 찜 목록 <span class="wish-count">0</span></button>
     <button class="chip reset-btn" id="resetBtn" style="display:none;" aria-label="필터 초기화">🔄 초기화</button>
   </div>
+  <div class="presets" aria-live="polite" id="lsortMsg" style="margin-bottom:12px; font-size:13px; color:var(--ink-2); display:none;"></div>
   <div class="grid" id="list">{"".join(card(g) for g in shown_games)}
     <div class="none" id="noneMsg" hidden>조건에 맞는 게임이 없습니다.</div>
   </div>
@@ -1350,6 +1396,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   var msg=document.getElementById('noneMsg'), cnt=document.getElementById('cnt'), allTitle=document.getElementById('allTitle');
   var moreWrap=document.getElementById('moreWrap'), moreBtn=document.getElementById('moreBtn');
   var chips=document.querySelectorAll('.presets .chip');
+  var lsortMsg=document.getElementById('lsortMsg');
   var f='all';
 
   var indexData = null;
@@ -1371,6 +1418,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     a.dataset.score = g.score;
     a.dataset.atl = g.atl;
     a.dataset.wish = g.appid;
+    a.dataset.rev = g.r_tot;
+    a.dataset.pos = g.r_pct !== null && g.r_pct !== undefined ? g.r_pct : -1;
 
     var shot = document.createElement('div');
     shot.className = 'shot';
@@ -1510,15 +1559,12 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (indexData) return Promise.resolve(indexData);
     if (fetchPromise) return fetchPromise;
 
-    msg.innerHTML = '';
-    var p = document.createElement('p');
-    p.textContent = '게임 목록 불러오는 중...';
-    msg.appendChild(p);
     msg.hidden = false;
+    msg.innerHTML = '<p>게임 목록 불러오는 중...</p>';
 
     fetchPromise = fetch('assets/game-search-index.json')
       .then(function(r) {{
-        if (!r.ok) throw new Error('Network response was not ok');
+        if (!r.ok) throw new Error('fetch error');
         return r.json();
       }})
       .then(function(data) {{
@@ -1569,12 +1615,36 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       if (ta !== tb) return ta - tb;
     }}
     var s=sort.value;
-    if (s==='off')   return b.off - a.off;
-    if (s==='name')  return a.n.localeCompare(b.n,'ko');
-    if (s==='cheap'){{
-      var pa=a.price||Infinity, pb=b.price||Infinity;
-      return pa-pb;
+    if (s === 'pos') {{
+      var pa = a.r_pct !== null ? a.r_pct : -1; var pb = b.r_pct !== null ? b.r_pct : -1;
+      if (pa !== pb) return pb - pa;
+      var ra = a.r_tot || 0; var rb = b.r_tot || 0;
+      if (ra !== rb) return rb - ra;
+      return a.n.localeCompare(b.n, 'ko');
     }}
+    if (s === 'rev') {{
+      var ra = a.r_tot || 0; var rb = b.r_tot || 0;
+      if (ra !== rb) return rb - ra;
+      return a.n.localeCompare(b.n, 'ko');
+    }}
+    if (s === 'cheap' || s === 'exp') {{
+      var free_a = (a.price === 0 && a.free === 1);
+      var free_b = (b.price === 0 && b.free === 1);
+      var pa = (a.price !== undefined && a.price > 0) ? a.price : (free_a ? 0 : null);
+      var pb = (b.price !== undefined && b.price > 0) ? b.price : (free_b ? 0 : null);
+
+      if (pa === null && pb !== null) return 1;
+      if (pb === null && pa !== null) return -1;
+
+      if (pa !== null && pb !== null && pa !== pb) return s === 'cheap' ? pa - pb : pb - pa;
+      return a.n.localeCompare(b.n, 'ko');
+    }}
+    if (s === 'off') {{
+      var oa = a.off || 0; var ob = b.off || 0;
+      if (oa !== ob) return ob - oa;
+      return a.n.localeCompare(b.n, 'ko');
+    }}
+    if (s === 'name') return a.n.localeCompare(b.n, 'ko');
     return b.score - a.score;
   }}
 
@@ -1582,6 +1652,11 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (!indexData) return;
     var vis=indexData.filter(keep);
     vis.sort(cmp);
+
+    var txt = f === 'demo' ? '가격·할인은 본편 기준이며 데모는 무료입니다' : '';
+    if (sort.value === 'pos') txt = (txt ? txt + ' / ' : '') + '긍정률 기준, 동률은 리뷰 수';
+    lsortMsg.textContent = txt;
+    lsortMsg.style.display = txt ? 'block' : 'none';
 
     list.innerHTML = '';
     for (var i = 0; i < Math.min(shown, vis.length); i++) {{
@@ -1642,17 +1717,19 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (window.steamCompare && window.steamCompare.paint) window.steamCompare.paint();
   }}
 
-  function updateQuery(newQ) {{
+  function updateQuery(k, v) {{
     var u = new URL(location.href);
-    if (newQ) {{
-      u.searchParams.set('q', newQ);
+    if (v) {{
+      u.searchParams.set(k, v);
     }} else {{
-      u.searchParams.delete('q');
+      u.searchParams.delete(k);
     }}
     history.replaceState(null, '', u.pathname + u.search + u.hash);
   }}
 
   function apply(){{
+    var sv = sort.value;
+    updateQuery('sort', sv === 'score' ? '' : sv);
     if (!indexData) {{
       loadIndex().then(render).catch(function(){{}});
     }} else {{
@@ -1666,7 +1743,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (q) q.value = v;
     if (hq) hq.value = v;
     var trimmed = (v || '').trim();
-    updateQuery(trimmed);
+    updateQuery('q', trimmed);
     apply();
   }}
 
@@ -1697,7 +1774,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       adult.checked = false;
       var allChip = document.querySelector('.presets .chip[data-f="all"]');
       if (allChip) allChip.click();
-      updateQuery('');
+      updateQuery('q', '');
+      updateQuery('sort', '');
       apply();
     }});
   }}
@@ -1705,6 +1783,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   window.syncURL=function(){{
     var params = new URLSearchParams(window.location.search);
     var searchStr = params.get('q');
+    var sortStr = params.get('sort');
     var h = location.hash||'';
     var v = '';
 
@@ -1722,9 +1801,25 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (q) q.value = v;
     if (hq) hq.value = v;
 
-    if (searchStr !== null || h.indexOf('#q=') === 0) {{
+    if (sortStr) {{
+      var opts = Array.from(sort.options).map(function(o) {{ return o.value; }});
+      if (opts.indexOf(sortStr) !== -1) {{
+        sort.value = sortStr;
+      }} else {{
+        sort.value = 'score';
+        updateQuery('sort', '');
+      }}
+    }} else {{
+      sort.value = 'score';
+    }}
+
+    if (searchStr !== null || h.indexOf('#q=') === 0 || sortStr !== null) {{
       apply();
-      document.getElementById('all').scrollIntoView();
+      if (searchStr !== null || h.indexOf('#q=') === 0) {{
+        document.getElementById('all').scrollIntoView();
+      }}
+    }} else if (indexData) {{
+      apply();
     }}
   }};
   window.addEventListener('hashchange', window.syncURL);
@@ -2289,56 +2384,56 @@ LANDINGS = [
          desc="한국어를 지원하는 스팀 게임을 매일 두 번 자동으로 모읍니다. "
               "원화 가격과 데모 여부를 함께 봅니다.",
          note="이 사이트가 추적 중인 게임 중 한국어를 지원하는 것 전부입니다. "
-              "리뷰가 많은 순.",
+              "기본 정렬은 리뷰 많은 순입니다.",
          pick=lambda g: g.get("korean"),
          sort=lambda g: -(g.get("review_count") or 0)),
     dict(slug="korean-demo",
          title="스팀 무료 데모 추천 — 지금 받아서 해볼 수 있는 게임",
          h1="무료 데모 추천",
          desc="사기 전에 무료로 해볼 수 있는 스팀 데모 목록. 한국어를 지원하는 것만 골랐습니다.",
-         note="전부 한국어를 지원합니다. 리뷰가 많은 순.",
+         note="전부 한국어를 지원합니다. 기본 정렬은 리뷰 많은 순입니다.",
          pick=lambda g: g.get("korean") and (g.get("has_demo") or g.get("app_type") == "demo"),
          sort=lambda g: -(g.get("review_count") or 0)),
     dict(slug="korean-new",
          title="스팀 신작 추천 — 최근 나온 게임",
          h1="새로 나온 게임",
          desc="최근 스팀에 출시된 게임을 매일 갱신합니다. 한국어를 지원하는 것만 골랐습니다.",
-         note="최근 출시 순입니다. 전부 한국어를 지원합니다.",
+         note="전부 한국어를 지원합니다. 기본 정렬은 최근 출시일 순입니다.",
          pick=lambda g: g.get("korean") and g.get("tag") == "신작" and not g.get("coming_soon"),
          sort=lambda g: (g.get("release_date") or "", g.get("name") or ""), rev=True),
     dict(slug="korean-soon",
          title="스팀 출시예정 게임 — 곧 나오는 것",
          h1="곧 나오는 게임",
-         desc="아직 나오지 않은 스팀 게임 목록. 한국어를 지원할 예정인 것만 골랐습니다.",
-         note="출시일이 가까운 순입니다. 출시 전에 찜해두면 좋습니다.",
+         desc="출시일이 정해졌거나 다가오는 기대작 모음. 전부 한국어를 지원합니다.",
+         note="전부 한국어를 지원합니다. 기본 정렬은 출시일 순입니다.",
          pick=lambda g: g.get("korean") and g.get("coming_soon"),
          sort=lambda g: (g.get("release_date") or "9999", g.get("name") or "")),
     dict(slug="under-10000",
-         title="스팀 1만원 이하 게임",
+         title="스팀 1만원 이하 게임 — 지금 싼 게임",
          h1="1만원 이하 게임",
-         desc="현재 스팀 원화 가격이 1만원 이하인 게임 목록. 한국어를 지원하는 것만 골랐습니다.",
-         note="현재 판매가 기준, 낮은 가격 순입니다. 전부 한국어를 지원합니다.",
-         pick=lambda g: (g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000),
-         sort=lambda g: g.get("price_final") or 0),
+         desc="현재 스팀 원화 판매가 기준 1만원 아래인 한국어 지원 게임을 찾습니다.",
+         note="현재 판매가 1만원 이하이며, 한국어를 지원하는 게임입니다. 기본 정렬은 추천순입니다.",
+         pick=lambda g: bool(g.get("korean") and g.get("price_final") and g["price_final"] > 0 and g["price_final"] <= 10000),
+         sort=lambda g: -(g.get("score") or 0)),
     dict(slug="recent-drops",
          title="스팀 최근 가격 인하 게임 — 최근 7일 가격이 내려간 것",
          h1="최근 가격 인하 게임",
          desc="최근 7일간 이 사이트가 관측한 가격 변동 기준입니다. 최대 120개까지만 보여줍니다.",
-         note="가격 인하폭 및 할인율이 큰 순서입니다. (데이터가 많으면 최대 120개 표시)",
+         note="기본 정렬은 가격 인하폭 및 할인율이 큰 순서입니다. (데이터가 많으면 최대 120개 표시)",
          pick=lambda g: True,
          sort=lambda g: 0),
     dict(slug="hot-deals",
-         title="스팀 70% 이상 할인 게임 — 검증된 핫딜 추천",
+         title="스팀 게임 핫딜 — 70% 이상 할인된 한국어 지원 명작",
          h1="70% 이상 할인 핫딜",
          desc="스팀에서 70% 이상 할인 중인 한국어 지원 게임 목록. 할인율과 평가를 함께 검증했습니다.",
-         note="할인율 70% 이상인 한국어 지원 게임입니다. 할인율과 리뷰가 많은 순.",
+         note="할인율 70% 이상인 한국어 지원 게임입니다. 기본 정렬은 할인율과 리뷰 많은 순입니다.",
          pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) >= 70),
          sort=lambda g: (-(g.get("discount_pct") or 0), -(g.get("review_total") or g.get("review_count") or 0))),
     dict(slug="popular-games",
          title="스팀 인기 게임 — 현재 플레이어 수 순위",
          h1="지금 많이 하는 스팀 게임",
          desc="마지막 수집 시점 기준 Steam 현재 플레이어 수가 확인된 한국어 지원 게임 목록입니다.",
-         note="마지막 수집 시점 기준 Steam 현재 플레이어 수 순입니다. 동접 신호가 수집된 게임만 표시합니다.",
+         note="동접 신호가 수집된 게임만 표시합니다. 기본 정렬은 마지막 수집 시점 기준 스팀 현재 플레이어 수 순입니다.",
          pick=lambda g: bool(g.get("korean") and (g.get("players_current") or 0) > 0 and not g.get("coming_soon")),
          sort=lambda g: (-(g.get("players_current") or 0), -(g.get("review_count") or 0))),
 ]
@@ -2353,14 +2448,122 @@ def build_landing(spec: dict, games: list[dict], updated: str,
             '<div class="grid"><div class="none">'
             '아직 조건에 맞는 게임이 수집되지 않았습니다. 다음 갱신에서 채워집니다.'
             '</div></div>')
+    demo_msg = ("가격·할인은 본편 기준이며 데모는 무료입니다" if spec["slug"] == "korean-demo" else "")
     body = f"""
 <section id="top">
   <div class="sec-head"><h2>{esc(spec['h1'])}</h2>
     <span class="cnt">{len(items)}개</span>
-    <a class="more" href="./index.html">전체 보기 →</a></div>
+    <a class="more" href="./index.html">홈으로 돌아가기 →</a></div>
   <p class="sec-note">{esc(spec['note'])}</p>
+  <div class="tools" style="margin-bottom: 16px;">
+    <select id="lsort" aria-label="정렬 기준">
+      <option value="default">기본순</option>
+      <option value="pos">평가 좋은 순</option>
+      <option value="rev">리뷰 많은 순</option>
+      <option value="cheap">낮은 가격순</option>
+      <option value="exp">높은 가격순</option>
+      <option value="off">할인율순</option>
+      <option value="name">이름순</option>
+    </select>
+  </div>
+  <div class="presets" aria-live="polite" id="lsortMsg" style="margin-bottom:12px; font-size:13px; color:var(--ink-2); display:{'block' if demo_msg else 'none'};">{demo_msg}</div>
   {grid}
 </section>
+<script>
+(function() {{
+  var grid = document.querySelector('.grid');
+  var sel = document.getElementById('lsort');
+  var msg = document.getElementById('lsortMsg');
+  if (!grid || !sel) return;
+  var cards = Array.prototype.slice.call(grid.querySelectorAll('.card'));
+  cards.forEach(function(c, i) {{ c.dataset.idx = i; }});
+
+  function updateQuery(k, v) {{
+    if (!window.history || !window.URLSearchParams) return;
+    var params = new URLSearchParams(location.search);
+    if (v) params.set(k, v); else params.delete(k);
+    var qs = params.toString();
+    history.replaceState(null, '', qs ? '?' + qs + location.hash : location.pathname + location.hash);
+  }}
+
+  var demoMsg = "{demo_msg}";
+  function apply(skipHistory) {{
+    var s = sel.value;
+    if (!skipHistory) updateQuery('sort', s === 'default' ? '' : s);
+    cards.sort(function(a, b) {{
+      if (s === 'pos') {{
+        var pa = Number(a.dataset.pos); var pb = Number(b.dataset.pos);
+        if (pa !== pb) return pb - pa;
+        var ra = Number(a.dataset.rev); var rb = Number(b.dataset.rev);
+        if (ra !== rb) return rb - ra;
+        var na = a.dataset.n; var nb = b.dataset.n;
+        if (na !== nb) return na.localeCompare(nb, 'ko');
+        return Number(a.dataset.wish) - Number(b.dataset.wish);
+      }}
+      if (s === 'rev') {{
+        var ra = Number(a.dataset.rev); var rb = Number(b.dataset.rev);
+        if (ra !== rb) return rb - ra;
+        var na = a.dataset.n; var nb = b.dataset.n;
+        if (na !== nb) return na.localeCompare(nb, 'ko');
+        return Number(a.dataset.wish) - Number(b.dataset.wish);
+      }}
+      if (s === 'cheap' || s === 'exp') {{
+        var free_a = (a.dataset.price === '0' && a.dataset.free === '1');
+        var free_b = (b.dataset.price === '0' && b.dataset.free === '1');
+        var pa = (a.dataset.price && Number(a.dataset.price) > 0) ? Number(a.dataset.price) : (free_a ? 0 : null);
+        var pb = (b.dataset.price && Number(b.dataset.price) > 0) ? Number(b.dataset.price) : (free_b ? 0 : null);
+
+        if (pa === null && pb !== null) return 1;
+        if (pb === null && pa !== null) return -1;
+
+        if (pa !== null && pb !== null && pa !== pb) return s === 'cheap' ? pa - pb : pb - pa;
+        var na = a.dataset.n; var nb = b.dataset.n;
+        if (na !== nb) return na.localeCompare(nb, 'ko');
+        return Number(a.dataset.wish) - Number(b.dataset.wish);
+      }}
+      if (s === 'off') {{
+        var oa = Number(a.dataset.off); var ob = Number(b.dataset.off);
+        if (oa !== ob) return ob - oa;
+        var na = a.dataset.n; var nb = b.dataset.n;
+        if (na !== nb) return na.localeCompare(nb, 'ko');
+        return Number(a.dataset.wish) - Number(b.dataset.wish);
+      }}
+      if (s === 'name') {{
+        return a.dataset.n.localeCompare(b.dataset.n, 'ko');
+      }}
+      return Number(a.dataset.idx) - Number(b.dataset.idx);
+    }});
+    cards.forEach(function(c) {{ grid.appendChild(c); }});
+
+    var txt = demoMsg;
+    if (s === 'pos') txt = (txt ? txt + ' / ' : '') + '긍정률 기준, 동률은 리뷰 수';
+    msg.textContent = txt;
+    msg.style.display = txt ? 'block' : 'none';
+  }}
+
+  sel.addEventListener('change', function() {{ apply(false); }});
+
+  window.syncURL = function() {{
+    if (!window.URLSearchParams) return;
+    var p = new URLSearchParams(location.search).get('sort');
+    if (p) {{
+      var opts = Array.from(sel.options).map(function(o) {{ return o.value; }});
+      if (opts.indexOf(p) !== -1) {{
+        sel.value = p;
+      }} else {{
+        sel.value = 'default';
+        updateQuery('sort', '');
+      }}
+    }} else {{
+      sel.value = 'default';
+    }}
+    apply(true);
+  }};
+
+  window.addEventListener('popstate', window.syncURL);
+  window.syncURL();
+}})();
+</script>
 """
     schema = {
         "@context": "https://schema.org",

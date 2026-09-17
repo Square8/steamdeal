@@ -1,5 +1,26 @@
 # 공통 작업 현황
 
+## 최신 결론 — 2026-09-18 홈 탐색/정렬 검토 완료
+- 커밋 가능. 아래 같은 작업의 보류/FAIL 문구는 수정 전 이력이다.
+- Codex가 R2 실제 코드 대조: korean-soon 날짜 정렬 복원, 홈/랜딩 가격 미정 우선 분리, 홈 무쿼리 복귀 시 재렌더 확인.
+- Claude 최신 R2 보고: 실제 픽스처 build.main, 기본 selftest, 브라우저 홈/랜딩 가격순·상태복원·제목 가림 등 PASS. 보고서 날짜는 9월 17일로 적혀 있으므로 결과의 최신성은 R2 코드/보고서 내용 기준으로 대조함. Codex는 이번에 브라우저/전체 테스트를 반복 실행하지 않았다.
+- Codex 변경: build.py 후행 공백 4곳만 제거. 기능 변경 없음.
+- 커밋명: feat: 홈 메뉴 이동 통일 및 카테고리 정렬 추가
+- 대상: build.py, theme.py, selftest.py, tests/test_navigation_sorting.py, HANDOFF.md, marketing/navigation-sorting-{tasks,implementation,review,codex-review}.md.
+- 제외: steamdeal.db. 다음 단계는 사용자 커밋/push 후 배포 화면 확인. 로컬 검증이며 라이브 배포 완료를 뜻하지 않는다.
+
+## 현재 작업 — 2026-09-17 홈 탐색 통일 및 카테고리 정렬
+- 2026-09-18 최신 판정: 커밋 보류. korean-soon 날짜 문자열 정렬 TypeError 직접 재현, 높은가격순 미정 우선 오류 잔존. 홈 무쿼리 URL 복귀 시 재렌더 누락도 코드 확인. marketing/navigation-sorting-codex-review.md의 9월 18일 R2를 우선 수행.
+- Codex 최종 검수: 수정 필요/커밋 보류. 최신 후속 지시 marketing/navigation-sorting-codex-review.md 우선 적용.
+- Claude의 높은가격순 FAIL 외 카드 렌더링 회귀, sort 복원 누락, 앵커 보조키/reduced-motion 문제, 안내 문구 모순 확인. Codex 직접 selftest exit 0, diff --check 후행 공백 8건 실패. 테스트 통과만으로 승인하지 않음.
+- 최신 사용자 요청은 제목 가림 해결, 홈 메뉴 앵커 통일, 카테고리 전체 페이지 정렬이다. 아래 9월 15일 내용은 이전 작업 이력.
+- 지시서: marketing/navigation-sorting-tasks.md.
+- 코드 확인: sticky 헤더와 고정 76px 앵커 여백, 최근 인하/1만원 이하만 페이지 링크, 1만원 이하 홈 섹션 없음, 랜딩 사용자 정렬 없음.
+- Gemini: build.py/theme.py/필요한 selftest.py 구현. 결과 marketing/navigation-sorting-implementation.md.
+- Claude: tests/test_navigation_sorting.py 독립 검증. 결과 marketing/navigation-sorting-review.md. 준비 병행 가능, 최종 검증은 구현 후.
+- Codex: 두 보고서와 실제 diff 최종 검토 후 커밋 대상/이름 제공. 이번 문서는 작업 지시이며 구현 완료가 아님.
+- 시작 git status: untracked steamdeal.db만 존재. 보존하고 커밋 제외.
+
 ## 최신 결론 — 2026-09-15, R2 최종 검토 완료
 - 상태: 로컬 검증 통과, 사용자 커밋/push 가능. 아래 R1/R2의 보류·FAIL 기록은 해결 전 이력이다.
 - Codex: 최신 Gemini/Claude 보고서 및 selftest.py의 7개 변경을 검토했고 git diff --check 통과 확인. 제품 코드 R1은 이전 턴에서 직접 검토/후보 테스트 실행 완료.

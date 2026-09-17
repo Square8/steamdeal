@@ -234,7 +234,8 @@ nav.jump a:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
 
 /* ================= 섹션 / 그리드 ================= */
 /* 제목만 키우면 구획이 안 느껴진다. 섹션 사이 여백을 같이 넓힌다. */
-section{margin-top:4rem; scroll-margin-top:76px}
+html { scroll-padding-top: calc(var(--header-height, 60px) + 16px); }
+section{margin-top:4rem}
 .sec-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px}
 .sec-head h2{
   font-family:"Inter","Gothic A1",sans-serif; font-weight:800;

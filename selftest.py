@@ -726,7 +726,7 @@ check("한국어 게임 우선 정렬", drops[0]["appid"] == 101 and drops[1]["a
 drop_a = next(d for d in drops if d["appid"] == 101)
 check("인하 금액, 인하율, 변경일 정확성", drop_a["recent_drop_amount"] == 3000 and drop_a["recent_drop_rate"] == 30 and drop_a["recent_drop_date"] == t_max)
 
-check("대상이 없으면 홈 섹션이 생성되지 않음", "📉 최근 가격이 내려간 게임" not in build.build_index(drop_games, t_max, None, recent_drops=[]))
+check("대상이 없으면 홈 섹션에 빈 상태 안내가 표시됨", "최근 가격이 내려간 게임이 없습니다." in build.build_index(drop_games, t_max, None, recent_drops=[]))
 idx_with_drops = build.build_index(drop_games, t_max, None, recent_drops=drops)
 check("대상이 있으면 홈 섹션 생성", "📉 최근 가격이 내려간 게임" in idx_with_drops)
 
@@ -1169,7 +1169,7 @@ check("상세 페이지 전체 ../ 상대경로 확인", 'href="../index.html#al
 
 # 6. 기존 찜 필터 칩 유지 확인
 check("홈 필터 칩에 ♡ 찜 목록 유지", 'data-f="wish"' in idx_html and '♡ 찜 목록' in idx_html)
-check("상단 nav에 aria-label 제공", 'aria-label="주요 메뉴"' in idx_html)
+check("상단 nav에 aria-label 제공", 'aria-label="주요 탐색"' in idx_html)
 
 
 print("\n18) 발견·재방문 패키지 (검색 자동완성 / 최근 본 게임 / SEO 컬렉션)")
@@ -1268,7 +1268,7 @@ check("게임 목록 불러오는 중 안내 존재", "게임 목록 불러오�
 check("결과 개수에 aria-live=polite 존재", 'id="cnt" aria-live="polite"' in idx_html)
 
 # 3. URL ?q= 제거 로직 존재
-check("검색어 없을 때 ?q= 제거 및 초기화 로직 존재", "updateQuery" in idx_html and "searchParams.delete('q')" in idx_html)
+check("검색어 없을 때 ?q= 제거 및 초기화 로직 존재", "updateQuery" in idx_html and "searchParams.delete(k)" in idx_html)
 
 # 4. 공백/하이픈/특수문자 완화 정규화 함수가 자동완성과 전체 검색에 공통 사용됨
 check("공백/특수문자 완화 정규화 함수 존재", "function normClean" in idx_html and "function normCompact" in idx_html)
