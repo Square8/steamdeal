@@ -1,5 +1,16 @@
 # 공통 작업 현황
 
+## 최신 결론 — 2026-09-24 랜덤 게임 뽑기 최종 검토
+- 판정: 로컬 기준 커밋 가능. 라이브 배포는 이번에 확인하지 않았다.
+- 근거: marketing/random-pick-implementation.md 및 marketing/random-pick-review.md를 읽고 build.py 실제 diff 대조. Claude는 임시 DB 빌드와 Playwright로 후보 조건·경계값·150회 추첨·연속 중복 방지·유효/무효 해시·링크 복사·모바일 레이아웃·회귀를 확인해 FAIL 0 / SKIP 0 보고. Codex는 이번 턴에 브라우저 테스트를 반복 실행하지 않았다.
+- Codex 직접 확인: 후보는 한국어, 비성인, 출시 완료, 리뷰 50건 이상, 긍정률 90% 이상, 유료 1만 원 이하로 제한. 결과 해시는 validGames 기준으로 검사하고, pick.html은 공개 페이지로 생성되어 sitemap에 포함된다. 변경 빈 줄의 후행 공백 12곳과 함수 사이 공백만 정리; `python3 -m py_compile build.py` 통과.
+- tests/test_wishlist_share.py의 별도 변경은 SITE_URL을 지정해 sitemap이 비어 있는 상태의 거짓 PASS를 막는 회귀 테스트 강화다. 이번 커밋에 함께 포함한다.
+- 커밋 대상: build.py, tests/test_random_pick.py, tests/test_wishlist_share.py, marketing/random-pick-implementation.md, marketing/random-pick-review.md, HANDOFF.md.
+- 커밋명: feat: 한국어 게임 랜덤 추천 페이지 추가
+- 제외: steamdeal.db. 기존 미커밋 marketing/navigation-sorting-live-review.md는 별도 배포 검증 문서이므로 이번 대상에서 제외. 운영 DB와 생성된 site/도 추가하지 않는다.
+- 선택 개선: 모바일 메뉴 맨 끝의 가챠 링크 발견성이 낮을 수 있다. 배포 후 실제 이용 반응을 보고 진입점 보강 여부를 정한다.
+- Codex는 커밋/push하지 않았다.
+
 ## 최신 결론 — 2026-09-24 찜 목록 공유 최종 검토
 - 판정: 로컬 기준 커밋 가능. 라이브 배포와 브라우저 간 링크 전달은 아직 확인하지 않았다.
 - 근거: marketing/wishlist-share-implementation.md 및 marketing/wishlist-share-review.md를 읽고 build.py 실제 diff 대조. Claude는 임시 DB 빌드와 Playwright로 공유 링크·30개 제한·성인 기본 숨김/토글·화면에 표시된 항목만 병합·없는 ID·모바일 그리드·기존 목표가 보존을 재검증해 FAIL 0 / SKIP 0 보고. Codex는 이번 턴에 전체 브라우저 테스트를 다시 실행하지 않았다.

@@ -795,6 +795,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <a href="{up}index.html#under-10000">1만원 이하</a>
     <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
     <a href="{up}my-games.html">내 찜 <span class="wish-count">0</span></a>
+    <a href="{up}pick.html">가챠 🎲</a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
     search = (f"""<form class="hsearch" role="search" action="{up}index.html" method="GET">
@@ -3742,6 +3743,239 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
     return page("최근 본 게임 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 기록된 최근 본 게임 목록을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
 
+def build_pick(updated: str, freshness: dict) -> str:
+    html = '''
+<div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
+  <h1>오늘 뭐 하지? 🎲</h1>
+  <p class="sub">긍정 평가 90% 이상, 1만원 이하 한국어 게임을 무작위로 하나 추천해 드립니다.</p>
+</div>
+
+<div class="sec-wrap" style="max-width: 1040px; margin: 0 auto; padding: 0 1rem 3rem; text-align: center;">
+  <button id="btnPick" class="btn btn-p" style="font-size: 16px; padding: 8px 16px; margin-bottom: 20px;">🎲 뽑기</button>
+
+  <div id="shareWrap" style="display:none; margin-bottom: 20px;">
+    <button id="btnShare" class="btn btn-s" style="font-size:13px; padding: 4px 8px;">🔗 결과 공유</button>
+  </div>
+
+  <div id="myApp"></div>
+</div>
+
+<script>
+(function(){
+  function getHashAppid() {
+    var h = location.hash;
+    if (h.indexOf('#appid=') === 0) {
+      return Number(h.slice(7));
+    }
+    return null;
+  }
+
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  var allGames = null;
+  var validGames = [];
+  var currentAppid = null;
+
+  var app = document.getElementById('myApp');
+  var btnPick = document.getElementById('btnPick');
+  var btnShare = document.getElementById('btnShare');
+  var shareWrap = document.getElementById('shareWrap');
+
+  function renderState() {
+    app.innerHTML = '';
+
+    if (allGames === null) {
+      app.appendChild(el('div', '불러오는 중...', 'empty-state'));
+      return;
+    }
+
+    if (validGames.length === 0) {
+      app.appendChild(el('div', '후보 게임이 없습니다.', 'empty-state'));
+      shareWrap.style.display = 'none';
+      return;
+    }
+
+    if (currentAppid === null) {
+      if (btnPick) btnPick.textContent = '🎲 뽑기';
+      app.appendChild(el('div', '위 버튼을 눌러 추천 게임을 뽑아보세요!', 'empty-state'));
+      shareWrap.style.display = 'none';
+      return;
+    }
+    if (btnPick) btnPick.textContent = '🎲 다시 뽑기';
+
+    var g = allGames.find(function(x) { return x.appid === currentAppid; });
+    if (!g || g.adult) {
+      currentAppid = null;
+      renderState();
+      return;
+    }
+
+    shareWrap.style.display = 'block';
+    var grid = el('div', '', 'grid');
+    grid.style.maxWidth = '300px';
+    grid.style.margin = '0 auto';
+    grid.style.textAlign = 'left';
+
+    var currentPrice = g.price || 0;
+    var card = el('div', '', 'my-card');
+
+    var head = el('div', '', 'my-card-head');
+    var imgLink = el('a');
+    imgLink.href = 'game/' + g.appid + '.html';
+
+    if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
+      var img = document.createElement('img');
+      img.src = g.img;
+      img.alt = g.name + ' 표지';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      imgLink.appendChild(img);
+    } else {
+      var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
+      imgLink.appendChild(ph);
+    }
+    head.appendChild(imgLink);
+
+    if (g.off) {
+      var rib = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
+      head.appendChild(rib);
+    }
+    card.appendChild(head);
+
+    var body = el('div', '', 'my-card-body');
+    var title = el('a', g.name, 'my-card-title');
+    title.href = 'game/' + g.appid + '.html';
+    body.appendChild(title);
+
+    var chipsDiv = el('div', '', 'chips');
+    if (g.atl && g.atl_txt) chipsDiv.appendChild(el('span', g.atl_txt, 't atl'));
+    if (g.demo) chipsDiv.appendChild(el('span', '데모', 't demo'));
+    if (g.soon) chipsDiv.appendChild(el('span', '출시예정', 't soon'));
+    else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
+    if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
+    else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+    if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
+
+    var rc = '';
+    if (g.r_lbl) {
+      rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
+    } else if (g.r_tot >= 10) {
+      rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+    }
+    if (rc) {
+      body.appendChild(el('div', rc, 'tagline'));
+    }
+
+    var priceRow = el('div', '', 'my-price-row');
+    var priceBox = el('div', '', 'price');
+    if (g.free) {
+      priceBox.appendChild(el('span', '무료', 'now'));
+    } else if (!currentPrice) {
+      priceBox.appendChild(el('span', g.soon ? '출시 전' : '가격 미정', 'now'));
+    } else {
+      priceBox.appendChild(el('span', currentPrice.toLocaleString('ko-KR') + '원', 'now'));
+      if (g.p_init && g.p_init > currentPrice) {
+        priceBox.appendChild(el('span', g.p_init.toLocaleString('ko-KR') + '원', 'init'));
+      }
+    }
+    priceRow.appendChild(priceBox);
+    body.appendChild(priceRow);
+    card.appendChild(body);
+
+    var foot = el('div', '', 'my-card-foot');
+    var detailBtn = el('a', '상세보기', 'btn btn-s');
+    detailBtn.href = 'game/' + g.appid + '.html';
+    detailBtn.style.width = '100%';
+    detailBtn.style.textAlign = 'center';
+
+    foot.appendChild(detailBtn);
+    card.appendChild(foot);
+    grid.appendChild(card);
+
+    app.appendChild(grid);
+  }
+
+  function pickRandom() {
+    if (validGames.length === 0) return;
+    var candidates = validGames.filter(function(g) { return g.appid !== currentAppid; });
+    if (candidates.length === 0) candidates = validGames;
+    var r = candidates[Math.floor(Math.random() * candidates.length)];
+    currentAppid = r.appid;
+    location.hash = 'appid=' + r.appid;
+    renderState();
+  }
+
+  btnPick.addEventListener('click', pickRandom);
+
+  btnShare.addEventListener('click', function() {
+    if (!currentAppid) return;
+    var url = location.origin + '/pick.html#appid=' + currentAppid;
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(function() {
+        alert('결과 링크가 복사되었습니다!');
+      }).catch(function() {
+        prompt('아래 링크를 복사하세요:', url);
+      });
+    } else {
+      prompt('아래 링크를 복사하세요:', url);
+    }
+  });
+
+  window.addEventListener('hashchange', function() {
+    var h = getHashAppid();
+    if (h !== currentAppid) {
+      if (h) {
+        var isValid = validGames.some(function(x) { return x.appid === h; });
+        if (isValid) {
+          currentAppid = h;
+        } else {
+          location.hash = '';
+          currentAppid = null;
+        }
+      } else {
+        currentAppid = null;
+      }
+      renderState();
+    }
+  });
+
+  app.appendChild(el('div', '불러오는 중...', 'empty-state'));
+  fetch('assets/game-search-index.json')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      allGames = Array.isArray(data) ? data : [];
+      validGames = allGames.filter(function(g) {
+        return g.kr === 1 && !g.adult && !g.soon && g.r_tot >= 50 && g.r_pct >= 90 && g.price > 0 && g.price <= 10000;
+      });
+
+      var hAppid = getHashAppid();
+      if (hAppid) {
+        var isValid = validGames.some(function(x) { return x.appid === hAppid; });
+        if (isValid) {
+          currentAppid = hAppid;
+        } else {
+          location.hash = '';
+          currentAppid = null;
+        }
+      }
+      renderState();
+    })
+    .catch(function(){
+      app.innerHTML = '';
+      app.appendChild(el('div', '데이터를 불러오지 못했습니다.', 'empty-state'));
+    });
+})();
+</script>
+'''
+    return page("오늘 뭐 하지? 한국어 갓겜 랜덤 추천 — GameDil", html, updated, depth=0, freshness=freshness, desc="긍정 평가 90% 이상, 1만원 이하 한국어 게임을 무작위로 하나 추천해 드립니다.")
+
+
 def build_status(games: list[dict], updated: str, freshness: dict,
                  recent_drops: list[dict] | None = None) -> str:
     """운영 상태 리포트: 수집/빌드 상태, 지표, 데이터 품질 경고."""
@@ -3962,9 +4196,10 @@ def main() -> int:
     write("my-games.html", build_my_games(updated, freshness))
     write("shared-games.html", build_shared_games(updated, freshness))
     write("recently-viewed.html", build_recently_viewed(updated, freshness))
+    write("pick.html", build_pick(updated, freshness))
     write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
     write("404.html", build_404(updated, freshness))
-    paths = ["index.html"]
+    paths = ["index.html", "pick.html"]
 
     for spec in LANDINGS:
         if spec["slug"] == "recent-drops":

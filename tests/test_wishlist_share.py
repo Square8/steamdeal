@@ -53,6 +53,7 @@ def build_fixture():
     import store
     import config
     config.DB_PATH, config.SITE_DIR = DB_PATH, SITE_DIR
+    config.SITE_URL = "https://gamedil.com"  # 비면 sitemap이 빈 urlset이라 미포함 검사가 무의미
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(store.SCHEMA)
     for appid, name, adult, price in ALL:
@@ -85,7 +86,7 @@ def static_checks():
     html = open(p, encoding="utf-8").read() if os.path.exists(p) else ""
     check("shared-games.html noindex", 'name="robots" content="noindex' in html)
     sm = open(os.path.join(SITE_DIR, "sitemap.xml"), encoding="utf-8").read()
-    check("sitemap.xml에 shared-games 미포함", "shared-games" not in sm)
+    check("sitemap.xml 실제 URL 생성 + shared-games 미포함", "<url>" in sm and "shared-games" not in sm, f"url {sm.count('<url>')}개")
     idx = json.load(open(os.path.join(SITE_DIR, "assets", "game-search-index.json"), encoding="utf-8"))
     check("검색 인덱스에 픽스처 전체 포함", len(idx) >= len(ALL), f"{len(idx)}개")
 
