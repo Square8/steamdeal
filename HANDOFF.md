@@ -1,5 +1,21 @@
 # 공통 작업 현황
 
+## 최신 결론 — 2026-09-24 찜 목록 공유 최종 검토
+- 판정: 로컬 기준 커밋 가능. 라이브 배포와 브라우저 간 링크 전달은 아직 확인하지 않았다.
+- 근거: marketing/wishlist-share-implementation.md 및 marketing/wishlist-share-review.md를 읽고 build.py 실제 diff 대조. Claude는 임시 DB 빌드와 Playwright로 공유 링크·30개 제한·성인 기본 숨김/토글·화면에 표시된 항목만 병합·없는 ID·모바일 그리드·기존 목표가 보존을 재검증해 FAIL 0 / SKIP 0 보고. Codex는 이번 턴에 전체 브라우저 테스트를 다시 실행하지 않았다.
+- Codex 직접 확인: 신규 shared-games.html은 정적 생성되고 noindex이며 sitemap 경로에 추가되지 않음. ID는 숫자만 수용하고, 렌더링은 DOM textContent 기반이며 성인 필터 뒤의 currentDisplayed만 병합. build.py 후행 공백 6곳과 함수 사이 공백만 정리했으며 `git diff --check`, `python3 -m py_compile build.py` 통과.
+- 커밋 대상: build.py, tests/test_wishlist_share.py, marketing/wishlist-share-implementation.md, marketing/wishlist-share-review.md, HANDOFF.md.
+- 커밋명: feat: 찜 목록 공유 링크와 공유받은 게임 병합 추가
+- 제외: steamdeal.db. 기존 미커밋 marketing/navigation-sorting-live-review.md는 이 기능과 별도인 배포 검증 문서이므로 이번 대상에서 제외. 생성된 site/와 운영 DB도 추가하지 않는다.
+- 비차단 후속 사항: 브라우저가 localStorage 쓰기를 거부하면 병합 코드가 실패를 숨기고 성공 안내를 띄울 수 있다. 일반 저장 성공 흐름은 Claude가 검증했으며, 저장 실패 안내 개선은 별도 작업으로 남긴다.
+- 사용자 커밋/push 전까지 배포 상태로 간주하지 않는다. Codex는 커밋/push하지 않았다.
+
+## 배포 확인 — 2026-09-18
+- 사용자 커밋 완료 후 Codex가 공개 사이트 Chrome에서 직접 핵심 흐름 확인.
+- 홈 7개 메뉴 제목 가림 없음, 데모 랜딩 577개 가격 양방향/평가순 정렬 및 상세 방문 후 뒤로가기 순서 복원 PASS.
+- 범위/근거: marketing/navigation-sorting-live-review.md. 현재 데스크톱 스모크 검사이며 전체 모바일/랜딩 재검사나 GA 수신 확인 아님.
+- 제품 코드 수정 불필요. 이번에는 보고 문서만 저장하며 추가 커밋/push하지 않음. 다음은 신규 기능보다 추천 게시물 유입 실험.
+
 ## 최신 결론 — 2026-09-18 홈 탐색/정렬 검토 완료
 - 커밋 가능. 아래 같은 작업의 보류/FAIL 문구는 수정 전 이력이다.
 - Codex가 R2 실제 코드 대조: korean-soon 날짜 정렬 복원, 홈/랜딩 가격 미정 우선 분리, 홈 무쿼리 복귀 시 재렌더 확인.

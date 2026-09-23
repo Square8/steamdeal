@@ -2788,6 +2788,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
         <option value="cheap">낮은 가격순</option>
         <option value="name">이름순</option>
       </select>
+      <button id="shareBtn" class="btn btn-s" style="font-size:12px; padding: 4px 8px; display:none;">🔗 친구에게 공유</button>
     </div>
     <label class="sw"><input type="checkbox" id="myAdult"> 성인 게임 포함</label>
   </div>
@@ -2845,6 +2846,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
   var sortSelect = document.getElementById('mySort');
   var adultCheck = document.getElementById('myAdult');
   var cntSpan = document.getElementById('myCnt');
+  var shareBtn = document.getElementById('shareBtn');
 
   function renderStatus() {
     app.innerHTML = '';
@@ -2869,6 +2871,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
     var saved = readWish();
     var wishCount = saved.size;
     document.querySelectorAll('.wish-count').forEach(function(el){ el.textContent = wishCount; });
+    if (shareBtn) shareBtn.style.display = wishCount > 0 ? 'inline-block' : 'none';
 
     if (wishCount === 0) {
       if (tools) tools.style.display = 'none';
@@ -3169,11 +3172,307 @@ def build_my_games(updated: str, freshness: dict) -> str:
   if (sortSelect) sortSelect.addEventListener('change', render);
   if (adultCheck) adultCheck.addEventListener('change', render);
 
+  if (shareBtn) {
+    shareBtn.addEventListener('click', function() {
+      var saved = readWish();
+      var arr = Array.from(saved);
+      if (arr.length === 0) return;
+      var trimmed = false;
+      if (arr.length > 30) { arr = arr.slice(0, 30); trimmed = true; }
+      var url = location.origin + '/shared-games.html#ids=' + arr.join(',');
+      var msg = trimmed ? '공유 링크는 최대 30개까지만 포함됩니다.' : '링크가 복사되었습니다. 친구에게 공유해보세요!';
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(url).then(function() {
+          alert(msg);
+        }).catch(function() {
+          prompt('아래 링크를 복사하세요:', url);
+        });
+      } else {
+        prompt('아래 링크를 복사하세요:', url);
+      }
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', render);
 })();
 </script>
 '''
     return page("내 찜 목록 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 저장된 찜 게임과 목표 가격을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
+
+
+def build_shared_games(updated: str, freshness: dict) -> str:
+    html = '''
+<div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
+  <h1>공유받은 찜 목록</h1>
+  <p class="sub">친구가 공유한 게임 목록입니다.</p>
+</div>
+
+<div class="sec-wrap" style="max-width: 1040px; margin: 0 auto; padding: 0 1rem 3rem;">
+  <div class="tools" id="myTools" style="display:none; justify-content: space-between; margin-bottom: 14px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="cnt" id="myCnt" style="font-weight:700; color:var(--ink-2);">0개</span>
+      <select id="mySort" aria-label="정렬 기준">
+        <option value="off">할인 큰 순</option>
+        <option value="cheap">낮은 가격순</option>
+        <option value="name">이름순</option>
+      </select>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button id="addAllBtn" class="btn btn-p btn-s" style="font-size:12px; padding: 4px 8px;">내 찜 목록에 추가</button>
+      <label class="sw"><input type="checkbox" id="myAdult"> 성인 게임 포함</label>
+    </div>
+  </div>
+
+  <div id="myApp"></div>
+</div>
+
+<script>
+(function(){
+  function readHashWish() {
+    var h = location.hash;
+    if (h.indexOf('#ids=') !== 0) return new Set();
+    var arr = h.slice(5).split(',').filter(function(x) { return /^[0-9]+$/.test(x); });
+    return new Set(arr);
+  }
+
+  function el(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  var allGames = null;
+  var isLoading = false;
+  var isError = false;
+  var currentDisplayed = [];
+
+  var app = document.getElementById('myApp');
+  var tools = document.getElementById('myTools');
+  var sortSelect = document.getElementById('mySort');
+  var addAllBtn = document.getElementById('addAllBtn');
+  var cntSpan = document.getElementById('myCnt');
+  var adultCheck = document.getElementById('myAdult');
+
+  function renderStatus() {
+    app.innerHTML = '';
+    if (isLoading) {
+      app.appendChild(el('div', '불러오는 중...', 'empty-state'));
+      return;
+    }
+    if (isError) {
+      app.appendChild(el('div', '데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', 'empty-state'));
+      return;
+    }
+  }
+
+  function render() {
+    if (isLoading || isError) {
+      renderStatus();
+      return;
+    }
+
+    var saved = readHashWish();
+    var wishCount = saved.size;
+
+    if (wishCount === 0) {
+      if (tools) tools.style.display = 'none';
+      app.innerHTML = '';
+      var empty = el('div', '', 'empty-state');
+      var p = el('p', '공유된 게임 목록이 없거나 잘못된 링크입니다.');
+      var br = document.createElement('br');
+      var a = el('a', '홈으로 돌아가기', 'btn btn-p');
+      a.href = 'index.html';
+      empty.appendChild(p);
+      empty.appendChild(br);
+      empty.appendChild(a);
+      app.appendChild(empty);
+      return;
+    }
+
+    if (!allGames) {
+      isLoading = true;
+      renderStatus();
+      fetch('assets/game-search-index.json')
+        .then(function(res) {
+          if (!res.ok) throw new Error('Network error');
+          return res.json();
+        })
+        .then(function(data) {
+          isLoading = false;
+          allGames = Array.isArray(data) ? data : [];
+          render();
+        })
+        .catch(function() {
+          isLoading = false;
+          isError = true;
+          renderStatus();
+        });
+      return;
+    }
+
+    var myGames = allGames.filter(function(g) {
+      return saved.has(String(g.appid));
+    });
+
+    var showAdult = adultCheck && adultCheck.checked;
+    if (!showAdult) {
+      myGames = myGames.filter(function(g) {
+        return !g.adult;
+      });
+    }
+
+    currentDisplayed = myGames;
+
+    if (myGames.length === 0) {
+      if (tools) tools.style.display = 'none';
+      app.innerHTML = '';
+      var empty = el('div', '', 'empty-state');
+      var p = el('p', '조건에 맞는 게임이 없습니다.');
+      var br = document.createElement('br');
+      var a = el('a', '홈으로 돌아가기', 'btn btn-p');
+      a.href = 'index.html';
+      empty.appendChild(p);
+      empty.appendChild(br);
+      empty.appendChild(a);
+      app.appendChild(empty);
+      return;
+    }
+
+    if (tools) tools.style.display = 'flex';
+    if (cntSpan) cntSpan.textContent = myGames.length + '개';
+
+    if (sortSelect) {
+      var sv = sortSelect.value;
+      myGames.sort(function(a, b) {
+        if (sv === 'off') {
+          var oa = a.off || 0; var ob = b.off || 0;
+          if (oa !== ob) return ob - oa;
+        } else if (sv === 'cheap') {
+          var fa = (a.price === 0 && a.free === 1);
+          var fb = (b.price === 0 && b.free === 1);
+          var pa = (a.price !== undefined && a.price > 0) ? a.price : (fa ? 0 : Infinity);
+          var pb = (b.price !== undefined && b.price > 0) ? b.price : (fb ? 0 : Infinity);
+          if (pa !== pb) return pa - pb;
+        }
+        return (a.name || '').localeCompare(b.name || '', 'ko');
+      });
+    }
+
+    app.innerHTML = '';
+    var grid = el('div', '', 'grid');
+
+    myGames.forEach(function(g) {
+      var currentPrice = g.price || 0;
+      var card = el('div', '', 'my-card');
+
+      var head = el('div', '', 'my-card-head');
+      var imgLink = el('a');
+      imgLink.href = 'game/' + g.appid + '.html';
+
+      if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
+        var img = document.createElement('img');
+        img.src = g.img;
+        img.alt = g.name + ' 표지';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        imgLink.appendChild(img);
+      } else {
+        var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
+        imgLink.appendChild(ph);
+      }
+      head.appendChild(imgLink);
+
+      if (g.off) {
+        var rib = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
+        head.appendChild(rib);
+      }
+      card.appendChild(head);
+
+      var body = el('div', '', 'my-card-body');
+      var title = el('a', g.name, 'my-card-title');
+      title.href = 'game/' + g.appid + '.html';
+      body.appendChild(title);
+
+      var chipsDiv = el('div', '', 'chips');
+      if (g.atl && g.atl_txt) chipsDiv.appendChild(el('span', g.atl_txt, 't atl'));
+      if (g.demo) chipsDiv.appendChild(el('span', '데모', 't demo'));
+      if (g.soon) chipsDiv.appendChild(el('span', '출시예정', 't soon'));
+      else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
+      if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
+      else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+      if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
+
+      var rc = '';
+      if (g.r_lbl) {
+        rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+        if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
+      } else if (g.r_tot >= 10) {
+        rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
+      }
+      if (rc) {
+        body.appendChild(el('div', rc, 'tagline'));
+      }
+
+      var priceRow = el('div', '', 'my-price-row');
+      var priceBox = el('div', '', 'price');
+      if (g.free) {
+        priceBox.appendChild(el('span', '무료', 'now'));
+      } else if (!currentPrice) {
+        priceBox.appendChild(el('span', g.soon ? '출시 전' : '가격 미정', 'now'));
+      } else {
+        priceBox.appendChild(el('span', currentPrice.toLocaleString('ko-KR') + '원', 'now'));
+        if (g.p_init && g.p_init > currentPrice) {
+          priceBox.appendChild(el('span', g.p_init.toLocaleString('ko-KR') + '원', 'init'));
+        }
+      }
+      priceRow.appendChild(priceBox);
+      body.appendChild(priceRow);
+
+      card.appendChild(body);
+
+      var foot = el('div', '', 'my-card-foot');
+      var detailBtn = el('a', '상세보기', 'btn btn-s');
+      detailBtn.href = 'game/' + g.appid + '.html';
+
+      foot.appendChild(detailBtn);
+      card.appendChild(foot);
+      grid.appendChild(card);
+    });
+
+    app.appendChild(grid);
+  }
+
+  if (sortSelect) sortSelect.addEventListener('change', render);
+  if (adultCheck) adultCheck.addEventListener('change', render);
+
+  if (addAllBtn) {
+    addAllBtn.addEventListener('click', function() {
+      if (currentDisplayed.length === 0) return;
+      var arr = currentDisplayed.map(function(g) { return String(g.appid); });
+      var WISH_KEY = 'steamdeal-wishlist-v1';
+      var current;
+      try {
+        current = new Set(JSON.parse(localStorage.getItem(WISH_KEY) || '[]').map(String));
+      } catch(e) {
+        current = new Set();
+      }
+      arr.forEach(function(id) { current.add(String(id)); });
+      try {
+        localStorage.setItem(WISH_KEY, JSON.stringify(Array.from(current)));
+      } catch(e) {}
+      alert('공유받은 찜 목록이 내 찜 목록에 추가되었습니다.');
+      window.location.href = 'my-games.html';
+    });
+  }
+
+  window.addEventListener('hashchange', render);
+  document.addEventListener('DOMContentLoaded', render);
+})();
+</script>
+'''
+    return page("공유받은 찜 목록 — GameDil", html, updated, depth=0, freshness=freshness, desc="친구가 공유한 게임 목록입니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
 
 def build_recently_viewed(updated: str, freshness: dict) -> str:
@@ -3661,6 +3960,7 @@ def main() -> int:
     write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops))
     write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
     write("my-games.html", build_my_games(updated, freshness))
+    write("shared-games.html", build_shared_games(updated, freshness))
     write("recently-viewed.html", build_recently_viewed(updated, freshness))
     write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
     write("404.html", build_404(updated, freshness))
