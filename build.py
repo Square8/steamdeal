@@ -775,6 +775,18 @@ def ga_tag() -> str:
   gtag('js', new Date());
 
   gtag('config', '{esc(gid)}');
+
+  document.addEventListener('click', function(e){{
+    var a = e.target.closest('a[href*="store.steampowered.com"]');
+    if (!a) return;
+    var m = a.href.match(new RegExp('/app/([0-9]+)'));
+    if (typeof gtag === 'function') {{
+      gtag('event', 'steam_store_click', {{
+        appid: m ? m[1] : '',
+        link_url: a.href
+      }});
+    }}
+  }}, true);
 </script>"""
 
 
