@@ -54,6 +54,43 @@ def _collect_signals(conn, log) -> tuple[int, int]:
     return review_ok, player_ok
 
 
+def _collect_recent_reviews(conn, log) -> dict:
+    """상세 페이지 '최근 30일 평가'용. 전체 요청 예산 안에서만 순환 수집한다.
+
+    완전 집계가 아니면(페이지 한도·예산 소진·API 실패) 수치는 저장하지 않고
+    시도 기록만 남긴다. 이 단계가 실패해도 가격·기존 리뷰 수집 결과는 그대로다.
+    """
+    stats = {"complete": 0, "limit": 0, "budget": 0, "error": 0, "pages": 0, "tried": 0}
+    budget = config.RECENT_REVIEW_PAGE_BUDGET
+    ids = store.recent_review_appids(conn, config.RECENT_REVIEW_GAME_LIMIT)
+    log.info("최근 30일 평가 — 후보 %d개, 요청 예산 %d", len(ids), budget)
+    streak = 0
+    for appid in ids:
+        if budget <= 0:
+            break
+        try:
+            res = steam.fetch_recent_reviews(appid, page_budget=budget)
+        except Exception as e:  # 이 단계가 전체 수집을 망치지 않게 한다
+            log.warning("최근 평가 수집 예외 %s: %s", appid, e)
+            res = {"status": "error", "pages": 1}
+        budget -= int(res.get("pages") or 0)
+        stats["pages"] += int(res.get("pages") or 0)
+        stats["tried"] += 1
+        stats[res.get("status", "error")] = stats.get(res.get("status", "error"), 0) + 1
+        store.save_recent_reviews(conn, appid, res)
+        if res.get("status") == "budget":
+            break
+        streak = streak + 1 if res.get("status") == "error" else 0
+        if streak >= config.RECENT_REVIEW_MAX_CONSECUTIVE_ERRORS:
+            log.warning("최근 30일 평가 — 연속 실패 %d회, 이번 실행은 중단", streak)
+            break
+    conn.commit()
+    log.info("최근 30일 평가 완료 — 시도 %d, 완전 %d, 한도 %d, 예산소진 %d, 실패 %d, 요청 %d",
+             stats["tried"], stats["complete"], stats["limit"], stats["budget"],
+             stats["error"], stats["pages"])
+    return stats
+
+
 def _collect_media_backfill(conn, log, exclude_appids: set[int] | None = None) -> dict:
     """트레일러 정보가 비어 있는 기존 게임의 미디어를 안전하게 백필한다."""
     limit = config.MEDIA_BACKFILL_LIMIT
@@ -225,6 +262,7 @@ def main() -> int:
     # appdetails 전체 수집과 분리된 작은 후보군만 확인한다. 이 단계가 실패해도
     # 가격 수집 결과는 유지되고, 홈은 기존 리뷰 수 기반으로 안전하게 폴백한다.
     _collect_signals(conn, log)
+    _collect_recent_reviews(conn, log)
 
     # 미디어 백필: 기존 수집 대상과 중복되지 않게 배제하고 백필 진행
     regular_appids = {appid for appid, _ in targets}

@@ -93,6 +93,87 @@ def fetch_review_summary(appid: int) -> dict | None:
         return None
 
 
+def fetch_recent_reviews(appid: int, now_ts: int | None = None,
+                         page_budget: int | None = None) -> dict:
+    """최근 N일(기본 30일) 리뷰를 직접 세어 긍정률 분자/분모를 만든다.
+
+    - filter=recent 는 작성 시각 내림차순이다. 각 리뷰의 timestamp_created 로
+      경계를 직접 계산하고, query_summary 나 day_range 를 30일 집계로 가정하지 않는다.
+    - 경계(cutoff = now - N일, 포함)보다 오래된 리뷰가 나오면 그 뒤는 전부 더 오래됐으므로
+      '완전 집계(complete)'로 끝낸다. 리뷰가 더 없을 때(빈 페이지)도 complete.
+    - 리뷰가 남은 응답에서 이미 쓴 cursor 가 다시 오면 다음 페이지로 진행할 수 없으므로
+      경계를 확인하지 못한 부분 집계다 → 'error'(불완전).
+    - 게임당 페이지 한도에 걸리면 'limit', 실행 전체 예산이 먼저 떨어지면 'budget',
+      요청 실패/형식 이상이면 'error'. 이 셋은 불완전하므로 호출 측이 완전 집계로 저장하지 않는다.
+    반환: {status, total, positive, pages, cutoff_ts, now_ts}
+    """
+    now_ts = int(time.time()) if now_ts is None else int(now_ts)
+    cutoff = now_ts - config.RECENT_REVIEW_DAYS * 86400
+    per_game = config.RECENT_REVIEW_MAX_PAGES
+    cap = per_game if page_budget is None else max(0, min(per_game, int(page_budget)))
+    out = {"status": "error", "total": 0, "positive": 0, "pages": 0,
+           "cutoff_ts": cutoff, "now_ts": now_ts}
+    cursor, used_cursors, seen_ids = "*", {"*"}, set()
+    total = positive = 0
+    while True:
+        if out["pages"] >= cap:
+            out["status"] = "limit" if cap >= per_game else "budget"
+            break
+        data = _get_json(
+            config.REVIEWS_URL.format(appid=appid),
+            {"json": 1, "filter": "recent", "language": "all", "review_type": "all",
+             "purchase_type": "all", "num_per_page": config.RECENT_REVIEW_PER_PAGE,
+             "cursor": cursor},
+            delay=config.SIGNAL_REQUEST_DELAY,
+        )
+        out["pages"] += 1
+        if not isinstance(data, dict) or data.get("success") != 1:
+            out["status"] = "error"
+            break
+        reviews = data.get("reviews")
+        if not isinstance(reviews, list):
+            out["status"] = "error"
+            break
+        reached_old = malformed = False
+        for rv in reviews:
+            try:
+                ts = int(rv["timestamp_created"])
+                voted = rv["voted_up"]
+            except (KeyError, TypeError, ValueError):
+                malformed = True
+                break
+            if not isinstance(voted, bool):
+                malformed = True
+                break
+            if ts < cutoff:
+                reached_old = True
+                continue
+            rid = str(rv.get("recommendationid") or f"{ts}:{len(seen_ids)}")
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+            total += 1
+            positive += 1 if voted else 0
+        if malformed:
+            out["status"] = "error"
+            break
+        if reached_old or not reviews:
+            out["status"] = "complete"
+            break
+        nxt = data.get("cursor")
+        if not nxt:
+            out["status"] = "error"      # 다음 페이지 여부를 알 수 없다
+            break
+        if nxt in used_cursors:
+            # 리뷰가 남은 페이지인데 cursor 가 반복됨 → 30일 경계 미확인, 부분 집계
+            out["status"] = "error"
+            break
+        used_cursors.add(nxt)
+        cursor = nxt
+    out["total"], out["positive"] = total, positive
+    return out
+
+
 def discover() -> dict[int, str]:
     """스팀이 제공하는 목록에서 appid 를 모은다.
     반환: {appid: 태그}  태그는 '신작' / '출시예정' / '할인' / '인기'.

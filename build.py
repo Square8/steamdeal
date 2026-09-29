@@ -2021,6 +2021,46 @@ def price_judge_summary(g: dict) -> str:
 </div>"""
 
 
+def recent_review_fact(g: dict, now: datetime | None = None) -> str | None:
+    """상세 페이지 '최근 30일 평가' 칸의 HTML. 보여줄 근거가 없으면 None(행 생략).
+
+    - 수집기가 '완전 집계'에 성공했을 때만 total/positive/computed_at 이 채워진다.
+      불완전(페이지 한도·API 실패)한 시도는 수치를 남기지 않으므로 여기 오지 않는다.
+    - 집계가 RECENT_REVIEW_MAX_AGE_DAYS 보다 오래됐거나, 0개이거나, 값이 모순되면 생략한다.
+      (0%·0개를 꾸며내지 않는다)
+    - 표본이 RECENT_REVIEW_MIN_SAMPLE 미만이면 긍정률 대신 '표본 적음'과 실제 수만 보인다.
+    """
+    total, pos, at = (g.get("recent_review_total"), g.get("recent_review_positive"),
+                      g.get("recent_review_computed_at"))
+    if total is None or pos is None or not at:
+        return None
+    try:
+        total, pos = int(total), int(pos)
+        ts = datetime.fromisoformat(str(at))
+    except (TypeError, ValueError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    age = now - ts
+    if age > timedelta(days=config.RECENT_REVIEW_MAX_AGE_DAYS) or age < timedelta(hours=-1):
+        return None
+    if total <= 0 or pos < 0 or pos > total:
+        return None
+    k = ts.astimezone(KST)
+    when = f"{k.month}월 {k.day}일 집계"
+    if total < config.RECENT_REVIEW_MIN_SAMPLE:
+        value = f"최근 평가 표본 적음 · {total:,}개"
+    else:
+        value = f"긍정 {round(pos * 100 / total)}% · {total:,}개"
+    note = ("최근 평가는 업데이트나 이벤트 전후로 달라질 수 있습니다. "
+            "평가 변화의 원인은 판단하지 않습니다.")
+    return (f'<span class="recent-review">{esc(value)}'
+            f' <span style="color:var(--ink-3);font-size:12.5px">({esc(when)})</span></span>'
+            f'<br><span class="recent-review-note" style="color:var(--ink-3);font-size:12.5px">'
+            f'{esc(note)}</span>')
+
+
 def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict | None = None, recent_drop: dict | None = None) -> str:
     if g.get("is_free"):
         price_block = '<span class="big">무료</span>'
@@ -2058,6 +2098,10 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         # 들어있어서, 여길 따로 또 보여주면 서로 다른 소스라 숫자가 어긋난다
         # (review_count=구필드/appdetails, review_total=신필드/appreviews).
         facts.append(("스팀 리뷰 수", f'{g["review_count"]:,}개'))
+    # 전체 평가 바로 아래의 보조 정보. 완전 집계가 없으면 행 자체를 만들지 않는다.
+    recent = recent_review_fact(g)
+    if recent:
+        facts.append(("최근 30일 평가", recent))
     if g.get("has_demo") or g.get("app_type") == "demo":
         demo_id = g.get("demo_appid") or g["appid"]
         facts.append(("데모", f'<a href="https://store.steampowered.com/app/{demo_id}/?cc=kr" '

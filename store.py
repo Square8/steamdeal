@@ -1,7 +1,7 @@
 """저장소. 게임 정보 + 일별 가격 이력."""
 import os
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import config
 
@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS games (
     players_current INTEGER DEFAULT 0,
     players_previous INTEGER DEFAULT 0,
     players_checked_at TEXT,
+    -- 최근 30일 평가. total/positive/computed_at 은 '완전 집계'가 성공했을 때만 갱신한다.
+    -- attempt_at/status 는 매 시도마다 갱신(complete/limit/budget/error).
+    recent_review_total INTEGER,
+    recent_review_positive INTEGER,
+    recent_review_computed_at TEXT,
+    recent_review_attempt_at TEXT,
+    recent_review_status TEXT,
     developer     TEXT,
     -- '이게 무슨 게임인가'에 답하는 것들. appdetails 응답에 이미 들어 있어
     -- 추가 호출 없이 얻는다. screenshots 는 줄바꿈으로 이어붙인 URL 목록.
@@ -117,6 +124,9 @@ def _migrate(conn) -> None:
         "players_current": "INTEGER DEFAULT 0",
         "players_previous": "INTEGER DEFAULT 0",
         "players_checked_at": "TEXT",
+        "recent_review_total": "INTEGER", "recent_review_positive": "INTEGER",
+        "recent_review_computed_at": "TEXT", "recent_review_attempt_at": "TEXT",
+        "recent_review_status": "TEXT",
         "developer": "TEXT", "price_first": "TEXT", "price_last": "TEXT",
         "screenshots": "TEXT", "movie_mp4": "TEXT", "movie_webm": "TEXT",
         "movie_poster": "TEXT", "media_checked_at": "TEXT",
@@ -372,6 +382,57 @@ def save_review_summary(conn, appid: int, summary: dict) -> None:
            WHERE appid=?""",
         (summary.get("score", 0), summary.get("desc", ""),
          summary.get("positive", 0), summary.get("negative", 0), now, appid))
+
+
+def recent_review_appids(conn, limit: int, now: datetime | None = None) -> list[int]:
+    """최근 30일 평가 후보. 전체 리뷰가 충분한 한국어 출시 게임만.
+
+    - 한 번도 시도 안 한 게임 → 인기/할인 신호가 있는 게임 → 오래전에 시도한 게임 순.
+    - RECENT_REVIEW_REFRESH_HOURS 안에 시도한 게임은 건너뛴다(순환).
+    - 페이지 한도(limit)에 걸린 대작은 RECENT_REVIEW_LIMIT_COOLDOWN_DAYS 동안 건너뛴다.
+      (매 실행 예산을 같은 대작이 다 태우는 것을 막는다)
+    """
+    now = now or datetime.now(timezone.utc)
+    fresh = (now - timedelta(hours=config.RECENT_REVIEW_REFRESH_HOURS)).isoformat(timespec="seconds")
+    cool = (now - timedelta(days=config.RECENT_REVIEW_LIMIT_COOLDOWN_DAYS)).isoformat(timespec="seconds")
+    sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
+      WHERE g.korean=1 AND g.app_type='game' AND g.coming_soon=0
+        AND LOWER(g.name) NOT LIKE '%playtest%'
+        AND LOWER(g.name) NOT LIKE '%play test%'
+        AND g.name NOT LIKE '%플레이테스트%'
+        AND MAX(COALESCE(g.review_positive,0)+COALESCE(g.review_negative,0),
+                COALESCE(g.review_count,0)) >= ?
+        AND (g.recent_review_attempt_at IS NULL OR g.recent_review_attempt_at='' OR (
+              g.recent_review_attempt_at < ? AND
+              NOT (COALESCE(g.recent_review_status,'')='limit' AND g.recent_review_attempt_at >= ?)))
+      ORDER BY (CASE WHEN g.recent_review_attempt_at IS NULL OR g.recent_review_attempt_at=''
+                     THEN 0 ELSE 1 END) ASC,
+               (CASE WHEN COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=50
+                     THEN 0 ELSE 1 END) ASC,
+               g.recent_review_attempt_at ASC,
+               COALESCE(g.players_current,0) DESC,
+               COALESCE(g.review_count,0) DESC, g.appid DESC
+      LIMIT ?""")
+    return [r[0] for r in conn.execute(sql, (config.RECENT_REVIEW_MIN_TOTAL, fresh, cool, limit))]
+
+
+def save_recent_reviews(conn, appid: int, result: dict) -> None:
+    """완전 집계(complete)일 때만 수치를 덮어쓴다. 불완전(limit/budget/error)이면
+    시도 기록만 남기고 이전 완전 집계는 그대로 둔다(화면은 집계 시각으로 신선도를 판단)."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    status = str(result.get("status") or "error")
+    if status == "complete":
+        computed = datetime.fromtimestamp(int(result["now_ts"]), timezone.utc).isoformat(timespec="seconds")
+        conn.execute(
+            """UPDATE games SET recent_review_total=?, recent_review_positive=?,
+                 recent_review_computed_at=?, recent_review_attempt_at=?, recent_review_status=?
+               WHERE appid=?""",
+            (int(result.get("total") or 0), int(result.get("positive") or 0),
+             computed, now, status, appid))
+    else:
+        conn.execute(
+            "UPDATE games SET recent_review_attempt_at=?, recent_review_status=? WHERE appid=?",
+            (now, status, appid))
 
 
 def observed_days(first: str | None, last: str | None) -> int:

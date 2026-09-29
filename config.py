@@ -43,6 +43,25 @@ SIGNAL_REQUEST_DELAY = 0.8
 PLAYER_SIGNAL_LIMIT = 100
 REVIEW_SIGNAL_LIMIT = 60
 
+# ---- 최근 30일 평가 (상세 페이지 보조 정보) ----
+# appreviews 를 filter=recent(작성 시각 내림차순)로 페이지 조회하고, 각 리뷰의
+# timestamp_created 로 30일 경계를 직접 계산한다. query_summary/day_range 는 쓰지 않는다.
+# 요청 예산: 한 실행 최대 RECENT_REVIEW_PAGE_BUDGET 요청 × SIGNAL_REQUEST_DELAY(0.8초)
+# ≈ 3분 이내. 경계에 닿기 전에 한도에 걸린 게임은 '완전 집계'로 저장하지 않는다.
+RECENT_REVIEW_DAYS = 30
+RECENT_REVIEW_PER_PAGE = 100          # appreviews num_per_page 최대값
+RECENT_REVIEW_MAX_PAGES = 20          # 게임당 최대 20쪽 = 리뷰 2,000개까지 완전 집계 가능
+RECENT_REVIEW_PAGE_BUDGET = 200       # 한 실행 전체 요청 상한
+RECENT_REVIEW_GAME_LIMIT = 40         # 한 실행에서 시도할 최대 게임 수
+RECENT_REVIEW_MIN_TOTAL = 50          # 후보: 전체 리뷰가 이 이상인 한국어 출시 게임
+RECENT_REVIEW_REFRESH_HOURS = 60      # 같은 게임 재시도 최소 간격(하루 2회 실행 → 약 3일 주기)
+RECENT_REVIEW_LIMIT_COOLDOWN_DAYS = 7 # 페이지 한도에 걸린 대작은 이 기간 동안 건너뛴다
+RECENT_REVIEW_MIN_SAMPLE = 10         # 미만이면 긍정률 대신 '표본 적음'과 실제 수만 표시
+RECENT_REVIEW_MAX_AGE_DAYS = 7        # 이보다 오래된 집계는 화면에 내지 않는다
+# 실패 1건은 재시도 대기 포함 약 19초. Steam 장애 시 후보 40개를 다 돌면 12분을 태우므로
+# 연속 실패가 이만큼이면 이번 실행의 최근 평가 수집을 멈춘다.
+RECENT_REVIEW_MAX_CONSECUTIVE_ERRORS = 3
+
 # 한 실행에서 상세조회할 최대 게임 수.
 # REQUEST_DELAY(1.5초)를 지키므로 800개 = 약 20분. Actions 단일 잡 상한은 6시간이고
 # 공개 저장소는 실행 시간이 무료라서 여기를 늘리는 데 드는 돈은 없다.
