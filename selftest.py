@@ -527,7 +527,7 @@ check("카드에 합성 점수 없음", 'class="score-n"' not in h and 'class="b
 check("헤더에 검색창", 'class="hsearch"' in h and 'name="q"' in h)
 check("?q= 쿼리 파라미터 기반 검색 스크립트", 'new URLSearchParams' in h and 'params.get(\'q\')' in h)
 check("기존 #q= 하위 호환 스크립트", "h.indexOf('#q=')" in h)
-check("초기화 시 q 파라미터 제거", "updateQuery('')" in h)
+check("초기화 시 q 파라미터 제거", "updateQuery('q', '')" in h and "updateQuery('')" not in h)
 
 idx_s_action = re.search(r'"target":\s*"([^"]+)"', h)
 if idx_s_action:

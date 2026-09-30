@@ -714,6 +714,12 @@ def autocomplete_js(up: str) -> str:
     });
 
     input.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        var wasOpen = dropdown.style.display !== 'none';
+        close();
+        if (wasOpen) e.preventDefault();
+        return;
+      }
       if (dropdown.style.display === 'none') return;
       var items = dropdown.querySelectorAll('.ac-item');
       if (items.length === 0) return;
@@ -732,9 +738,6 @@ def autocomplete_js(up: str) -> str:
           e.preventDefault();
           items[activeIdx].click();
         }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        close();
       }
     });
 
@@ -1705,7 +1708,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
         clearBtn.addEventListener('click', function() {{
           if (q) q.value = '';
           if (hq) hq.value = '';
-          updateQuery('');
+          updateQuery('q', '');
           apply();
         }});
         msg.appendChild(clearBtn);
