@@ -1,5 +1,29 @@
 # 공통 작업 현황
 
+## 2026-09-26 최근 30일 평가 Codex R1 재검토 — 커밋 가능
+- `steam.py`의 반복 cursor 처리가 `complete`에서 불완전 `error`로 바뀐 것을 실제 diff로 확인했다. 오래된 리뷰/빈 페이지에서만 완전 집계하며, 기존 완전값 보존은 `store.py` 저장 경로와 맞는다.
+- `tests/test_recent_reviews.py`의 반복 cursor 1·2쪽 검사 및 fetch→collect→build 통합 검사를 확인했다. 구현 보고서도 새 종료 조건으로 갱신됐다. Claude 보고: 43항목 FAIL 0, selftest 575 PASS. Codex는 이번 재검토에서 테스트/실제 Steam API 호출을 반복 실행하지 않았고 `git diff --check`만 직접 통과 확인했다.
+- 커밋 대상: `config.py`, `steam.py`, `store.py`, `collect.py`, `build.py`, `tests/test_recent_reviews.py`, `marketing/recent-reviews-implementation.md`. 커밋명: `feat: 최근 30일 Steam 평가 수집 및 상세 표시 추가`.
+- 제외: 출처 미확인 `steamdeal.db`, 기존 미커밋 `HANDOFF.md`의 다른 내용, 별도 `marketing/60-day-growth-plan.md`, `marketing/navigation-sorting-live-review.md`, 생성물. 이 HANDOFF 검토 기록은 별도 정리 전까지 커밋에 포함하지 않는다.
+- 라이브 Steam API 응답은 미확인. push 실행은 수집을 건너뛰므로 배포 후 예약/수동 Actions 수집 로그의 완전/실패 건수를 확인한다. 반복 cursor 오류가 많더라도 불완전 수치를 공개하지 않는 현재 정책을 유지한다. Codex는 커밋/push하지 않았다.
+
+## 2026-09-26 GA4 Steam 상점 클릭 후속 확인
+- `steam_store_click` 이벤트는 커밋 `55f0911` 배포 후 공개 페이지에서 실행됐고, GA4 화면에 이벤트 1건이 표시되어 실제 수신을 확인했다.
+- 사용자가 맞춤 측정기준 `Steam App ID`를 생성함(범위 `이벤트`, 매개변수 `appid`). 보고서 반영까지 24~48시간 걸릴 수 있다.
+- 다음 GA4 점검이나 마케팅 성과 리뷰 때 이 항목을 먼저 상기시키고, 탐색(Explore)에서 `steam_store_click`을 `Steam App ID`별로 분석하도록 안내한다. 생성 전 이벤트는 게임별 보고에 포함되지 않을 수 있으므로 설정 후 수집분을 기준으로 본다.
+
+## 2026-09-25 실행 점검 — Threads 클릭 측정 / 게시 준비
+- GA4 `참여도 > 이벤트`의 지난 28일(2026-08-28~09-24) `click`은 8회, 사용자 6명으로 표시됐다. GameDil 웹 스트림의 향상된 측정과 `이탈 클릭` 수집도 켜져 있다. 따라서 외부 링크 클릭 이벤트 수집은 작동 중인 것으로 보인다.
+- 단, 현재 GA4 이벤트 요약에는 목적지 도메인별 분해가 없어 Steam 상점 클릭이 몇 회인지 확인하지 못했다. 라이브 `build.py` 페이지에는 `gtag('event', ...)` 형태의 명시적 Steam 클릭 이벤트도 없다. 다음 측정 작업은 `link_domain`/`link_url`로 Steam 목적지를 분리하거나 전용 `steam_store_click` 이벤트를 구현·검증하는 것이다. GA4 설정·사이트 코드는 이번에 변경하지 않았다.
+- `steam-threads-agent` 로컬 큐에는 2026-09-25 승인 글이 없고, DREDGE 2026-09-24 건은 완료 상태다. 실제 게시/예약은 하지 않았다. 금요일 초안 후보로 Subnautica, 2026-09-26 토요일 GameDil 픽 후보로 프랑스 브라세리 시뮬레이터를 검토했다. 후자는 GameDil 상세의 리뷰 수(577)와 현재 Steam 리뷰 수(619)가 달라 공개 초안에서 리뷰 수는 빼고, 예약 전 재검수해야 한다.
+- 위 결과는 검수 메모이며 예약 또는 게시 이력으로 기록하지 않는다.
+
+## 2026-09-25 성장 실험 방향
+- 30~60일 실행 초안: `marketing/60-day-growth-plan.md`. GameDil의 가격·리뷰·데모 데이터에 운영자의 실제 플레이 판단을 결합하는 주간 실험이다. 아직 성과가 입증된 계획은 아니다.
+- 이 작업의 채팅방은 사이트·측정·마케팅 전략을 맡고, Threads 일일 게시와 수·토 GameDil 픽의 초안·게시는 기존 `steam-threads-agent` 작업에서 담당한다. 기존 예약과 하루 1개 규칙을 유지한다.
+- 2026-09-25 제공 화면 기준 GA4·Search Console의 28일 기준선을 `marketing/60-day-growth-plan.md`에 기록했다. GA4 트래픽 획득에서 289세션 중 `l.threads.com / referral` 120세션(41.52%)을 확인했고, 별도로 `threads / social` 3세션이다. Steam 외부 클릭 계측과 IP 형태 referral의 정체는 미확인. 이를 확인한 뒤 목표를 보정하고, 30일/60일 결과 전에는 대규모 신규 기능·수익화 개발을 보류한다.
+- 이번 턴에는 계획 문서와 이 핸드오프만 작성했다. 제품 코드·DB·생성물 수정, 커밋·push 없음.
+
 ## 최신 결론 — 2026-09-24 랜덤 게임 뽑기 최종 검토
 - 판정: 로컬 기준 커밋 가능. 라이브 배포는 이번에 확인하지 않았다.
 - 근거: marketing/random-pick-implementation.md 및 marketing/random-pick-review.md를 읽고 build.py 실제 diff 대조. Claude는 임시 DB 빌드와 Playwright로 후보 조건·경계값·150회 추첨·연속 중복 방지·유효/무효 해시·링크 복사·모바일 레이아웃·회귀를 확인해 FAIL 0 / SKIP 0 보고. Codex는 이번 턴에 브라우저 테스트를 반복 실행하지 않았다.
