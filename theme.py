@@ -463,6 +463,14 @@ footer p{margin:0}
 .price-now .big{font-size:2.15rem; font-weight:800; letter-spacing:-.045em}
 .price-now .strike{color:var(--ink-3); text-decoration:line-through; font-size:14px}
 .price-now .pct{font-size:15px}
+.dhero-verdict{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 2px}
+.dv-pill{
+  display:inline-flex; align-items:center; gap:4px; padding:4px 9px; border-radius:7px;
+  font-family:"Inter","Gothic A1",sans-serif; font-size:12px; font-weight:700;
+  background:var(--surface-2); color:var(--ink-2); border:1px solid var(--line);
+}
+.dv-pill.dv-deal{background:var(--deal-soft); color:var(--deal); border-color:transparent}
+.dv-pill.dv-brand{background:var(--brand-soft); color:var(--brand); border-color:transparent}
 
 .panel{
   background:var(--surface); border:1px solid var(--line); border-radius:12px;

@@ -2337,6 +2337,28 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 })();
 </script>"""
 
+    verdict_pills = []
+    curr_p = g.get("price_final") or 0
+    low_p = g.get("lowest_seen") or 0
+    days_tr = g.get("days_tracked") or 0
+    if not g.get("is_free") and curr_p > 0 and low_p > 0 and days_tr >= config.MIN_DAYS_FOR_LOW:
+        if curr_p <= low_p:
+            lbl_v = "🔥 GameDil 관측 최저가" if g.get("atl_trustworthy") else f"🔥 {days_tr}일 관측 최저가"
+            verdict_pills.append(f'<span class="dv-pill dv-deal">{lbl_v}</span>')
+        else:
+            diff_v = curr_p - low_p
+            verdict_pills.append(f'<span class="dv-pill">관측 최저가 대비 +{diff_v:,}원</span>')
+    if g.get("korean"):
+        verdict_pills.append('<span class="dv-pill dv-brand">🇰🇷 한국어 공식 지원</span>')
+    r_tot_v = g.get("review_total") or g.get("review_count") or 0
+    r_pos_v = g.get("review_positive_pct")
+    if r_tot_v > 0 and r_pos_v is not None:
+        verdict_pills.append(f'<span class="dv-pill">👍 긍정 {r_pos_v}% ({r_tot_v:,}개)</span>')
+    verdict_strip_html = (
+        f'<div class="dhero-verdict" aria-label="핵심 구매 판단 요약">{"".join(verdict_pills)}</div>'
+        if verdict_pills else ""
+    )
+
     body = f"""
 <a class="back" href="./../index.html">← 목록으로</a>
 <div class="dhero">
@@ -2346,6 +2368,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     {chips_for(g)}
     <p class="desc">{esc(g.get('description'))}</p>
     <div class="price-now">{price_block}</div>
+    {verdict_strip_html}
     <div class="buyrow">
       <a class="btn btn-p" href="https://store.steampowered.com/app/{g['appid']}/?cc=kr"
          target="_blank" rel="noopener">스팀 상점에서 보기</a>
