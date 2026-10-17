@@ -825,6 +825,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
            if canonical else "")
     og_img = (f'<meta property="og:image" content="{esc(og_image)}">'
               f'<meta name="twitter:card" content="summary_large_image">'
+              f'<meta name="twitter:image" content="{esc(og_image)}">'
               if og_image else '<meta name="twitter:card" content="summary">')
     og_u = (f'<meta property="og:url" content="{esc(abs_url(canonical))}">'
             f'\n<meta name="twitter:url" content="{esc(abs_url(canonical))}">'
@@ -853,6 +854,8 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 <meta property="og:locale" content="ko_KR">
 <meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(desc)}">
+<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(desc)}">
 {og_u}
 {og_img}
 {theme.FONTS}
@@ -2209,6 +2212,15 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         share_text += f" — {g['price_final']:,}원"
         if g.get('discount_pct'):
             share_text += f" ({g['discount_pct']}% 할인)"
+    share_meta = []
+    if g.get("korean"):
+        share_meta.append("한국어")
+    r_tot_sh = g.get("review_total") or g.get("review_count") or 0
+    r_pos_sh = g.get("review_positive_pct")
+    if r_tot_sh > 0 and r_pos_sh is not None:
+        share_meta.append(f"긍정 {r_pos_sh}%")
+    if share_meta:
+        share_text += " · " + " · ".join(share_meta)
     if g.get('price_final') and not g.get('is_free'):
         curr = g.get("price_final", 0)
         low = g.get("lowest_seen", 0)
@@ -2373,6 +2385,15 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         pt = f'{g["name"]} — 출시예정' if g.get("coming_soon") else g["name"]
 
     bits = []
+    if g.get("price_final") and not g.get("is_free"):
+        curr = g.get("price_final", 0)
+        low = g.get("lowest_seen", 0)
+        if curr <= low and low > 0 and g.get("atl_trustworthy"):
+            bits.append(f"GameDil 관측 최저가 {curr:,}원")
+    r_tot_meta = g.get("review_total") or g.get("review_count") or 0
+    r_pos_meta = g.get("review_positive_pct")
+    if r_tot_meta > 0 and r_pos_meta is not None:
+        bits.append(f"긍정 평가 {r_pos_meta}%")
     if g.get("korean"):
         bits.append("한국어 지원")
     if g.get("has_demo") or g.get("app_type") == "demo":
@@ -3802,7 +3823,18 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
     return page("최근 본 게임 — GameDil", html, updated, depth=0, freshness=freshness, desc="브라우저에 기록된 최근 본 게임 목록을 확인합니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
 
-def build_pick(updated: str, freshness: dict) -> str:
+def build_pick(updated: str, freshness: dict, games: list[dict] | None = None) -> str:
+    og_img = ""
+    if games:
+        for g in games:
+            if (
+                g.get("korean")
+                and not g.get("adult")
+                and not g.get("coming_soon")
+                and g.get("header_image")
+            ):
+                og_img = g["header_image"]
+                break
     html = '''
 <div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
   <h1>오늘 뭐 하지? 🎲</h1>
@@ -4032,7 +4064,7 @@ def build_pick(updated: str, freshness: dict) -> str:
 })();
 </script>
 '''
-    return page("오늘 뭐 하지? 한국어 갓겜 랜덤 추천 — GameDil", html, updated, depth=0, freshness=freshness, desc="긍정 평가 90% 이상, 1만원 이하 한국어 게임을 무작위로 하나 추천해 드립니다.")
+    return page("오늘 뭐 하지? 한국어 갓겜 랜덤 추천 — GameDil", html, updated, canonical="pick.html", og_image=og_img, depth=0, freshness=freshness, desc="긍정 평가 90% 이상, 1만원 이하 한국어 게임을 무작위로 하나 추천해 드립니다.")
 
 
 def build_status(games: list[dict], updated: str, freshness: dict,
@@ -4255,7 +4287,7 @@ def main() -> int:
     write("my-games.html", build_my_games(updated, freshness))
     write("shared-games.html", build_shared_games(updated, freshness))
     write("recently-viewed.html", build_recently_viewed(updated, freshness))
-    write("pick.html", build_pick(updated, freshness))
+    write("pick.html", build_pick(updated, freshness, games))
     write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
     write("404.html", build_404(updated, freshness))
     paths = ["index.html", "pick.html"]

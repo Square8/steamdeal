@@ -72,8 +72,9 @@ def generate_picks(games: list[dict], base_url: str) -> str:
         if not is_free and discount > 0 and pos_pct >= 80 and reviews >= 50:
             wed_cands.append(g)
             
-    # Sort Wed: -discount_pct, -score, appid
+    # Sort Wed: korean (1/0), -discount_pct, -score, appid
     wed_cands.sort(key=lambda x: (
+        -1 if x.get("korean") else 0,
         -(x.get("discount_pct") or 0), 
         -(x.get("score") or 0), 
         x["appid"]
