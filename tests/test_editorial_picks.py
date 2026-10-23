@@ -14,6 +14,8 @@ import os
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO_ROOT)
@@ -26,6 +28,15 @@ os.environ["SITE_DIR"] = SITE_DIR
 
 FAILS = []
 SKIPPED = []
+
+
+def build_at_reference():
+    import build
+    import editorial
+    generate = editorial.generate_picks
+    with patch.object(editorial, "generate_picks", side_effect=lambda games, url: generate(
+            games, url, now=datetime(2026, 9, 10, tzinfo=timezone.utc))):
+        return build.main()
 
 
 def check(label, cond, detail=""):
@@ -55,7 +66,7 @@ g(800004, "가격이력 전무 - 0원 non-free 오인 여부", no_price_row=True
 g(800005, "리뷰수 부족 제외 대상", discount_pct=30, review_total=10, review_pos_pct=95, korean=1)
 g(800006, "긍정률 부족 제외 대상", discount_pct=30, review_total=200, review_pos_pct=60, korean=1)
 g(800007, "수요일용 유효 할인중", discount_pct=30, review_total=200, review_pos_pct=90, korean=1, has_demo=1,
-  price_last="2026-09-05")
+  price_last="2026-09-08")
 g(800008, "할인없음 - 수요일 제외 토요일 포함", discount_pct=0, review_total=200, review_pos_pct=90, korean=1)
 g(800009, "무료게임 - 수요일 제외 토요일 포함", is_free=1, discount_pct=0, review_total=200, review_pos_pct=85,
   korean=1)
@@ -116,7 +127,7 @@ def build_fixture_db():
 def build_site():
     build_fixture_db()
     import build
-    build.main()
+    build_at_reference()
     return SITE_DIR
 
 
@@ -165,8 +176,8 @@ def check_schema_and_rules(data, index_html_path):
     # 아래 check_edge_case_isolation()의 '가격이력 전무' 케이스로 이미 제외 여부를 검증한다.
     if 800007 in wed:
         item = wed[800007]
-        check("실제 가격 관측일(price_last=2026-09-05)이 price_checked_at에 그대로 반영되는가(R1 수정 확인)",
-              item.get("price_checked_at") == "2026-09-05",
+        check("실제 가격 관측일(price_last=2026-09-08)이 price_checked_at에 그대로 반영되는가",
+              item.get("price_checked_at") == "2026-09-08",
               f"price_checked_at={item.get('price_checked_at')!r}")
         check("reviews_checked_at은 실제 games.reviews_checked_at 값을 반영",
               item.get("reviews_checked_at") == "2026-09-11T00:00:00Z", item.get("reviews_checked_at"))
@@ -186,7 +197,7 @@ def check_determinism():
     import config
     import build
     config.SITE_DIR = site_dir_2
-    build.main()
+    build_at_reference()
     p2 = find_picks_json(site_dir_2)
     p1 = find_picks_json(SITE_DIR)
     if not p2 or not p1:
@@ -253,7 +264,7 @@ def check_edge_case_isolation():
         _insert_minimal_game(conn, cols_games, appid, f"단독검증-{appid}", **overrides)
         conn.commit()
         conn.close()
-        build.main()
+        build_at_reference()
         p = find_picks_json(site_dir)
         if not p:
             skip(label, "JSON 미생성")

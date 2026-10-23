@@ -687,7 +687,7 @@ check("성인 게임 정책 - 현재 게임이 성인이어도 다른 성인 게
 
 print("\n11) 최근 가격 인하")
 from datetime import datetime, timedelta
-now = datetime.now()
+now = datetime.now(dt.timezone.utc)
 t_max = now.strftime("%Y-%m-%d")
 t_recent = (now - timedelta(days=2)).strftime("%Y-%m-%d")
 t_old = (now - timedelta(days=10)).strftime("%Y-%m-%d")
@@ -720,7 +720,7 @@ check("10,000원 → 7,000원은 최근 인하로 포함", any(d["appid"] == 101
 check("7,000원 → 10,000원은 제외", not any(d["appid"] == 102 for d in drops))
 check("가격 변화가 없으면 제외", not any(d["appid"] == 103 for d in drops))
 check("무료·0원·가격 미정 제외", not any(d["appid"] == 104 for d in drops))
-check("최신 관측일 기준 7일보다 오래된 인하 제외", not any(d["appid"] == 105 for d in drops))
+check("현재 UTC 날짜 기준 7일보다 오래된 인하 제외", not any(d["appid"] == 105 for d in drops))
 check("성인 게임 제외", not any(d["appid"] == 106 for d in drops))
 check("한국어 게임 우선 정렬", drops[0]["appid"] == 101 and drops[1]["appid"] == 107)
 drop_a = next(d for d in drops if d["appid"] == 101)

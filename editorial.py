@@ -1,7 +1,19 @@
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+import config
 
-def generate_picks(games: list[dict], base_url: str) -> str:
+
+def fresh_observation(value, today: date) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        checked = date.fromisoformat(value)
+    except ValueError:
+        return False
+    return (checked.isoformat() == value
+            and 0 <= (today - checked).days <= config.EDITORIAL_MAX_PRICE_AGE_DAYS)
+
+def generate_picks(games: list[dict], base_url: str, now: datetime | None = None) -> str:
     """
     GameDil 편집 추천 후보 JSON 생성.
     
@@ -13,7 +25,9 @@ def generate_picks(games: list[dict], base_url: str) -> str:
     
     [항목]
     appid, name, url, price_current, discount_pct, is_free, korean, has_demo, 
-    review_count, review_positive_pct, price_checked_at(실제 관측일 price_last), reviews_checked_at, reasoning_code
+    review_count, review_positive_pct, price_checked_at(유료 실제 관측일 price_last),
+    availability_checked_at(무료 상태 등 마지막 상세 조회일), reviews_checked_at, reasoning_code
+    freshness_policy: UTC 기준일/허용 날짜 차이/신선도 제외 수(요일별 조건 적용 전)
     
     [공통 조건]
     - adult 제외, coming_soon 제외
@@ -21,6 +35,8 @@ def generate_picks(games: list[dict], base_url: str) -> str:
     - appid 필수
     - 유료 게임은 양수의 price_final 필요 (결측치 0원 추정 불가)
     - review_total(또는 review_count), review_positive_pct 등 유효한 평가 상태 필요 (None은 무효)
+    - 유료 price_last / 무료 checked_at의 UTC 날짜 차이 0~EDITORIAL_MAX_PRICE_AGE_DAYS
+    - 결측/오류/미래 날짜 제외. 후보 부족 시 오래된 데이터로 보충하지 않음.
     
     [수요일 조건: 가격·할인 중심]
     - 유료 (is_free False 또는 0)
@@ -34,6 +50,12 @@ def generate_picks(games: list[dict], base_url: str) -> str:
     - 리뷰 50개 이상
     - 정렬: 한국어 우선 -> 데모 우선 -> 추천 점수 높은 순 -> appid
     """
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now = now.astimezone(timezone.utc)
+    today = now.date()
+    excluded_stale = 0
     valid_games = []
     for g in games:
         appid = g.get("appid")
@@ -57,6 +79,13 @@ def generate_picks(games: list[dict], base_url: str) -> str:
         reviews = g.get("review_total") if g.get("review_total") is not None else g.get("review_count")
         pos_pct = g.get("review_positive_pct")
         if reviews is None or pos_pct is None:
+            continue
+
+        # JSON 생성 시각은 게임별 가격 확인일을 대신할 수 없다.
+        # 무료는 가격 이력이 없으므로 상세 조회로 확인한 무료 상태의 날짜를 쓴다.
+        checked = g.get("checked_at") if is_free else g.get("price_last")
+        if not fresh_observation(checked, today):
+            excluded_stale += 1
             continue
             
         valid_games.append(g)
@@ -112,14 +141,20 @@ def generate_picks(games: list[dict], base_url: str) -> str:
             "has_demo": bool(g.get("has_demo") or g.get("app_type") == "demo"),
             "review_count": g.get("review_total") if g.get("review_total") is not None else g.get("review_count"),
             "review_positive_pct": g.get("review_positive_pct"),
-            "price_checked_at": g.get("price_last"),
+            "price_checked_at": None if g.get("is_free") else g.get("price_last"),
+            "availability_checked_at": g.get("checked_at"),
             "reviews_checked_at": g.get("reviews_checked_at"),
             "reasoning_code": reasoning
         }
 
     out = {
         "schema_version": 1,
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "freshness_policy": {
+            "max_age_days": config.EDITORIAL_MAX_PRICE_AGE_DAYS,
+            "date_basis": "UTC", "evaluated_on": today.isoformat(),
+            "excluded_stale_count": excluded_stale,
+        },
         "wednesday": [format_item(g, "wed_discount") for g in wed_cands],
         "saturday": [format_item(g, "sat_features") for g in sat_cands]
     }

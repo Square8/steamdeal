@@ -26,6 +26,10 @@ NAVER_VERIFY = os.environ.get("NAVER_SITE_VERIFICATION", "").strip()
 # ---- 웹 분석 (Google Analytics 4) ----
 GA_TRACKING_ID = os.environ.get("GA_TRACKING_ID", "G-SVXW1DG02M").strip()
 
+# UTC 날짜 차이 0~2일(정확한 48시간 제한 아님)인 가격/무료 상태만 추천 후보로 공개.
+EDITORIAL_MAX_PRICE_AGE_DAYS = 2
+NEW_RELEASE_DAYS = 30
+
 # ---- 스팀 API ----
 CC = "kr"
 # Steam Store API 언어 코드는 korean 이 아니라 koreana 다.
@@ -137,7 +141,12 @@ BUCKETS = {
 }
 
 # 항상 추적할 게임 (스팀 상점 URL 의 /app/<숫자>/ 가 앱ID)
-SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520]
+SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520, 4228920]
+
+# 한국 시간 10/24~10/30 운영자 선정. 종료 뒤 첫 정기 빌드부터 자동 추천만 노출.
+INDIE_FEATURE_APPID = 4228920
+INDIE_FEATURE_START = "2026-10-24"
+INDIE_FEATURE_END = "2026-10-31"  # exclusive
 
 # ---- 추천 후보 판정 ----
 # 추천 목록에 띄울 기준. 취향에 맞게 바꾸면 된다.

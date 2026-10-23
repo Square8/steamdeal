@@ -325,6 +325,10 @@ section{margin-top:4rem}
   color:var(--ink-3); font-size:11px; overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap; opacity:.85;
 }
+.price-note{
+  white-space:normal; overflow:visible; text-overflow:clip;
+  line-height:1.5; opacity:1; overflow-wrap:anywhere;
+}
 .card-f{
   margin-top:auto; padding-top:9px; border-top:1px solid var(--line);
   display:flex; align-items:flex-end; justify-content:space-between; gap:8px;

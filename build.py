@@ -430,6 +430,7 @@ COMPARE_JS = '''<script>
           name: typeof g.name === 'string' ? g.name : '',
           header_image: typeof g.header_image === 'string' ? g.header_image : '',
           price_final: Math.max(0, Number(g.price_final) || 0),
+          price_note: typeof g.price_note === 'string' ? g.price_note.slice(0, 200) : '가격 확인일 미확인 · Steam에서 확인하세요',
           discount_pct: Math.max(0, Number(g.discount_pct) || 0),
           lowest_seen: Math.max(0, Number(g.lowest_seen) || 0),
           recent_drop_amount: Math.max(0, Number(g.recent_drop_amount) || 0),
@@ -810,7 +811,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     <a href="{up}index.html#under-10000">1만원 이하</a>
     <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
     <a href="{up}my-games.html">내 찜 <span class="wish-count">0</span></a>
-    <a href="{up}pick.html">가챠 🎲</a>
+    <a href="{up}indie-games.html">인디 추천</a>
     <a href="{up}index.html#all">전체</a>
   </nav>""" if nav else "")
     search = (f"""<form class="hsearch" role="search" action="{up}index.html" method="GET">
@@ -975,7 +976,7 @@ def chips_for(g: dict, show_atl: bool = True) -> str:
         out.append('<span class="t demo">데모</span>')
     if g.get("coming_soon"):
         out.append('<span class="t soon">출시예정</span>')
-    elif g.get("tag") == "신작":
+    elif store.is_new_release(g):
         out.append('<span class="t new">신작</span>')
     if g.get("is_free"):
         out.append('<span class="t free">무료</span>')
@@ -1032,6 +1033,28 @@ def off_class(pct: int) -> str:
     return "off-lo"
 
 
+def price_is_fresh(g: dict, today: date | None = None) -> bool:
+    today = today or datetime.now(timezone.utc).date()
+    raw = g.get("checked_at") if g.get("is_free") else g.get("price_last")
+    return editorial.fresh_observation(raw, today)
+
+
+def price_note(g: dict) -> str:
+    if g.get("coming_soon"):
+        return ""
+    raw = g.get("checked_at") if g.get("is_free") else g.get("price_last")
+    label = "무료 상태 확인" if g.get("is_free") else "가격 확인"
+    try:
+        checked = date.fromisoformat(raw or "")
+        valid = checked.isoformat() == raw and checked <= datetime.now(timezone.utc).date()
+    except (TypeError, ValueError):
+        valid = False
+    if not valid:
+        return f"{label}일 미확인 · Steam에서 확인하세요"
+    text = f"{label} {raw} (UTC)"
+    return text if price_is_fresh(g) else text + " · 오래된 정보, Steam에서 확인하세요"
+
+
 def price_html(g: dict) -> str:
     if g.get("is_free"):
         return '<div class="price"><span class="now">무료</span></div>'
@@ -1079,7 +1102,7 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     up = "../" * depth
     return f"""<a class="card{' big' if big else ''}" href="{up}game/{g['appid']}.html"
    data-n="{esc(g['name']).lower()}" data-demo="{1 if (g.get('has_demo') or g.get('app_type')=='demo') else 0}"
-   data-soon="{g.get('coming_soon') or 0}" data-new="{1 if g.get('tag')=='신작' else 0}"
+   data-soon="{g.get('coming_soon') or 0}" data-new="{1 if store.is_new_release(g) else 0}"
    data-kr="{g.get('korean') or 0}" data-adult="{g.get('adult') or 0}"
    data-off="{g.get('discount_pct') or 0}" data-price="{g.get('price_final') or 0}"
    data-score="{score}" data-atl="{1 if atl_label(g) else 0}" data-wish="{g['appid']}" data-free="{1 if g.get('is_free') else 0}"
@@ -1092,6 +1115,7 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     {chips_for(g)}
     <div class="tagline">{rc}</div>
     <div class="{fcls}">{left}{price_html(g)}</div>
+    <div class="price-note tagline">{esc(price_note(g))}</div>
   </div>
 </a>"""
 
@@ -1126,6 +1150,7 @@ def hero(g: dict) -> str:
       <p class="desc">{esc((g.get('description') or '')[:150])}</p>
       <ul class="whylist">{why}</ul>
       <div class="hero-price">{big}</div>
+      <p class="price-note sec-note">{esc(price_note(g))}</p>
       <div class="buyrow">
         <a class="btn btn-p" href="./game/{g['appid']}.html">자세히 보기</a>
         {demo_btn}
@@ -1142,7 +1167,7 @@ def hero(g: dict) -> str:
 def section(sid: str, title: str, note: str, items: list[dict],
             empty: str, rail: bool = False, cap: int = 8,
             more_href: str = "#all", more_text: str = "전체에서 더 보기",
-            feature: bool = False) -> str:
+            feature: bool = False, total_count: int | None = None) -> str:
     """홈 섹션. 상한은 8개다 — 120개를 세로로 다 쌓으면 모바일에서 2만 픽셀이 되고,
     그러면 아래쪽 섹션은 아무도 못 본다. 나머지는 각자의 목록 페이지로 보낸다."""
     if not items:
@@ -1154,7 +1179,7 @@ def section(sid: str, title: str, note: str, items: list[dict],
         picked = items[:cap]
         cards = "".join(card(g, big=(feature and i == 0)) for i, g in enumerate(picked))
         body = f'<div class="{cls}">{cards}</div>'
-        cnt = f'<span class="cnt">{len(items)}개</span>'
+        cnt = f'<span class="cnt">{total_count if total_count is not None else len(items)}개</span>'
     note_html = f'<p class="sec-note">{esc(note)}</p>' if note else ""
     more = (f'<a class="more" href="{esc(more_href)}">{esc(more_text)} →</a>'
             if (more_href and (more_href != "#all" or len(items) > cap)) else "")
@@ -1192,24 +1217,9 @@ def lead(games: list[dict], safe: list[dict]) -> str:
 </section>"""
 
 
-def get_recent_drops(games: list[dict]) -> list[dict]:
-    max_date = ""
-    for g in games:
-        for hist in g.get("history", []):
-            if hist["on_date"] > max_date:
-                max_date = hist["on_date"]
-
-    if not max_date:
-        return []
-
-    from datetime import datetime, timedelta
-    try:
-        max_dt = datetime.strptime(max_date, "%Y-%m-%d")
-        cutoff_dt = max_dt - timedelta(days=config.RECENT_DROP_DAYS)
-        cutoff_str = cutoff_dt.strftime("%Y-%m-%d")
-    except ValueError:
-        return []
-
+def get_recent_drops(games: list[dict], today: date | None = None) -> list[dict]:
+    today = today or datetime.now(timezone.utc).date()
+    cutoff = today - timedelta(days=config.RECENT_DROP_DAYS)
     drops = []
     for g in games:
         if g.get("adult") or not g.get("price_final") or g.get("is_free"):
@@ -1223,7 +1233,13 @@ def get_recent_drops(games: list[dict]) -> list[dict]:
         last = valid_hist[-1]
         prev = valid_hist[-2]
 
-        if last["on_date"] < cutoff_str:
+        try:
+            changed_on = date.fromisoformat(last["on_date"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not cutoff <= changed_on <= today:
+            continue
+        if g["price_final"] != last["price_final"]:
             continue
 
         if prev["price_final"] > last["price_final"]:
@@ -1243,6 +1259,81 @@ def get_recent_drops(games: list[dict]) -> list[dict]:
         x.get("name") or ""
     ))
     return drops
+
+
+def price_diverse_sample(items: list[dict], cap: int = 8) -> list[dict]:
+    """홈의 저가 게임 미리보기를 네 가격 구간에서 고르게 뽑는다.
+
+    각 구간 안에서는 기존 추천 점수와 평가·인지도 신호 순으로 고르고,
+    구간마다 최대 2개씩 번갈아 배치한다. 비어 있는 구간은 다른 구간으로 채운다.
+    전체 카테고리 페이지의 필터·정렬에는 영향을 주지 않는다.
+    """
+    bands = ((1, 1000), (1001, 3000), (3001, 6000), (6001, 10000))
+    quality = lambda g: (
+        -(g.get("score") or 0),
+        -(g.get("review_positive_pct") or 0),
+        -(g.get("review_total") or g.get("review_count") or 0),
+        -(g.get("players_current") or 0),
+        g.get("name") or "",
+    )
+    groups = [
+        sorted([g for g in items if low <= (g.get("price_final") or 0) <= high], key=quality)
+        for low, high in bands
+    ]
+    picked = []
+    picked_ids = set()
+    for slot in range(2):
+        for group in groups:
+            if slot < len(group) and len(picked) < cap:
+                game = group[slot]
+                picked.append(game)
+                picked_ids.add(game.get("appid"))
+    if len(picked) < cap:
+        for game in sorted(items, key=quality):
+            if game.get("appid") not in picked_ids:
+                picked.append(game)
+                picked_ids.add(game.get("appid"))
+                if len(picked) >= cap:
+                    break
+    return picked
+
+
+def is_indie_recommendation(g: dict) -> bool:
+    """Steam 상점 장르 분류와 수집된 전체 리뷰를 기준으로 선별한다."""
+    genres = {part.strip().casefold() for part in (g.get("genres") or "").split(",")}
+    return bool(
+        genres.intersection({"인디", "indie"})
+        and g.get("korean") and not g.get("adult") and not g.get("coming_soon")
+        and g.get("app_type", "game") == "game"
+        and (g.get("review_total") or 0) >= 50
+        and (g.get("review_positive_pct") or 0) >= 80
+    )
+
+
+def indie_feature_active(now: datetime | None = None) -> bool:
+    today = (now or datetime.now(KST)).astimezone(KST).date().isoformat()
+    return config.INDIE_FEATURE_START <= today < config.INDIE_FEATURE_END
+
+
+def indie_feature(games: list[dict]) -> str:
+    """한시적 운영자 픽. 자동 평가 기준과 구분하고 미수집 가격은 만들지 않는다."""
+    if not indie_feature_active():
+        return ""
+    game = next((g for g in games if g["appid"] == config.INDIE_FEATURE_APPID), None)
+    if game and (game.get("adult") or game.get("coming_soon")):
+        return ""
+    if game:
+        content = card(game)
+    else:
+        content = ('<div class="card"><div class="card-b">'
+                   '<h3>No More Slimes!!</h3>'
+                   '<p>슬라임 무리를 상대하며 용병과 스킬로 성장하는 인디게임.</p>'
+                   '<a class="btn btn-p" href="https://store.steampowered.com/app/4228920/No_More_Slimes/">'
+                   'Steam에서 게임 확인 →</a></div></div>')
+    return ('<div class="indie-feature"><h3>이번 주 운영자 픽</h3>'
+            '<p class="sec-note">10월 30일까지 소개하는 운영자 선정 게임입니다. '
+            '아래 자동 추천의 리뷰 수·긍정률 조건과 별도로 선정했습니다.</p>'
+            '<div class="grid">' + content + '</div></div>')
 
 
 def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None) -> str:
@@ -1295,7 +1386,13 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
                    key=lambda g: -(g.get("review_count") or 0))
     under_10k = sorted([g for g in safe if g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000],
                        key=lambda g: g.get("price_final") or 0)
-    fresh = sorted([g for g in korean if g.get("tag") == "신작"],
+    under_10k_featured = price_diverse_sample(under_10k)
+    indie_spec = next(spec for spec in LANDINGS if spec["slug"] == "indie-games")
+    indie_games = sorted([g for g in safe if is_indie_recommendation(g)], key=indie_spec["sort"])
+    indie_spotlight = indie_feature(safe)
+    if indie_spotlight:
+        indie_games = [g for g in indie_games if g["appid"] != config.INDIE_FEATURE_APPID]
+    fresh = sorted([g for g in korean if store.is_new_release(g)],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
                    reverse=True)
     soon = sorted([g for g in korean if g.get("coming_soon")],
@@ -1359,9 +1456,17 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          more_href="korean-demo.html", more_text="무료 데모 전체")}
 
 {section("under-10000", "💸 1만원 이하 게임",
-         "현재 판매가 기준, 낮은 가격 순입니다.", under_10k,
+         "현재 판매가 기준, 1만원 이하 게임을 가격대별로 골고루 보여줍니다.", under_10k_featured,
          "조건에 맞는 게임이 없습니다.", rail=True, cap=8,
-         more_href="under-10000.html", more_text="1만원 이하 전체")}
+         more_href="under-10000.html", more_text="1만원 이하 전체",
+         total_count=len(under_10k))}
+
+{('<section id="indie-feature"><h2>🌱 이번 주 인디게임</h2>' + indie_spotlight + '</section>') if indie_spotlight else ''}
+
+{section("indie", "🌱 인디게임 추천",
+         "Steam 인디 장르 · 한국어 지원 · 전체 리뷰 50개 이상 · 긍정률 80% 이상", indie_games,
+         "아직 추천 기준에 맞는 인디게임이 없습니다.", rail=True, cap=8,
+         more_href="indie-games.html", more_text="인디 추천 전체")}
 
 {section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순으로 보여줍니다.", fresh,
          "한국어 신작 목록이 아직 비어 있습니다.", rail=True,
@@ -1570,6 +1675,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     fDiv.appendChild(pDiv);
 
     cardB.appendChild(fDiv);
+    var observation = document.createElement('div');
+    observation.className = 'price-note tagline';
+    observation.textContent = g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요';
+    cardB.appendChild(observation);
     a.appendChild(cardB);
     return a;
   }}
@@ -2080,6 +2189,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
                        f'{"출시 전" if g.get("coming_soon") else "가격 미정"}</span>')
 
     facts = []
+    facts.append(("가격 정보 확인", esc(price_note(g)) or "출시 전"))
     if g.get("developer"):
         facts.append(("개발사", esc(g["developer"])))
     if g.get("release_text"):
@@ -2206,7 +2316,9 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 
     share_title_js = json.dumps(g['name'], ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e')
     share_text = g['name']
-    if g.get('is_free'):
+    if not price_is_fresh(g) and (g.get('is_free') or g.get('price_final')):
+        share_text += " — 가격 재확인 필요"
+    elif g.get('is_free'):
         share_text += " — 무료"
     elif g.get('price_final'):
         share_text += f" — {g['price_final']:,}원"
@@ -2235,6 +2347,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             "name": g["name"],
             "header_image": g.get("header_image") or "",
             "price_final": g.get("price_final") or 0,
+            "price_note": price_note(g),
             "discount_pct": g.get("discount_pct") or 0,
             "lowest_seen": g.get("lowest_seen") or 0,
             "recent_drop_amount": recent_drop["recent_drop_amount"] if recent_drop else 0,
@@ -2368,6 +2481,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     {chips_for(g)}
     <p class="desc">{esc(g.get('description'))}</p>
     <div class="price-now">{price_block}</div>
+    <p class="price-note sec-note">{esc(price_note(g))}</p>
     {verdict_strip_html}
     <div class="buyrow">
       <a class="btn btn-p" href="https://store.steampowered.com/app/{g['appid']}/?cc=kr"
@@ -2398,7 +2512,9 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 {trailer_js}
 """
     # 제목에 가격을 넣으면 검색결과에서 클릭할 이유가 생긴다.
-    if g.get("is_free"):
+    if not price_is_fresh(g) and (g.get("is_free") or g.get("price_final")):
+        pt = f'{g["name"]} — 가격 재확인 필요'
+    elif g.get("is_free"):
         pt = f'{g["name"]} — 무료'
     elif g.get("price_final"):
         pt = f'{g["name"]} — {g["price_final"]:,}원'
@@ -2408,7 +2524,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         pt = f'{g["name"]} — 출시예정' if g.get("coming_soon") else g["name"]
 
     bits = []
-    if g.get("price_final") and not g.get("is_free"):
+    if price_is_fresh(g) and g.get("price_final") and not g.get("is_free"):
         curr = g.get("price_final", 0)
         low = g.get("lowest_seen", 0)
         if curr <= low and low > 0 and g.get("atl_trustworthy"):
@@ -2434,13 +2550,13 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     if g.get("header_image"):
         schema["image"] = g["header_image"]
 
-    if g.get("is_free"):
+    if price_is_fresh(g) and not g.get("coming_soon") and g.get("is_free"):
         schema["offers"] = {
             "@type": "Offer",
             "priceCurrency": "KRW",
             "price": 0
         }
-    elif g.get("price_final") is not None:
+    elif price_is_fresh(g) and not g.get("coming_soon") and (g.get("price_final") or 0) > 0:
         schema["offers"] = {
             "@type": "Offer",
             "priceCurrency": "KRW",
@@ -2473,6 +2589,15 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 # 우리 데이터만 정직하게 답할 수 있는 질문들.
 # '스팀 최저가' 같은 거대 키워드는 선행 6개를 이길 수 없어서 쓰지 않는다.
 LANDINGS = [
+    dict(slug="indie-games",
+         title="스팀 인디게임 추천 — 한국어로 즐기는 평가 좋은 게임",
+         h1="인디게임 추천",
+         desc="한국어를 지원하는 스팀 인디게임 중 전체 리뷰 50개 이상, 긍정률 80% 이상인 출시작을 모았습니다. 가격과 할인, 데모 여부를 함께 확인하세요.",
+         note="Steam 상점의 ‘인디’ 장르 분류 기준입니다. 한국어 지원·출시 완료·전체 리뷰 50개 이상·긍정률 80% 이상인 게임을 자동으로 선별합니다. "
+              "기본 추천순은 한국어·데모·할인·평가 등을 반영한 GameDil 점수 기준이며, 직접 플레이한 후기는 아닙니다.",
+         pick=is_indie_recommendation,
+         sort=lambda g: (-(g.get("score") or 0), -(g.get("review_total") or 0),
+                         g.get("name") or "", g["appid"])),
     # 제목·설명은 '자동완성이 실제로 제안하는 표현'만 쓴다 (2026-08-29 실측).
     #   수요 있음: 스팀 한국어 게임 / 스팀 한국어 지원 / 스팀 신작(추천) /
     #             스팀 출시예정(게임) / 스팀 데모 추천 / 스팀 무료 데모 / 스팀 1만원 이하 게임
@@ -2502,8 +2627,8 @@ LANDINGS = [
          title="스팀 신작 추천 — 최근 나온 게임",
          h1="새로 나온 게임",
          desc="최근 스팀에 출시된 게임을 매일 갱신합니다. 한국어를 지원하는 것만 골랐습니다.",
-         note="전부 한국어를 지원합니다. 기본 정렬은 최근 출시일 순입니다.",
-         pick=lambda g: g.get("korean") and g.get("tag") == "신작" and not g.get("coming_soon"),
+         note=f"출시일 기준 최근 {config.NEW_RELEASE_DAYS}일 이내의 한국어 지원 본편입니다. 기본 정렬은 최근 출시일 순입니다.",
+         pick=lambda g: g.get("korean") and store.is_new_release(g),
          sort=lambda g: (g.get("release_date") or "", g.get("name") or ""), rev=True),
     dict(slug="korean-soon",
          title="스팀 출시예정 게임 — 곧 나오는 것",
@@ -2547,6 +2672,9 @@ def build_landing(spec: dict, games: list[dict], updated: str,
                   freshness: dict | None = None) -> str:
     items = sorted([g for g in games if not g.get("adult") and spec["pick"](g)],
                    key=spec["sort"], reverse=spec.get("rev", False))
+    spotlight = indie_feature(games) if spec["slug"] == "indie-games" else ""
+    if spotlight:
+        items = [g for g in items if g["appid"] != config.INDIE_FEATURE_APPID]
     grid = ('<div class="grid">' + "".join(card(g) for g in items) + "</div>"
             if items else
             '<div class="grid"><div class="none">'
@@ -2559,6 +2687,7 @@ def build_landing(spec: dict, games: list[dict], updated: str,
     <span class="cnt">{len(items)}개</span>
     <a class="more" href="./index.html">홈으로 돌아가기 →</a></div>
   <p class="sec-note">{esc(spec['note'])}</p>
+  {spotlight}
   <div class="tools" style="margin-bottom: 16px;">
     <select id="lsort" aria-label="정렬 기준">
       <option value="default">기본순</option>
@@ -2575,7 +2704,7 @@ def build_landing(spec: dict, games: list[dict], updated: str,
 </section>
 <script>
 (function() {{
-  var grid = document.querySelector('.grid');
+  var grid = document.querySelector('#top > .grid');
   var sel = document.getElementById('lsort');
   var msg = document.getElementById('lsortMsg');
   if (!grid || !sel) return;
@@ -2772,7 +2901,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
           a.appendChild(b);
           td.appendChild(a);
       } },
-      { key: '현재 가격', render: function(g, td) {
+      { key: '저장 당시 가격', render: function(g, td) {
           if (!g.price_final) { td.textContent = '정보 없음'; return; }
           var b = el('b', g.price_final.toLocaleString('ko-KR') + '원');
           td.appendChild(b);
@@ -2795,6 +2924,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
             td.textContent = '해당 없음';
           }
       } },
+      { key: '가격 확인일 (저장 당시)', render: function(g, td) { td.textContent = g.price_note || '확인일 미확인 · Steam에서 확인하세요'; } },
       { key: '한국어', render: function(g, td) { td.textContent = g.korean ? '지원' : '미지원'; } },
       { key: '데모', render: function(g, td) { td.textContent = g.has_demo ? '있음' : '없음'; } },
       { key: 'Steam 리뷰', render: function(g, td) {
@@ -3144,6 +3274,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
       }
       priceRow.appendChild(priceBox);
       body.appendChild(priceRow);
+      body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
 
       var targetPanel = el('div', '', 'my-target-panel');
       var targetView = el('div', '', 'my-target-view');
@@ -3533,6 +3664,7 @@ def build_shared_games(updated: str, freshness: dict) -> str:
       }
       priceRow.appendChild(priceBox);
       body.appendChild(priceRow);
+      body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
 
       card.appendChild(body);
 
@@ -3806,6 +3938,7 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
       }
       priceRow.appendChild(priceBox);
       body.appendChild(priceRow);
+      body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
       card.appendChild(body);
 
       var foot = el('div', '', 'my-card-foot');
@@ -3847,247 +3980,15 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
 
 
 def build_pick(updated: str, freshness: dict, games: list[dict] | None = None) -> str:
-    og_img = ""
-    if games:
-        for g in games:
-            if (
-                g.get("korean")
-                and not g.get("adult")
-                and not g.get("coming_soon")
-                and g.get("header_image")
-            ):
-                og_img = g["header_image"]
-                break
-    html = '''
-<div class="dhero" style="text-align:center; padding: 2rem 1rem 1rem;">
-  <h1>오늘 뭐 하지? 🎲</h1>
-  <p class="sub">긍정 평가 90% 이상, 1만원 이하 한국어 게임을 무작위로 하나 추천해 드립니다.</p>
-</div>
-
-<div class="sec-wrap" style="max-width: 1040px; margin: 0 auto; padding: 0 1rem 3rem; text-align: center;">
-  <button id="btnPick" class="btn btn-p" style="font-size: 16px; padding: 8px 16px; margin-bottom: 20px;">🎲 뽑기</button>
-
-  <div id="shareWrap" style="display:none; margin-bottom: 20px;">
-    <button id="btnShare" class="btn btn-s" style="font-size:13px; padding: 4px 8px;">🔗 결과 공유</button>
-  </div>
-
-  <div id="myApp"></div>
-</div>
-
-<script>
-(function(){
-  function getHashAppid() {
-    var h = location.hash;
-    if (h.indexOf('#appid=') === 0) {
-      return Number(h.slice(7));
-    }
-    return null;
-  }
-
-  function el(tag, text, cls) {
-    var e = document.createElement(tag);
-    if (text) e.textContent = text;
-    if (cls) e.className = cls;
-    return e;
-  }
-
-  var allGames = null;
-  var validGames = [];
-  var currentAppid = null;
-
-  var app = document.getElementById('myApp');
-  var btnPick = document.getElementById('btnPick');
-  var btnShare = document.getElementById('btnShare');
-  var shareWrap = document.getElementById('shareWrap');
-
-  function renderState() {
-    app.innerHTML = '';
-
-    if (allGames === null) {
-      app.appendChild(el('div', '불러오는 중...', 'empty-state'));
-      return;
-    }
-
-    if (validGames.length === 0) {
-      app.appendChild(el('div', '후보 게임이 없습니다.', 'empty-state'));
-      shareWrap.style.display = 'none';
-      return;
-    }
-
-    if (currentAppid === null) {
-      if (btnPick) btnPick.textContent = '🎲 뽑기';
-      app.appendChild(el('div', '위 버튼을 눌러 추천 게임을 뽑아보세요!', 'empty-state'));
-      shareWrap.style.display = 'none';
-      return;
-    }
-    if (btnPick) btnPick.textContent = '🎲 다시 뽑기';
-
-    var g = allGames.find(function(x) { return x.appid === currentAppid; });
-    if (!g || g.adult) {
-      currentAppid = null;
-      renderState();
-      return;
-    }
-
-    shareWrap.style.display = 'block';
-    var grid = el('div', '', 'grid');
-    grid.style.maxWidth = '300px';
-    grid.style.margin = '0 auto';
-    grid.style.textAlign = 'left';
-
-    var currentPrice = g.price || 0;
-    var card = el('div', '', 'my-card');
-
-    var head = el('div', '', 'my-card-head');
-    var imgLink = el('a');
-    imgLink.href = 'game/' + g.appid + '.html';
-
-    if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
-      var img = document.createElement('img');
-      img.src = g.img;
-      img.alt = g.name + ' 표지';
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      imgLink.appendChild(img);
-    } else {
-      var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
-      imgLink.appendChild(ph);
-    }
-    head.appendChild(imgLink);
-
-    if (g.off) {
-      var rib = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
-      head.appendChild(rib);
-    }
-    card.appendChild(head);
-
-    var body = el('div', '', 'my-card-body');
-    var title = el('a', g.name, 'my-card-title');
-    title.href = 'game/' + g.appid + '.html';
-    body.appendChild(title);
-
-    var chipsDiv = el('div', '', 'chips');
-    if (g.atl && g.atl_txt) chipsDiv.appendChild(el('span', g.atl_txt, 't atl'));
-    if (g.demo) chipsDiv.appendChild(el('span', '데모', 't demo'));
-    if (g.soon) chipsDiv.appendChild(el('span', '출시예정', 't soon'));
-    else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
-    if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
-    else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
-    if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
-
-    var rc = '';
-    if (g.r_lbl) {
-      rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
-      if (g.r_pct !== null && g.r_pct !== undefined) rc += ' · 긍정 ' + g.r_pct + '%';
-    } else if (g.r_tot >= 10) {
-      rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
-    }
-    if (rc) {
-      body.appendChild(el('div', rc, 'tagline'));
-    }
-
-    var priceRow = el('div', '', 'my-price-row');
-    var priceBox = el('div', '', 'price');
-    if (g.free) {
-      priceBox.appendChild(el('span', '무료', 'now'));
-    } else if (!currentPrice) {
-      priceBox.appendChild(el('span', g.soon ? '출시 전' : '가격 미정', 'now'));
-    } else {
-      priceBox.appendChild(el('span', currentPrice.toLocaleString('ko-KR') + '원', 'now'));
-      if (g.p_init && g.p_init > currentPrice) {
-        priceBox.appendChild(el('span', g.p_init.toLocaleString('ko-KR') + '원', 'init'));
-      }
-    }
-    priceRow.appendChild(priceBox);
-    body.appendChild(priceRow);
-    card.appendChild(body);
-
-    var foot = el('div', '', 'my-card-foot');
-    var detailBtn = el('a', '상세보기', 'btn btn-s');
-    detailBtn.href = 'game/' + g.appid + '.html';
-    detailBtn.style.width = '100%';
-    detailBtn.style.textAlign = 'center';
-
-    foot.appendChild(detailBtn);
-    card.appendChild(foot);
-    grid.appendChild(card);
-
-    app.appendChild(grid);
-  }
-
-  function pickRandom() {
-    if (validGames.length === 0) return;
-    var candidates = validGames.filter(function(g) { return g.appid !== currentAppid; });
-    if (candidates.length === 0) candidates = validGames;
-    var r = candidates[Math.floor(Math.random() * candidates.length)];
-    currentAppid = r.appid;
-    location.hash = 'appid=' + r.appid;
-    renderState();
-  }
-
-  btnPick.addEventListener('click', pickRandom);
-
-  btnShare.addEventListener('click', function() {
-    if (!currentAppid) return;
-    var url = location.origin + '/pick.html#appid=' + currentAppid;
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(url).then(function() {
-        alert('결과 링크가 복사되었습니다!');
-      }).catch(function() {
-        prompt('아래 링크를 복사하세요:', url);
-      });
-    } else {
-      prompt('아래 링크를 복사하세요:', url);
-    }
-  });
-
-  window.addEventListener('hashchange', function() {
-    var h = getHashAppid();
-    if (h !== currentAppid) {
-      if (h) {
-        var isValid = validGames.some(function(x) { return x.appid === h; });
-        if (isValid) {
-          currentAppid = h;
-        } else {
-          location.hash = '';
-          currentAppid = null;
-        }
-      } else {
-        currentAppid = null;
-      }
-      renderState();
-    }
-  });
-
-  app.appendChild(el('div', '불러오는 중...', 'empty-state'));
-  fetch('assets/game-search-index.json')
-    .then(function(r){return r.json();})
-    .then(function(data){
-      allGames = Array.isArray(data) ? data : [];
-      validGames = allGames.filter(function(g) {
-        return g.kr === 1 && !g.adult && !g.soon && g.r_tot >= 50 && g.r_pct >= 90 && g.price > 0 && g.price <= 10000;
-      });
-
-      var hAppid = getHashAppid();
-      if (hAppid) {
-        var isValid = validGames.some(function(x) { return x.appid === hAppid; });
-        if (isValid) {
-          currentAppid = hAppid;
-        } else {
-          location.hash = '';
-          currentAppid = null;
-        }
-      }
-      renderState();
-    })
-    .catch(function(){
-      app.innerHTML = '';
-      app.appendChild(el('div', '데이터를 불러오지 못했습니다.', 'empty-state'));
-    });
-})();
-</script>
-'''
-    return page("오늘 뭐 하지? 한국어 갓겜 랜덤 추천 — GameDil", html, updated, canonical="pick.html", og_image=og_img, depth=0, freshness=freshness, desc="긍정 평가 90% 이상, 1만원 이하 한국어 게임을 무작위로 하나 추천해 드립니다.")
+    """기존 가챠 URL을 새 카테고리로 안내하는 호환 페이지."""
+    return page(
+        "인디게임 추천으로 이동 — GameDil",
+        '<section><h1>인디게임 추천으로 이동합니다</h1>'
+        '<p><a class="btn btn-p" href="indie-games.html">인디게임 추천 보기 →</a></p></section>',
+        updated, canonical="indie-games.html", freshness=freshness,
+        extra_head='<meta name="robots" content="noindex,follow">'
+                   '<meta http-equiv="refresh" content="0;url=indie-games.html">',
+    )
 
 
 def build_status(games: list[dict], updated: str, freshness: dict,
@@ -4273,11 +4174,12 @@ def main() -> int:
             "n": g_copy["name"].lower(),
             "demo": 1 if (g_copy.get('has_demo') or g_copy.get('app_type')=='demo') else 0,
             "soon": 1 if g_copy.get('coming_soon') else 0,
-            "new": 1 if g_copy.get('tag')=='신작' else 0,
+            "new": 1 if store.is_new_release(g_copy) else 0,
             "kr": 1 if g_copy.get('korean') else 0,
             "adult": 1 if g_copy.get('adult') else 0,
             "off": g_copy.get('discount_pct') or 0,
             "price": g_copy.get('price_final') or 0,
+            "price_note": price_note(g_copy),
             "p_init": g_copy.get('price_initial') or 0,
             "free": 1 if g_copy.get('is_free') else 0,
             "score": g_copy.get('score') or 0,
@@ -4313,7 +4215,7 @@ def main() -> int:
     write("pick.html", build_pick(updated, freshness, games))
     write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
     write("404.html", build_404(updated, freshness))
-    paths = ["index.html", "pick.html"]
+    paths = ["index.html"]
 
     for spec in LANDINGS:
         if spec["slug"] == "recent-drops":

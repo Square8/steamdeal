@@ -174,7 +174,7 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
                          (app["appid"],)).fetchone() is not None
     if not known and not is_relevant(app, tag):
         return False
-    today = date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute(
         """INSERT INTO games (appid,name,app_type,tag,header_image,description,genres,
@@ -495,6 +495,18 @@ def all_games(conn) -> list[dict]:
     return out
 
 
+def is_new_release(g: dict, today: date | None = None) -> bool:
+    """출시일 기준 최근 30일 이내. 발견 당시 태그와 구분한다."""
+    if g.get("coming_soon") or g.get("app_type", "game") != "game":
+        return False
+    try:
+        released = date.fromisoformat(g.get("release_date") or "")
+    except (TypeError, ValueError):
+        return False
+    today = today or datetime.now(timezone.utc).date()
+    return 0 <= (today - released).days <= config.NEW_RELEASE_DAYS
+
+
 def score_broadcast(g: dict) -> tuple[int, list[str]]:
     """추천 적합도 점수(0~100)와 그 근거.
 
@@ -515,7 +527,7 @@ def score_broadcast(g: dict) -> tuple[int, list[str]]:
     if g.get("coming_soon"):
         pts += 16
         why.append("아직 출시 전 — 선점 가능")
-    elif g.get("tag") == "신작":
+    elif is_new_release(g):
         pts += 12
         why.append("최근 출시된 신작")
 
@@ -561,7 +573,7 @@ def broadcast_candidates(games: list[dict], include_adult: bool = False) -> list
         if config.BROADCAST_MAX_PRICE and price > config.BROADCAST_MAX_PRICE:
             continue
         interesting = (g.get("has_demo") or g.get("app_type") == "demo"
-                       or g.get("tag") in ("신작", "출시예정") or g.get("is_free"))
+                       or is_new_release(g) or g.get("coming_soon") or g.get("is_free"))
         if interesting:
             out.append(g)
     return sorted(out, key=lambda g: (-score_broadcast(g)[0], g.get("name") or ""))
