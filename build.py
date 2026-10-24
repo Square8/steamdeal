@@ -1310,30 +1310,22 @@ def is_indie_recommendation(g: dict) -> bool:
     )
 
 
-def indie_feature_active(now: datetime | None = None) -> bool:
+def active_indie_picks(now: datetime | None = None) -> list[int]:
     today = (now or datetime.now(KST)).astimezone(KST).date().isoformat()
-    return config.INDIE_FEATURE_START <= today < config.INDIE_FEATURE_END
+    return [p["appid"] for p in config.INDIE_PICKS if today <= p["until"]]
 
 
-def indie_feature(games: list[dict]) -> str:
-    """한시적 운영자 픽. 자동 평가 기준과 구분하고 미수집 가격은 만들지 않는다."""
-    if not indie_feature_active():
-        return ""
-    game = next((g for g in games if g["appid"] == config.INDIE_FEATURE_APPID), None)
-    if game and (game.get("adult") or game.get("coming_soon")):
-        return ""
-    if game:
-        content = card(game)
-    else:
-        content = ('<div class="card"><div class="card-b">'
-                   '<h3>No More Slimes!!</h3>'
-                   '<p>슬라임 무리를 상대하며 용병과 스킬로 성장하는 인디게임.</p>'
-                   '<a class="btn btn-p" href="https://store.steampowered.com/app/4228920/No_More_Slimes/">'
-                   'Steam에서 게임 확인 →</a></div></div>')
-    return ('<div class="indie-feature"><h3>이번 주 운영자 픽</h3>'
-            '<p class="sec-note">10월 30일까지 소개하는 운영자 선정 게임입니다. '
-            '아래 자동 추천의 리뷰 수·긍정률 조건과 별도로 선정했습니다.</p>'
-            '<div class="grid">' + content + '</div></div>')
+def with_indie_picks(items: list[dict], games: list[dict],
+                     now: datetime | None = None) -> list[dict]:
+    """설정한 인디 게임을 목록 맨 앞에 둔다. 미수집·성인·출시 전 게임은 넣지 않는다."""
+    by_id = {g["appid"]: g for g in games}
+    picks: list[dict] = []
+    for appid in active_indie_picks(now):
+        g = by_id.get(appid)
+        if g and not g.get("adult") and not g.get("coming_soon") and g not in picks:
+            picks.append(g)
+    ids = {g["appid"] for g in picks}
+    return picks + [g for g in items if g["appid"] not in ids]
 
 
 def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None) -> str:
@@ -1388,10 +1380,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
                        key=lambda g: g.get("price_final") or 0)
     under_10k_featured = price_diverse_sample(under_10k)
     indie_spec = next(spec for spec in LANDINGS if spec["slug"] == "indie-games")
-    indie_games = sorted([g for g in safe if is_indie_recommendation(g)], key=indie_spec["sort"])
-    indie_spotlight = indie_feature(safe)
-    if indie_spotlight:
-        indie_games = [g for g in indie_games if g["appid"] != config.INDIE_FEATURE_APPID]
+    indie_games = with_indie_picks(
+        sorted([g for g in safe if is_indie_recommendation(g)], key=indie_spec["sort"]), safe)
     fresh = sorted([g for g in korean if store.is_new_release(g)],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
                    reverse=True)
@@ -1461,10 +1451,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          more_href="under-10000.html", more_text="1만원 이하 전체",
          total_count=len(under_10k))}
 
-{('<section id="indie-feature"><h2>🌱 이번 주 인디게임</h2>' + indie_spotlight + '</section>') if indie_spotlight else ''}
-
 {section("indie", "🌱 인디게임 추천",
-         "Steam 인디 장르 · 한국어 지원 · 전체 리뷰 50개 이상 · 긍정률 80% 이상", indie_games,
+         "Steam 인디 장르 · 한국어 지원 · 전체 리뷰 50개 이상 · 긍정률 80% 이상 · GameDil이 고른 게임 포함", indie_games,
          "아직 추천 기준에 맞는 인디게임이 없습니다.", rail=True, cap=8,
          more_href="indie-games.html", more_text="인디 추천 전체")}
 
@@ -2593,7 +2581,8 @@ LANDINGS = [
          title="스팀 인디게임 추천 — 한국어로 즐기는 평가 좋은 게임",
          h1="인디게임 추천",
          desc="한국어를 지원하는 스팀 인디게임 중 전체 리뷰 50개 이상, 긍정률 80% 이상인 출시작을 모았습니다. 가격과 할인, 데모 여부를 함께 확인하세요.",
-         note="Steam 상점의 ‘인디’ 장르 분류 기준입니다. 한국어 지원·출시 완료·전체 리뷰 50개 이상·긍정률 80% 이상인 게임을 자동으로 선별합니다. "
+         note="Steam 상점의 ‘인디’ 장르 분류 기준입니다. 한국어 지원·출시 완료·전체 리뷰 50개 이상·긍정률 80% 이상인 게임을 자동으로 선별하고, "
+              "GameDil이 고른 인디게임을 함께 보여줍니다. "
               "기본 추천순은 한국어·데모·할인·평가 등을 반영한 GameDil 점수 기준이며, 직접 플레이한 후기는 아닙니다.",
          pick=is_indie_recommendation,
          sort=lambda g: (-(g.get("score") or 0), -(g.get("review_total") or 0),
@@ -2672,9 +2661,8 @@ def build_landing(spec: dict, games: list[dict], updated: str,
                   freshness: dict | None = None) -> str:
     items = sorted([g for g in games if not g.get("adult") and spec["pick"](g)],
                    key=spec["sort"], reverse=spec.get("rev", False))
-    spotlight = indie_feature(games) if spec["slug"] == "indie-games" else ""
-    if spotlight:
-        items = [g for g in items if g["appid"] != config.INDIE_FEATURE_APPID]
+    if spec["slug"] == "indie-games":
+        items = with_indie_picks(items, [g for g in games if not g.get("adult")])
     grid = ('<div class="grid">' + "".join(card(g) for g in items) + "</div>"
             if items else
             '<div class="grid"><div class="none">'
@@ -2687,7 +2675,6 @@ def build_landing(spec: dict, games: list[dict], updated: str,
     <span class="cnt">{len(items)}개</span>
     <a class="more" href="./index.html">홈으로 돌아가기 →</a></div>
   <p class="sec-note">{esc(spec['note'])}</p>
-  {spotlight}
   <div class="tools" style="margin-bottom: 16px;">
     <select id="lsort" aria-label="정렬 기준">
       <option value="default">기본순</option>

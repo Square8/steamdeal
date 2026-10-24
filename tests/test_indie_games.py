@@ -143,32 +143,44 @@ class IndieGamesTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-    def test_weekly_feature(self):
-        self.assertTrue(build.indie_feature_active(datetime(2026, 10, 24, tzinfo=build.KST)))
-        self.assertTrue(build.indie_feature_active(datetime(2026, 10, 30, 23, 59, tzinfo=build.KST)))
-        self.assertFalse(build.indie_feature_active(datetime(2026, 10, 31, tzinfo=build.KST)))
-        self.assertFalse(build.indie_feature_active(datetime(2026, 10, 23, tzinfo=build.KST)))
+    def test_indie_picks(self):
+        picks = [{"appid": 4228920, "until": "2026-10-30"}]
+        with patch.object(config, "INDIE_PICKS", picks):
+            self.assertEqual(build.active_indie_picks(datetime(2026, 10, 24, tzinfo=build.KST)), [4228920])
+            self.assertEqual(build.active_indie_picks(datetime(2026, 10, 30, 23, 59, tzinfo=build.KST)), [4228920])
+            self.assertEqual(build.active_indie_picks(datetime(2026, 10, 31, tzinfo=build.KST)), [])
+        # 설정한 게임은 수집 대상에 자동 포함된다.
+        for p in config.INDIE_PICKS:
+            self.assertIn(p["appid"], config.SEED_APPIDS)
+
         spec = next(s for s in build.LANDINGS if s["slug"] == "indie-games")
-        game = dict(appid=4228920, name="No More Slimes!!", app_type="game",
-                    genres="인디", korean=1, review_total=22, review_positive_pct=77)
-        with patch.object(build, "indie_feature_active", return_value=True):
-            missing = build.build_landing(spec, [], "2026-10-24")
-            self.assertIn("store.steampowered.com/app/4228920/", missing)
-            self.assertIn("별도로 선정", missing)
-            # 데이터가 있으면 실제 카드 사용. 낮은 평가라도 운영자 픽으로만 노출.
-            self.assertFalse(build.is_indie_recommendation(game))
-            game.update(price_final=10000, price_initial=10000, discount_pct=0,
-                        score=0, header_image="", description="", review_count=22)
-            featured = build.build_landing(spec, [game], "2026-10-24")
-            self.assertIn('data-wish="4228920"', featured)
-        with patch.object(build, "indie_feature_active", return_value=False):
-            expired = build.build_landing(spec, [game], "2026-10-31")
-            self.assertNotIn("이번 주 운영자 픽", expired)
+        pick = dict(appid=4228920, name="No More Slimes!!", app_type="game",
+                    genres="인디", korean=1, review_total=22, review_positive_pct=77,
+                    price_final=10000, price_initial=10000, discount_pct=0,
+                    score=0, header_image="", description="", review_count=22)
+        auto = dict(appid=111, name="Auto Indie", app_type="game", genres="인디", korean=1,
+                    review_total=500, review_positive_pct=95, price_final=5000,
+                    price_initial=5000, discount_pct=0, score=99, header_image="",
+                    description="", review_count=500)
+        self.assertFalse(build.is_indie_recommendation(pick))
+        self.assertTrue(build.is_indie_recommendation(auto))
+
+        with patch.object(build, "active_indie_picks", return_value=[4228920]):
+            html = build.build_landing(spec, [auto, pick], "2026-10-24")
+            # 별도 섹션·라벨 없이 일반 카드로 맨 앞에 나온다.
+            self.assertNotIn("운영자 픽", html)
+            self.assertLess(html.index('data-wish="4228920"'), html.index('data-wish="111"'))
+            self.assertEqual(html.count('data-wish="4228920"'), 1)
+            self.assertIn("GameDil이 고른", html)
+            # 아직 수집되지 않은 게임은 빈 카드를 만들지 않는다.
+            missing = build.build_landing(spec, [auto], "2026-10-24")
+            self.assertNotIn("4228920", missing)
+            # 성인·출시 전 게임은 올리지 않는다.
+            adult = build.build_landing(spec, [auto, dict(pick, adult=1)], "2026-10-24")
+            self.assertNotIn('data-wish="4228920"', adult)
+        with patch.object(build, "active_indie_picks", return_value=[]):
+            expired = build.build_landing(spec, [auto, pick], "2026-10-31")
             self.assertNotIn('data-wish="4228920"', expired)
-            game.update(review_total=100, review_positive_pct=90)
-            eligible = build.build_landing(spec, [game], "2026-10-31")
-            self.assertIn('data-wish="4228920"', eligible)
-            self.assertNotIn("이번 주 운영자 픽", eligible)
 
 
 if __name__ == "__main__":

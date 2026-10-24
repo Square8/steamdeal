@@ -171,6 +171,10 @@ def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
 
     # ② 오늘 상점 첫 화면에 걸린 것 — 신작/할인 태그를 얻을 수 있는 유일한 경로
     discovered = steam.discover()
+    # 시드(운영자 픽 등)는 discover 결과 맨 뒤에 붙으므로, 예산이 차면 잘린다.
+    # 상점 태그는 그대로 쓰되 순서만 앞으로 당긴다.
+    for appid in config.SEED_APPIDS:
+        take(appid, discovered.get(appid, "고정"))
     for appid, tag in discovered.items():
         take(appid, tag)
     n_featured = len(targets) - n_refresh

@@ -141,12 +141,15 @@ BUCKETS = {
 }
 
 # 항상 추적할 게임 (스팀 상점 URL 의 /app/<숫자>/ 가 앱ID)
-SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520, 4228920]
+SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520]
 
-# 한국 시간 10/24~10/30 운영자 선정. 종료 뒤 첫 정기 빌드부터 자동 추천만 노출.
-INDIE_FEATURE_APPID = 4228920
-INDIE_FEATURE_START = "2026-10-24"
-INDIE_FEATURE_END = "2026-10-31"  # exclusive
+# 인디 추천 맨 앞에 올릴 게임. until 은 한국 시간 그날까지 포함.
+# 여기 적으면 수집 대상(SEED_APPIDS)에도 자동으로 들어가고, 날짜가 지나면 자동으로 빠진다.
+# 아직 수집되지 않은 게임은 빈 카드를 만들지 않고 수집된 뒤부터 보인다.
+INDIE_PICKS = [
+    {"appid": 4228920, "until": "2026-10-30"},  # No More Slimes!!
+]
+SEED_APPIDS += [p["appid"] for p in INDIE_PICKS if p["appid"] not in SEED_APPIDS]
 
 # ---- 추천 후보 판정 ----
 # 추천 목록에 띄울 기준. 취향에 맞게 바꾸면 된다.
