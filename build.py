@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import os
+import random
 import sys
 from datetime import date, datetime, timezone, timedelta
 
@@ -956,16 +957,20 @@ def compact_num(v: int) -> str:
     return f"{v:,}"
 
 
-def checked_time(games: list[dict]) -> str:
-    values = [g.get("players_checked_at") for g in games if g.get("players_checked_at")]
-    if not values:
+def player_stamp(g: dict, fmt: str = "%m/%d %H시") -> str:
+    """이 게임의 동접을 마지막으로 '성공' 확인한 한국 시각. store.all_games 가 최근 값만 남긴다."""
+    dt = store.parse_utc(g.get("players_at"))
+    return dt.astimezone(KST).strftime(fmt) if dt else ""
+
+
+def player_badge_text(g: dict) -> str:
+    players = g.get("players_current") or 0
+    stamp = player_stamp(g)
+    if not players or not stamp:
         return ""
-    raw = max(values)
-    try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        return dt.astimezone(KST).strftime("%m/%d %H:%M")
-    except (ValueError, AttributeError):
-        return raw[:16]
+    # 모바일 카드 폭에 맞게 시각만. 날짜까지는 title·상세에 적는다(값은 항상 24시간 이내).
+    # 앞의 점은 CSS(.player-badge::before)가 붙인다.
+    return f"{compact_num(players)}명 · {player_stamp(g, '%H시')}"
 
 def chips_for(g: dict, show_atl: bool = True) -> str:
     """게임 성격을 칩으로. 색만으로 뜻을 전하지 않도록 항상 글자를 쓴다."""
@@ -1011,9 +1016,9 @@ def shot(g: dict, ribbon: bool = True) -> str:
     pct = g.get("discount_pct") or 0
     rib = (f'<span class="ribbon {"r-hi" if pct >= 75 else "r-lo"}">-{pct}%</span>'
            if ribbon and pct else "")
-    players = g.get("players_current") or 0
-    playing = (f'<span class="player-badge">● {compact_num(players)}명 플레이 중</span>'
-               if players else "")
+    badge = player_badge_text(g)
+    playing = (f'<span class="player-badge" title="Steam 동접 · {esc(player_stamp(g, "%m/%d %H:%M"))} KST 확인">'
+               f'{esc(badge)}</span>' if badge else "")
     if g.get("header_image"):
         inner = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지" '
                  f'loading="lazy" decoding="async">')
@@ -1261,7 +1266,18 @@ def get_recent_drops(games: list[dict], today: date | None = None) -> list[dict]
     return drops
 
 
-def price_diverse_sample(items: list[dict], cap: int = 8) -> list[dict]:
+def daily_rotate(items: list[dict], salt: str, pool: int = 24,
+                 now: datetime | None = None) -> list[dict]:
+    """기준을 통과한 상위 pool개 안에서만 한국 날짜마다 순서를 바꾼다.
+    같은 날 다시 빌드해도 순서가 같고, 기준 밖 게임이 끼어들지 않는다."""
+    day = (now or datetime.now(KST)).astimezone(KST).date().isoformat()
+    head = list(items[:pool])
+    random.Random(f"{salt}:{day}").shuffle(head)
+    return head + list(items[pool:])
+
+
+def price_diverse_sample(items: list[dict], cap: int = 8,
+                         rotate: str | None = None) -> list[dict]:
     """홈의 저가 게임 미리보기를 네 가격 구간에서 고르게 뽑는다.
 
     각 구간 안에서는 기존 추천 점수와 평가·인지도 신호 순으로 고르고,
@@ -1280,6 +1296,9 @@ def price_diverse_sample(items: list[dict], cap: int = 8) -> list[dict]:
         sorted([g for g in items if low <= (g.get("price_final") or 0) <= high], key=quality)
         for low, high in bands
     ]
+    if rotate:
+        # 구간마다 상위 6개 안에서 날마다 다른 2개가 앞에 온다.
+        groups = [daily_rotate(group, f"{rotate}:{i}", pool=6) for i, group in enumerate(groups)]
     picked = []
     picked_ids = set()
     for slot in range(2):
@@ -1328,64 +1347,87 @@ def with_indie_picks(items: list[dict], games: list[dict],
     return picks + [g for g in items if g["appid"] not in ids]
 
 
-def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None) -> str:
+def top_seller_games(top_sellers: dict | None, games: list[dict],
+                     now: datetime | None = None) -> tuple[list[dict], str]:
+    """Steam 한국 상점 '최고 판매' 목록 순서대로, 수집된 비성인·출시 게임만.
+    목록이 TOP_SELLERS_MAX_AGE_HOURS 보다 오래됐거나 미래 시각이면 보여주지 않는다."""
+    data = top_sellers or {}
+    at = store.parse_utc(data.get("at"))
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    if at is None or at > now + timedelta(minutes=5) or \
+            now - at > timedelta(hours=config.TOP_SELLERS_MAX_AGE_HOURS):
+        return [], ""
+    by_id = {g["appid"]: g for g in games if not g.get("adult") and not g.get("coming_soon")}
+    items = [by_id[a] for a in data.get("appids") or [] if a in by_id]
+    return items, at.astimezone(KST).strftime("%m/%d %H:%M")
+
+
+def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None,
+                top_sellers: dict | None = None) -> str:
     # 기본 화면은 성적 콘텐츠를 제외한다. 전체 탐색기에서 토글로 켤 수 있다.
     safe = [g for g in games if not g.get("adult")]
     korean = [g for g in safe if g.get("korean")]
 
-    # 실시간 동접은 공식 Steam 현재 플레이어 수 신호가 있을 때만 주장한다.
+    # 동접은 최근 24시간 안에 '성공' 확인한 값만 쓴다(store.all_games 가 오래된 값을 지운다).
+    # 후보가 없으면 빈 상태를 보여준다. 리뷰 수 순위를 동접 인기처럼 대신 보여주지 않는다.
     player_pool = [g for g in korean if (g.get("players_current") or 0) > 0
-                   and not g.get("coming_soon")]
-    if player_pool:
-        popular = sorted(player_pool, key=lambda g: (-(g.get("players_current") or 0),
-                                                      -(g.get("review_count") or 0)))
-        popular_title = "🔥 지금 많이 하는 한국어 게임"
-        stamp = checked_time(player_pool)
-        popular_note = f"Steam 현재 플레이어 수 · {stamp} KST 기준" if stamp else "Steam 현재 플레이어 수 기준"
-    else:
-        popular = sorted([g for g in korean if not g.get("coming_soon")],
-                         key=lambda g: -(g.get("review_count") or 0))
-        popular_title = "🔥 지금 많이 찾는 한국어 게임"
-        popular_note = "동접 신호를 처음 수집하기 전까지 Steam 리뷰 수를 기준으로 보여줍니다."
+                   and g.get("players_at") and not g.get("coming_soon")]
+    popular = sorted(player_pool, key=lambda g: (-(g.get("players_current") or 0),
+                                                  -(g.get("review_count") or 0)))
+    popular_title = "🔥 많이 플레이 중인 한국어 게임"
+    popular_note = (f"Steam 동시 접속자 수(전 세계) · 최근 {config.PLAYER_FRESH_HOURS}시간 안에 "
+                    "확인한 값만 · 카드에 게임별 확인 시각")
 
     strict_hot = [g for g in korean if (g.get("discount_pct") or 0) >= 70
                   and is_overwhelming(g)
                   and (g.get("review_total") or g.get("review_count") or 0) >= 500]
-    if strict_hot:
-        hot = sorted(strict_hot, key=lambda g: (-(g.get("discount_pct") or 0),
-                                                -(g.get("review_total") or g.get("review_count") or 0)))
-        hot_title = "💸 70%+ 할인 · 압도적 긍정"
-        hot_note = "할인율만 세지 않습니다. Steam 전체 리뷰가 ‘압도적으로 긍정적’인 게임만 골랐습니다."
-    else:
-        reviewed_hot = [g for g in korean if (g.get("discount_pct") or 0) >= 70
-                        and (g.get("review_score") or 0) >= 8
-                        and (g.get("review_total") or 0) >= 500]
-        if reviewed_hot:
-            hot = sorted(reviewed_hot, key=lambda g: (-(g.get("discount_pct") or 0),
-                                                       -(g.get("review_total") or 0)))
-            hot_title = "💸 70%+ 할인 · 매우 긍정 이상"
-            hot_note = "할인율과 Steam 전체 리뷰 평가를 함께 통과한 게임입니다."
+    by_deal = lambda g: (-(g.get("discount_pct") or 0),
+                         -(g.get("review_total") or g.get("review_count") or 0))
+    strict_ids = {g["appid"] for g in strict_hot}
+    # 70%+·압도적 긍정만으로는 3개 안팎이라 매일 같다. 50%+·'매우 긍정적' 이상으로 넓힌다.
+    good_hot = [g for g in korean if g["appid"] not in strict_ids
+                and (g.get("discount_pct") or 0) >= 50
+                and (g.get("review_score") or 0) >= 8
+                and (g.get("review_total") or 0) >= 500]
+    if strict_hot or good_hot:
+        hot = daily_rotate(sorted(strict_hot, key=by_deal) + sorted(good_hot, key=by_deal), "hot")
+        if good_hot:
+            hot_title = "💸 50%+ 할인 · 평가 좋은 게임"
+            hot_note = ("Steam 전체 리뷰 500개 이상, ‘매우 긍정적’ 이상인 게임만 골랐습니다. "
+                        "70%+ 할인·압도적 긍정 게임 포함, 날마다 순서가 바뀝니다.")
         else:
-            hot = sorted([g for g in korean if (g.get("discount_pct") or 0) >= 70
-                          and (g.get("review_count") or 0) >= 500],
-                         key=lambda g: (-(g.get("discount_pct") or 0),
-                                        -(g.get("review_count") or 0)))
-            hot_title = "💸 70%+ 검증된 핫딜"
-            hot_note = "리뷰 요약을 처음 수집하기 전까지 할인율과 리뷰 수로 검증합니다."
+            hot_title = "💸 70%+ 할인 · 압도적 긍정"
+            hot_note = "할인율만 세지 않습니다. Steam 전체 리뷰가 ‘압도적으로 긍정적’인 게임만 골랐습니다."
+    else:
+        hot = sorted([g for g in korean if (g.get("discount_pct") or 0) >= 70
+                      and (g.get("review_count") or 0) >= 500],
+                     key=lambda g: (-(g.get("discount_pct") or 0),
+                                    -(g.get("review_count") or 0)))
+        hot_title = "💸 70%+ 검증된 핫딜"
+        hot_note = "리뷰 요약을 처음 수집하기 전까지 할인율과 리뷰 수로 검증합니다."
 
-    demos = sorted([g for g in korean
-                    if g.get("has_demo") or g.get("app_type") == "demo"],
-                   key=lambda g: -(g.get("review_count") or 0))
+    selling, selling_stamp = top_seller_games(top_sellers, safe)
+
+    demos = daily_rotate(sorted([g for g in korean
+                                 if g.get("has_demo") or g.get("app_type") == "demo"],
+                                key=lambda g: -(g.get("review_count") or 0)), "demo")
     under_10k = sorted([g for g in safe if g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000],
                        key=lambda g: g.get("price_final") or 0)
-    under_10k_featured = price_diverse_sample(under_10k)
+    # 홈 미리보기는 평가가 확인된 게임만. 전체 목록 페이지는 그대로 모든 게임을 보여준다.
+    under_10k_good = [g for g in under_10k if (g.get("review_total") or 0) >= 50
+                      and (g.get("review_positive_pct") or 0) >= 70]
+    under_10k_featured = price_diverse_sample(
+        under_10k_good if len(under_10k_good) >= 4 else under_10k, rotate="under-10000")
     indie_spec = next(spec for spec in LANDINGS if spec["slug"] == "indie-games")
     indie_games = with_indie_picks(
-        sorted([g for g in safe if is_indie_recommendation(g)], key=indie_spec["sort"]), safe)
+        daily_rotate(sorted([g for g in safe if is_indie_recommendation(g)],
+                            key=indie_spec["sort"]), "indie"), safe)
     fresh = sorted([g for g in korean if store.is_new_release(g)],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
                    reverse=True)
-    soon = sorted([g for g in korean if g.get("coming_soon")],
+    # 아직 안 나온 데모 앱은 '기대작'이 아니다.
+    soon = sorted([g for g in korean if g.get("coming_soon")
+                   and g.get("app_type", "game") != "demo"],
                   key=lambda g: (g.get("release_date") or "9999",
                                  -(g.get("review_count") or 0), g.get("name") or ""))
     top = (hot or popular or demos or under_10k or fresh or soon or safe or games)[0]
@@ -1421,8 +1463,11 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 {lead(games, safe)}
 
 {section("popular", popular_title, popular_note, popular,
-         "인기 신호를 수집하는 중입니다.", rail=True, cap=8,
+         "최근 확인한 동접 정보가 없습니다. 다음 수집 후 다시 표시됩니다.", rail=True, cap=8,
          more_href="popular-games.html", more_text="인기 게임 전체")}
+{section("selling", "🛒 Steam 한국 판매 상위",
+         f"Steam 한국 상점 ‘최고 판매’ 목록 순서 · {selling_stamp} KST 수집 · 동접과는 다른 지표입니다.",
+         selling, "", rail=True, cap=8, more_href="#all", more_text="전체에서 더 보기") if selling else ""}
 
 {(section("drop", "📉 최근 가격이 내려간 게임",
          f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", recent_drops,
@@ -1441,12 +1486,12 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          more_href="korean-soon.html", more_text="출시예정 전체")}
 
 {section("demo", "🎮 사기 전에 해보는 무료 데모",
-         "한국어로 먼저 플레이해보고 고를 수 있는 게임입니다.", demos,
+         "한국어로 먼저 플레이해보고 고를 수 있는 게임입니다. 리뷰가 많은 게임 중에서 날마다 순서가 바뀝니다.", demos,
          "한국어 데모가 아직 수집되지 않았습니다.", rail=True,
          more_href="korean-demo.html", more_text="무료 데모 전체")}
 
 {section("under-10000", "💸 1만원 이하 게임",
-         "현재 판매가 기준, 1만원 이하 게임을 가격대별로 골고루 보여줍니다.", under_10k_featured,
+         "현재 판매가 1만원 이하 · 리뷰 50개 이상 · 긍정 70% 이상 게임을 가격대별로 골고루, 날마다 바꿔 보여줍니다.", under_10k_featured,
          "조건에 맞는 게임이 없습니다.", rail=True, cap=8,
          more_href="under-10000.html", more_text="1만원 이하 전체",
          total_count=len(under_10k))}
@@ -1558,12 +1603,13 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       shot.appendChild(rib);
     }}
 
-    if (g.players) {{
+    if (g.players && g.p_at) {{
       var playing = document.createElement('span');
       playing.className = 'player-badge';
       var compact = g.players >= 10000 ? (g.players / 10000).toFixed(1).replace('.0', '') + '만' :
                     g.players >= 1000 ? (g.players / 1000).toFixed(1).replace('.0', '') + '천' : g.players;
-      playing.textContent = '● ' + compact + '명 플레이 중';
+      playing.textContent = compact + '명 · ' + g.p_at;
+      playing.title = 'Steam 동접 · ' + (g.p_full || g.p_at) + ' KST 확인';
       shot.appendChild(playing);
     }}
     a.appendChild(shot);
@@ -2186,8 +2232,10 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     if g.get("genres"):
         facts.append(("장르", esc(g["genres"])))
     facts.append(("한국어", "지원" if g.get("korean") else "미지원"))
-    if g.get("players_current"):
-        facts.append(("현재 플레이 중", f'{g["players_current"]:,}명'))
+    # 0명은 표시하지 않는다. 공통 실행 앱으로 집계되는 게임처럼 '모름'일 수 있다.
+    if g.get("players_current") and g.get("players_at"):
+        facts.append(("Steam 동접", f'{g["players_current"]:,}명 '
+                      f'({esc(player_stamp(g, "%m/%d %H:%M"))} KST 확인)'))
     if review_label(g):
         total = g.get("review_total") or g.get("review_count") or 0
         positive = g.get("review_positive_pct")
@@ -2343,7 +2391,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             "has_demo": bool(g.get("has_demo") or g.get("demo_appid")),
             "review_label": review_label(g),
             "review_positive_pct": g.get("review_positive_pct"),
-            "players_current": g.get("players_current") or 0,
+            "players_current": (g.get("players_current") or 0) if g.get("players_at") else 0,
             "release_text": g.get("release_text") or "",
             "adult": bool(g.get("adult"))
         }
@@ -2648,11 +2696,12 @@ LANDINGS = [
          pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) >= 70),
          sort=lambda g: (-(g.get("discount_pct") or 0), -(g.get("review_total") or g.get("review_count") or 0))),
     dict(slug="popular-games",
-         title="스팀 인기 게임 — 현재 플레이어 수 순위",
-         h1="지금 많이 하는 스팀 게임",
-         desc="마지막 수집 시점 기준 Steam 현재 플레이어 수가 확인된 한국어 지원 게임 목록입니다.",
-         note="동접 신호가 수집된 게임만 표시합니다. 기본 정렬은 마지막 수집 시점 기준 스팀 현재 플레이어 수 순입니다.",
-         pick=lambda g: bool(g.get("korean") and (g.get("players_current") or 0) > 0 and not g.get("coming_soon")),
+         title="스팀 인기 게임 — 동시 접속자 수 순위",
+         h1="많이 플레이 중인 스팀 게임",
+         desc="최근 24시간 안에 Steam에서 확인한 동시 접속자 수가 있는 한국어 지원 게임 목록입니다.",
+         note="최근 24시간 안에 확인한 Steam 동접(전 세계)만 표시합니다. 카드에 게임별 확인 시각을 적습니다.",
+         pick=lambda g: bool(g.get("korean") and (g.get("players_current") or 0) > 0
+                            and g.get("players_at") and not g.get("coming_soon")),
          sort=lambda g: (-(g.get("players_current") or 0), -(g.get("review_count") or 0))),
 ]
 
@@ -2920,7 +2969,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
           if (g.review_positive_pct) text += ' (' + g.review_positive_pct + '%)';
           td.textContent = text;
       } },
-      { key: '현재 플레이어', render: function(g, td) { td.textContent = g.players_current ? g.players_current.toLocaleString('ko-KR') + '명' : '정보 없음'; } },
+      { key: 'Steam 동접', render: function(g, td) { td.textContent = '상세 페이지에서 최신값 확인'; } },
       { key: '출시', render: function(g, td) { td.textContent = g.release_text || '정보 없음'; } },
       { key: '관리', render: function(g, td) {
           var btn = el('button', '제거', 'btn btn-s del-btn');
@@ -4129,6 +4178,7 @@ def main() -> int:
 
     conn = store.connect()
     games = store.all_games(conn)
+    top_sellers = store.load_top_sellers(conn)
     last_collection = store.get_meta(conn, "last_collection_at")
     if not last_collection:
         # 메타 기록이 생기기 전 DB도 현재 동접/리뷰 수집 시각으로 최대한 정확히 표시한다.
@@ -4174,7 +4224,9 @@ def main() -> int:
             "atl_txt": atl_label(g_copy).replace('<span class="t atl">', "").replace("</span>", "") if atl_label(g_copy) else "",
             "img": g_copy.get("header_image") or "",
             "recent_drop": g_copy.get("recent_drop_amount") or 0,
-            "players": g_copy.get("players_current") or 0,
+            "players": (g_copy.get("players_current") or 0) if g_copy.get("players_at") else 0,
+            "p_at": player_stamp(g_copy, "%H시") if g_copy.get("players_at") else "",
+            "p_full": player_stamp(g_copy, "%m/%d %H:%M") if g_copy.get("players_at") else "",
             "p_delta": g_copy.get("player_delta") or 0,
             "r_lbl": review_label(g_copy) or "",
             "r_tot": g_copy.get("review_total") or g_copy.get("review_count") or 0,
@@ -4194,7 +4246,8 @@ def main() -> int:
     write("style.css", theme.CSS)
     if os.path.exists(os.path.join(config.ROOT, "favicon.svg")):
         write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())
-    write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops))
+    write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops,
+                                    top_sellers=top_sellers))
     write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
     write("my-games.html", build_my_games(updated, freshness))
     write("shared-games.html", build_shared_games(updated, freshness))

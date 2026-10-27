@@ -46,24 +46,33 @@ def _get_json(url: str, params: dict | None = None, delay: float | None = None):
     return None
 
 
-def fetch_current_players(appid: int) -> int | None:
-    """현재 Steam 접속 플레이어 수.
-    네트워크/요청 실패 시 None을 반환하되,
-    Steam이 정상 응답(HTTP 200)했으나 통계가 없는 경우(result != 1, 예: result 42 k_EResultNoMatch)는
-    0으로 처리하여 대기열 무한 재시도 및 슬롯 점유 병목을 방지한다.
+def fetch_player_count(appid: int) -> tuple[str, int | None]:
+    """현재 Steam 접속 플레이어 수와 조회 상태.
+
+    ("ok", n)            result=1 이고 player_count 가 0 이상의 정수. 실제 0명도 성공이다.
+    ("unavailable", None) Steam이 정상 응답했지만 통계를 주지 않음(result != 1, 예: 42).
+    ("error", None)       통신 실패 또는 응답 형식 오류(누락·음수·잘못된 타입).
+    실패를 0명으로 바꾸지 않는다 — 0명과 '모름'은 다른 정보다.
     """
     data = _get_json(config.PLAYERS_URL, {"appid": appid},
                      delay=config.SIGNAL_REQUEST_DELAY)
     if not isinstance(data, dict):
-        return None
-    response = data.get("response") or {}
+        return "error", None
+    response = data.get("response")
+    if not isinstance(response, dict):
+        return "error", None
     if response.get("result") != 1:
-        return 0
-    try:
-        count = int(response.get("player_count"))
-    except (TypeError, ValueError):
-        return 0
-    return max(count, 0)
+        return "unavailable", None
+    count = response.get("player_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return "error", None
+    return "ok", count
+
+
+def fetch_current_players(appid: int) -> int | None:
+    """성공한 동접 숫자만. 미제공·실패는 None."""
+    status, count = fetch_player_count(appid)
+    return count if status == "ok" else None
 
 
 def fetch_review_summary(appid: int) -> dict | None:
@@ -174,10 +183,11 @@ def fetch_recent_reviews(appid: int, now_ts: int | None = None,
     return out
 
 
-def discover() -> dict[int, str]:
+def discover(top_sellers: list[int] | None = None) -> dict[int, str]:
     """스팀이 제공하는 목록에서 appid 를 모은다.
     반환: {appid: 태그}  태그는 '신작' / '출시예정' / '할인' / '인기'.
-    어느 목록에서 나왔는지 유지해야 신작과 할인을 구분할 수 있다."""
+    어느 목록에서 나왔는지 유지해야 신작과 할인을 구분할 수 있다.
+    top_sellers 를 넘기면 상점 '최고 판매' 목록의 순서(중복 제거)를 채워준다."""
     out: dict[int, str] = {}
     data = _get_json(config.FEATURED_URL.format(cc=config.CC, lang=config.LANG))
     if not isinstance(data, dict):
@@ -198,6 +208,9 @@ def discover() -> dict[int, str]:
             if isinstance(appid, int) and 10 <= appid < 10_000_000:
                 # 먼저 잡힌 태그를 유지 (BUCKETS 순서가 우선순위)
                 out.setdefault(appid, tag)
+                if (bucket == "top_sellers" and top_sellers is not None
+                        and appid not in top_sellers):
+                    top_sellers.append(appid)
         log.info("  %s(%s): %d개", bucket, tag, len(items))
 
     for appid in config.SEED_APPIDS:

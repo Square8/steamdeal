@@ -214,7 +214,9 @@ _mem2.close()
 
 players_no_stats = with_fake({"response": {"result": 42}},
                              lambda: steam.fetch_current_players(999999))
-check("Steam 통계 미제공(result 42)은 0 반환", players_no_stats == 0)
+check("Steam 통계 미제공(result 42)은 0명으로 바꾸지 않음", players_no_stats is None)
+check("Steam 통계 미제공 상태 구분", with_fake({"response": {"result": 42}},
+      lambda: steam.fetch_player_count(999999)) == ("unavailable", None))
 
 print("\n5) 정가는 스팀 값을 쓴다 (관측 최고가로 추정하지 않음)")
 games = store.all_games(conn)
@@ -553,10 +555,14 @@ _nbig = h.count('class="card big"')
 check("모바일 레일 카드 크기를 균일하게 유지", _nbig == 0, f"{_nbig}장")
 signal_card = build.card({"appid": 730, "name": "신호 게임", "korean": 1,
                           "players_current": 43210, "player_delta": 210,
+                          "players_at": "2026-10-27T02:00:00+00:00",
                           "review_desc": "Overwhelmingly Positive",
                           "review_total": 10000, "review_positive_pct": 95,
                           "history": [], "price_final": 33000})
-check("카드에 현재 플레이어 수", "player-badge" in signal_card and "4.3만명 플레이 중" in signal_card)
+check("카드에 동접과 확인 시각", "player-badge" in signal_card and "4.3만명 · 11시" in signal_card and "10/27 11:00 KST 확인" in signal_card)
+_stale_card = build.card({"appid": 731, "name": "미확인 동접", "korean": 1, "players_current": 43210,
+                          "history": [], "price_final": 33000})
+check("확인 시각 없는 동접은 카드에 표시 안 함", "player-badge" not in _stale_card)
 check("카드에 리뷰 평가 칩", "압도적 긍정" in signal_card)
 check("상세 리뷰 영문을 한국어로 바꿈", build.review_label(
       {"review_desc": "Overwhelmingly Positive"}) == "압도적 긍정")
@@ -1231,7 +1237,7 @@ hd_html = open(hd_path, encoding="utf-8").read() if os.path.exists(hd_path) else
 pop_html = open(pop_path, encoding="utf-8").read() if os.path.exists(pop_path) else ""
 check("hot-deals.html 성인 게임 제외", 'data-adult="1"' not in hd_html)
 check("popular-games.html 성인 게임 제외", 'data-adult="1"' not in pop_html)
-check("popular-games.html 실시간 표현 금지 및 현재 플레이어 수 기준 안내", "실시간" not in pop_html and "현재 플레이어 수" in pop_html)
+check("popular-games.html 실시간 표현 금지 및 확인 시점 안내", "실시간" not in pop_html and "최근 24시간 안에 확인한" in pop_html)
 check("홈 인기 섹션 더 보기가 popular-games.html로 연결", 'href="popular-games.html"' in idx_html)
 check("홈 핫딜 섹션 더 보기가 hot-deals.html로 연결", 'href="hot-deals.html"' in idx_html)
 check("hot-deals.html canonical 확인", 'rel="canonical"' in hd_html and 'hot-deals.html' in hd_html)

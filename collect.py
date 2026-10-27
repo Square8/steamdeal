@@ -25,7 +25,8 @@ def _collect_signals(conn, log) -> tuple[int, int]:
     """홈 트렌드용 리뷰 등급·현재 동접을 제한된 후보에만 붙인다."""
     review_ok = player_ok = 0
     review_ids = store.review_signal_appids(conn, config.REVIEW_SIGNAL_LIMIT)
-    player_ids = store.player_signal_appids(conn, config.PLAYER_SIGNAL_LIMIT)
+    player_ids = store.player_signal_appids(conn, config.PLAYER_SIGNAL_LIMIT,
+                                            store.top_seller_appids(conn))
     log.info("트렌드 신호 — 리뷰 후보 %d / 동접 후보 %d",
              len(review_ids), len(player_ids))
 
@@ -40,12 +41,10 @@ def _collect_signals(conn, log) -> tuple[int, int]:
             conn.commit()
 
     for i, appid in enumerate(player_ids, 1):
-        count = steam.fetch_current_players(appid)
-        if count is not None:
-            store.save_player_count(conn, appid, count)
+        # 실패·미제공은 시도만 기록하고 이전 성공값·성공 시각은 건드리지 않는다.
+        status, count = steam.fetch_player_count(appid)
+        if store.save_player_result(conn, appid, status, count):
             player_ok += 1
-        else:
-            store.touch_player_checked(conn, appid)
         if i % 20 == 0:
             conn.commit()
     conn.commit()
@@ -170,7 +169,10 @@ def _plan(conn, log) -> tuple[list[tuple[int, str | None]], set[int]]:
     n_refresh = len(targets)
 
     # ② 오늘 상점 첫 화면에 걸린 것 — 신작/할인 태그를 얻을 수 있는 유일한 경로
-    discovered = steam.discover()
+    top_sellers: list[int] = []
+    discovered = steam.discover(top_sellers)
+    if top_sellers:
+        store.save_top_sellers(conn, top_sellers)
     # 시드(운영자 픽 등)는 discover 결과 맨 뒤에 붙으므로, 예산이 차면 잘린다.
     # 상점 태그는 그대로 쓰되 순서만 앞으로 당긴다.
     for appid in config.SEED_APPIDS:

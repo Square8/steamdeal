@@ -44,7 +44,13 @@ MAX_RETRY = 2
 PLAYERS_URL = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 SIGNAL_REQUEST_DELAY = 0.8
-PLAYER_SIGNAL_LIMIT = 100
+# 우선 후보(약 180개)를 매 실행 전부 확인하고 남는 자리로 나머지를 순환한다.
+# 0.8초 × 250 ≈ 3.3분. 100개일 때보다 실행당 약 2분 늘어난다.
+PLAYER_SIGNAL_LIMIT = 250
+# 이 시간 안에 '성공'한 동접만 화면에 보여준다. 하루 2회 수집이므로 한 번 실패해도 버틴다.
+PLAYER_FRESH_HOURS = 24
+# 한국 판매 상위 목록이 이보다 오래되면 홈에 보여주지 않는다.
+TOP_SELLERS_MAX_AGE_HOURS = 48
 REVIEW_SIGNAL_LIMIT = 60
 
 # ---- 최근 30일 평가 (상세 페이지 보조 정보) ----
@@ -141,7 +147,10 @@ BUCKETS = {
 }
 
 # 항상 추적할 게임 (스팀 상점 URL 의 /app/<숫자>/ 가 앱ID)
-SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520]
+SEED_APPIDS = [730, 578080, 1245620, 1091500, 292030, 413150, 553850, 367520,
+               # 콜 오브 듀티 공통 실행 앱. MW4·블랙 옵스·워존 동접이 개별 작품이 아니라 여기로 집계된다.
+               # 이 숫자를 개별 작품(MW4 4435490 등) 동접으로 옮기지 않는다.
+               1938090]
 
 # 인디 추천 맨 앞에 올릴 게임. until 은 한국 시간 그날까지 포함.
 # 여기 적으면 수집 대상(SEED_APPIDS)에도 자동으로 들어가고, 날짜가 지나면 자동으로 빠진다.

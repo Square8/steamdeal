@@ -1,4 +1,5 @@
 """저장소. 게임 정보 + 일별 가격 이력."""
+import json
 import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -30,7 +31,9 @@ CREATE TABLE IF NOT EXISTS games (
     reviews_checked_at TEXT,
     players_current INTEGER DEFAULT 0,
     players_previous INTEGER DEFAULT 0,
-    players_checked_at TEXT,
+    players_checked_at TEXT,       -- 마지막 조회 '시도' 시각 (실패 포함). 순환 순서에만 쓴다
+    players_success_at TEXT,       -- 마지막 '유효 성공' 시각. 화면 표시는 이것만 믿는다
+    players_status  TEXT,          -- ok / unavailable(통계 미제공) / error(통신·형식 오류)
     -- 최근 30일 평가. total/positive/computed_at 은 '완전 집계'가 성공했을 때만 갱신한다.
     -- attempt_at/status 는 매 시도마다 갱신(complete/limit/budget/error).
     recent_review_total INTEGER,
@@ -107,6 +110,27 @@ def get_meta(conn, key: str, default: str | None = None) -> str | None:
     return row[0] if row else default
 
 
+def save_top_sellers(conn, appids: list[int]) -> None:
+    """Steam 한국 상점 '최고 판매' 목록 순서를 수집 시각과 함께 남긴다.
+    동접과 다른 지표이므로 games 표에 섞지 않고 meta 에 따로 둔다."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    set_meta(conn, "top_sellers", json.dumps({"at": now, "appids": [int(a) for a in appids]}))
+
+
+def load_top_sellers(conn) -> dict:
+    """{'at': ISO 시각, 'appids': [...]} — 없거나 깨졌으면 빈 목록."""
+    try:
+        data = json.loads(get_meta(conn, "top_sellers") or "{}")
+        ids = [int(a) for a in data.get("appids") or []]
+        return {"at": str(data.get("at") or ""), "appids": ids}
+    except (ValueError, TypeError, AttributeError):
+        return {"at": "", "appids": []}
+
+
+def top_seller_appids(conn) -> list[int]:
+    return load_top_sellers(conn)["appids"]
+
+
 def _migrate(conn) -> None:
     """예전 스키마로 만든 DB에 새 칼럼을 붙인다 (데이터 유지)."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(games)")}
@@ -124,6 +148,9 @@ def _migrate(conn) -> None:
         "players_current": "INTEGER DEFAULT 0",
         "players_previous": "INTEGER DEFAULT 0",
         "players_checked_at": "TEXT",
+        # 기존 players_checked_at 은 실패에도 갱신됐으므로 성공 시각으로 옮기지 않는다.
+        # 새로 성공 확인되기 전까지 예전 숫자는 화면에 나가지 않는다.
+        "players_success_at": "TEXT", "players_status": "TEXT",
         "recent_review_total": "INTEGER", "recent_review_positive": "INTEGER",
         "recent_review_computed_at": "TEXT", "recent_review_attempt_at": "TEXT",
         "recent_review_status": "TEXT",
@@ -276,29 +303,39 @@ def _current_price_join() -> str:
     """
 
 
-def player_signal_appids(conn, limit: int) -> list[int]:
-    """동접을 물어볼 후보. 한국어 정식 게임 중 검증된 인기작을 우선하되,
-    '오래전에 확인한 게임'을 순환하며 넓혀간다.
+def player_signal_appids(conn, limit: int, priority_ids: list[int] | tuple = ()) -> list[int]:
+    """동접을 물어볼 후보. 매 실행 '우선 후보'를 전부 확인하고, 남는 자리로 나머지를 순환한다.
+
+    우선 후보: 리뷰 300개 이상 · 직전 성공 동접 200명 이상 · 상점 인기/고정 태그 ·
+    priority_ids(한국 판매 상위 등). 하루 2회 실행이면 우선 후보의 성공값이 24시간 안에 유지된다.
+    통계 미제공(unavailable)으로 확인된 게임은 우선 후보에서 빼서 예산을 독점하지 않게 한다.
+    순환은 조회 '시도' 시각(players_checked_at) 기준이라 실패한 게임도 뒤로 밀린다.
 
     주의:
-    1. 플레이테스트(Playtest)는 Steam API가 통계를 미제공(result 42)하므로 제외하여
-       수집 대기열 낭비 및 슬롯 병목을 원천 방지한다.
-    2. 사이버펑크 2077, 위쳐 3 등 성인(adult) 태그 대작도 상세 페이지 동접 표시를 위해
-       포함한다 (홈 화면 배너는 build.py safe 필터에서 안전하게 성인 제외).
+    1. 플레이테스트(Playtest)는 Steam API가 통계를 미제공(result 42)하므로 제외한다.
+    2. 성인(adult) 태그 대작도 상세 페이지 동접 표시를 위해 포함한다
+       (홈 화면 배너는 build.py safe 필터에서 제외).
     """
-    sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
+    ids = [int(a) for a in priority_ids if str(a).isdigit()][:200]
+    marks = ",".join("?" * len(ids)) or "NULL"
+    sql = ("SELECT g.appid FROM games g " + _current_price_join() + f"""
       WHERE g.korean=1 AND g.coming_soon=0 AND g.app_type='game'
         AND LOWER(g.name) NOT LIKE '%playtest%'
         AND LOWER(g.name) NOT LIKE '%play test%'
         AND g.name NOT LIKE '%플레이테스트%'
-      ORDER BY (CASE WHEN COALESCE(g.review_count,0)>=300 THEN 0 ELSE 1 END) ASC,
+      ORDER BY (CASE WHEN COALESCE(g.players_status,'')='unavailable' THEN 1
+                     WHEN g.appid IN ({marks}) THEN 0
+                     WHEN COALESCE(g.review_count,0)>=300 THEN 0
+                     WHEN COALESCE(g.players_current,0)>=200 THEN 0
+                     WHEN COALESCE(g.tag,'') IN ('인기','고정') THEN 0
+                     ELSE 1 END) ASC,
                (CASE WHEN g.players_checked_at IS NULL OR g.players_checked_at=''
                      THEN 0 ELSE 1 END) ASC,
                g.players_checked_at ASC,
                CASE WHEN COALESCE(p.discount_pct,0)>0 THEN 0 ELSE 1 END,
                COALESCE(g.review_count,0) DESC, g.appid DESC
       LIMIT ?""")
-    return [r[0] for r in conn.execute(sql, (limit,))]
+    return [r[0] for r in conn.execute(sql, (*ids, limit))]
 
 
 def review_signal_appids(conn, limit: int) -> list[int]:
@@ -352,10 +389,11 @@ def mark_media_checked(conn, appid: int) -> None:
     conn.execute("UPDATE games SET media_checked_at=? WHERE appid=?", (now, appid))
 
 
-def touch_player_checked(conn, appid: int) -> None:
-    """동접 확인 시각만 기록 (스팀 API 응답 없거나 통계 미제공 시 무한 재시도 방지)."""
+def touch_player_checked(conn, appid: int, status: str = "error") -> None:
+    """조회 시도만 기록한다. 이전 성공값과 성공 시각은 그대로 둔다(화면은 성공 시각으로 신선도를 판단)."""
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    conn.execute("UPDATE games SET players_checked_at=? WHERE appid=?", (now, appid))
+    conn.execute("UPDATE games SET players_checked_at=?, players_status=? WHERE appid=?",
+                 (now, status, appid))
 
 
 def touch_review_checked(conn, appid: int) -> None:
@@ -365,13 +403,51 @@ def touch_review_checked(conn, appid: int) -> None:
 
 
 def save_player_count(conn, appid: int, count: int) -> None:
+    """유효한 성공 응답일 때만 부른다. 실제 0명도 정상값으로 저장한다."""
+    count = int(count)
+    if count < 0:
+        raise ValueError("player count must be >= 0")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute(
         """UPDATE games SET
-             players_previous=CASE WHEN players_checked_at IS NULL
+             players_previous=CASE WHEN players_success_at IS NULL OR players_success_at=''
                                    THEN ? ELSE COALESCE(players_current,0) END,
-             players_current=?, players_checked_at=?
-           WHERE appid=?""", (max(int(count), 0), max(int(count), 0), now, appid))
+             players_current=?, players_checked_at=?, players_success_at=?, players_status='ok'
+           WHERE appid=?""", (count, count, now, now, appid))
+
+
+def save_player_result(conn, appid: int, status: str, count: int | None) -> bool:
+    """steam.fetch_player_count 결과를 저장한다. 성공이면 True."""
+    if status == "ok" and count is not None:
+        save_player_count(conn, appid, count)
+        return True
+    touch_player_checked(conn, appid, status if status == "unavailable" else "error")
+    return False
+
+
+def parse_utc(raw: str | None) -> datetime | None:
+    """ISO 시각을 timezone-aware UTC로. 시간대가 없으면 UTC로 본다."""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def fresh_player_count(g: dict, now: datetime | None = None) -> tuple[int, str | None]:
+    """최근 PLAYER_FRESH_HOURS 안에 성공한 동접만 (숫자, 성공 시각)으로 돌려준다.
+    오래됐거나 미확인이거나 미래 시각이면 (0, None). 실제 0명 성공은 (0, 시각)이다."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    at = parse_utc(g.get("players_success_at"))
+    if at is None or at > now + timedelta(minutes=5):
+        return 0, None
+    if now - at > timedelta(hours=config.PLAYER_FRESH_HOURS):
+        return 0, None
+    return max(int(g.get("players_current") or 0), 0), at.isoformat(timespec="seconds")
 
 
 def save_review_summary(conn, appid: int, summary: dict) -> None:
@@ -447,8 +523,9 @@ def observed_days(first: str | None, last: str | None) -> int:
     return max((l - f).days + 1, 1)
 
 
-def all_games(conn) -> list[dict]:
+def all_games(conn, now: datetime | None = None) -> list[dict]:
     """게임별 현재 상태 + 가격 이력 + 최저가."""
+    now = now or datetime.now(timezone.utc)
     out = []
     for r in conn.execute("SELECT * FROM games ORDER BY name"):
         g = dict(r)
@@ -488,8 +565,11 @@ def all_games(conn) -> list[dict]:
         neg = g.get("review_negative") or 0
         g["review_total"] = pos + neg
         g["review_positive_pct"] = round(pos * 100 / (pos + neg)) if pos + neg else 0
-        g["player_delta"] = ((g.get("players_current") or 0)
-                             - (g.get("players_previous") or 0))
+        # 오래되거나 미확인인 동접은 여기서 지운다. 이후 모든 화면은 이 값만 본다.
+        players, players_at = fresh_player_count(g, now)
+        g["players_current"] = players
+        g["players_at"] = players_at
+        g["player_delta"] = (players - (g.get("players_previous") or 0)) if players_at else 0
         g["score"], g["why"] = score_broadcast(g)
         out.append(g)
     return out

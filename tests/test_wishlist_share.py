@@ -66,6 +66,8 @@ def build_fixture():
         for d in ("2026-08-01", "2026-09-20"):
             conn.execute("INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct) "
                          "VALUES (?,?,?,?,?)", (appid, d, price, price, 0))
+    # 홈 인기 섹션은 최근 성공 확인한 동접만 쓴다. 홈 카드 찜 회귀 검사를 위해 한 게임만 넣는다.
+    store.save_player_count(conn, 720001, 1234)
     conn.commit()
     conn.close()
     import build
