@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import collect
 import config
 import steam
 import store
@@ -87,13 +88,31 @@ class StoreTest(unittest.TestCase):
 
     def test_review_signal_order(self):
         # 최근 가격 확인한 할인 게임 중 평가 미수집이 먼저, 이미 확인한 인기작은 뒤로.
-        self.add(1, review_count=5000, reviews_checked_at="2026-10-28T00:00:00+00:00")
+        self.add(1, review_count=5000, reviews_checked_at="2026-10-28T00:00:00+00:00",
+                 review_positive=4000, review_negative=1000)
+        self.add(5, review_count=10, price_last=TODAY,                # 실패만 하고 평가 없음
+                 reviews_checked_at="2026-10-28T00:00:00+00:00")
         self.add(2, review_count=10, price_last=TODAY)
         self.add(3, review_count=10, price_last="2026-09-01")       # 오래된 가격의 할인
         self.add(4, review_count=2000)                              # 할인 아님, 미수집
-        for appid in (2, 3):
+        for appid in (2, 3, 5):
             self.conn.execute("INSERT INTO prices VALUES (?, ?, 5000, 10000, 50)", (appid, TODAY))
-        self.assertEqual(store.review_signal_appids(self.conn, 10), [2, 3, 4, 1])
+        self.assertEqual(store.review_signal_appids(self.conn, 10), [2, 5, 3, 4, 1])
+
+
+class ReviewStopTest(unittest.TestCase):
+    def test_stops_after_consecutive_failures(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(store.SCHEMA)
+        with patch.object(store, "review_signal_appids", return_value=list(range(1, 11))), \
+             patch.object(store, "player_signal_appids", return_value=[]), \
+             patch.object(steam, "fetch_review_summary", return_value=None) as fetch, \
+             self.assertLogs("t", "WARNING"):
+            ok, _ = collect._collect_signals(conn, __import__("logging").getLogger("t"))
+        conn.close()
+        self.assertEqual(ok, 0)
+        self.assertEqual(fetch.call_count, config.REVIEW_SIGNAL_MAX_CONSECUTIVE_ERRORS)
 
 
 if __name__ == "__main__":

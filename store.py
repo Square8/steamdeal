@@ -361,6 +361,8 @@ def review_signal_appids(conn, limit: int) -> list[int]:
     """평가 등급 후보: 동접자가 있는 게임, 할인 20% 이상, 또는 리뷰 1천개 이상인 한국어 게임.
 
     순서: 최근 가격을 확인한 할인 게임 중 평가 미수집 → 나머지 미수집 → 오래 전에 확인한 것.
+    '미수집'은 확인 시각이 아니라 평가 숫자로 판단한다. 요청이 막혀 실패한 게임도 시도
+    시각은 찍히므로, 시각으로 판단하면 평가 없이 뒤로 밀린다.
     예전에는 확인한 적 있는 인기작을 매번 다시 확인해서, 할인 게임 175개 중 112개가
     평가 없이 남아 추천에 오르지 못했다(2026-10-29 사본 실측)."""
     fresh_from = (datetime.now(timezone.utc).date()
@@ -371,7 +373,7 @@ def review_signal_appids(conn, limit: int) -> list[int]:
         AND LOWER(g.name) NOT LIKE '%play test%'
         AND g.name NOT LIKE '%플레이테스트%'
         AND (COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=20 OR COALESCE(g.review_count,0)>=1000)
-      ORDER BY CASE WHEN COALESCE(g.reviews_checked_at,'')<>'' THEN 2
+      ORDER BY CASE WHEN COALESCE(g.review_positive,0)+COALESCE(g.review_negative,0)>0 THEN 2
                     WHEN COALESCE(p.discount_pct,0)>=20 AND COALESCE(g.price_last,'')>=? THEN 0
                     ELSE 1 END ASC,
                COALESCE(g.reviews_checked_at,'') ASC,

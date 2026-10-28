@@ -30,15 +30,25 @@ def _collect_signals(conn, log) -> tuple[int, int]:
     log.info("트렌드 신호 — 리뷰 후보 %d / 동접 후보 %d",
              len(review_ids), len(player_ids))
 
+    streak = 0
     for i, appid in enumerate(review_ids, 1):
         summary = steam.fetch_review_summary(appid)
         if summary is not None:
             store.save_review_summary(conn, appid, summary)
             review_ok += 1
+            streak = 0
         else:
             store.touch_review_checked(conn, appid)
+            streak += 1
         if i % 20 == 0:
             conn.commit()
+        # Steam 이 평가 요청을 막으면(2026-10-28·29 실측: 상점 첫 화면으로 리다이렉트)
+        # 한 건마다 재시도 대기로 약 20초가 든다. 150개면 50분이므로 일찍 멈춘다.
+        # 이미 받은 평가는 그대로 남고, 다음 실행에서 다시 시도한다.
+        if streak >= config.REVIEW_SIGNAL_MAX_CONSECUTIVE_ERRORS:
+            log.warning("평가 요청 %d건 연속 실패 — 이번 실행의 평가 수집을 멈춘다 (%d/%d 진행)",
+                        streak, i, len(review_ids))
+            break
 
     for i, appid in enumerate(player_ids, 1):
         # 실패·미제공은 시도만 기록하고 이전 성공값·성공 시각은 건드리지 않는다.

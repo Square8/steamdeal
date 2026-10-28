@@ -58,6 +58,7 @@ PLAYER_FRESH_HOURS = 24
 TOP_SELLERS_MAX_AGE_HOURS = 48
 # 0.8초 간격이라 150개 ≈ 2분. 할인 게임 평가가 비면 추천에 오르지 못한다.
 REVIEW_SIGNAL_LIMIT = 150
+REVIEW_SIGNAL_MAX_CONSECUTIVE_ERRORS = 3
 
 # ---- 최근 30일 평가 (상세 페이지 보조 정보) ----
 # appreviews 를 filter=recent(작성 시각 내림차순)로 페이지 조회하고, 각 리뷰의
