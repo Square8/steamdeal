@@ -971,6 +971,22 @@ def player_badge_text(g: dict) -> str:
     # 앞의 점은 CSS(.player-badge::before)가 붙인다.
     return f"{compact_num(players)}명 · {player_stamp(g, '%H시')}"
 
+CHIP_MAX = 3
+# 대표 장르를 고를 때 건너뛰는 분류. 게임 성격이 아니라 판매·개발 형태라서
+# '어떤 게임이지?'에 답하지 못한다. 이것만 있으면 그대로 쓴다.
+GENRE_SKIP = {"인디", "indie", "앞서 해보기", "early access", "무료 플레이", "free to play",
+              "대규모 멀티플레이어", "massively multiplayer"}
+
+
+def main_genre(g: dict) -> str:
+    """카드에 붙일 대표 장르 하나. Steam 장르 목록의 순서를 따른다."""
+    parts = [x.strip() for x in (g.get("genres") or "").split(",") if x.strip()]
+    for x in parts:
+        if x.lower() not in GENRE_SKIP:
+            return x[:12]
+    return parts[0][:12] if parts else ""
+
+
 def chips_for(g: dict, show_atl: bool = True) -> str:
     """게임 성격을 칩으로. 색만으로 뜻을 전하지 않도록 항상 글자를 쓴다."""
     out = []
@@ -988,8 +1004,14 @@ def chips_for(g: dict, show_atl: bool = True) -> str:
         out.append('<span class="t nokr">한국어 없음</span>')
     if g.get("adult"):
         out.append('<span class="t adult">성인</span>')
+    # 경고(한국어 없음·성인)와 평가는 항상 남기고, 나머지는 앞에서부터 채워 최대 3개.
+    # 칩이 4~5개면 좁은 카드에서 두 줄이 되어 가격이 밀려난다.
+    must = []
     if review_label(g):
-        out.append(f'<span class="t review">{esc(review_label(g))}</span>')
+        must.append(f'<span class="t review">{esc(review_label(g))}</span>')
+    keep = [c for c in out if 't nokr' in c or 't adult' in c]
+    rest = [c for c in out if c not in keep][:max(0, CHIP_MAX - len(keep) - len(must))]
+    out = rest + keep + must
     return f'<div class="chips">{"".join(out)}</div>' if out else ""
 
 
@@ -1100,7 +1122,10 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
             rc = ""
     else:
         rc = (f'리뷰 {g["review_count"]:,}' if (g.get("review_count") or 0) >= 10
-              else esc(g.get("developer") or g.get("genres") or ""))
+              else esc(g.get("developer") or ""))
+    # 첫 칸은 대표 장르. 표지와 이름만으로는 무슨 게임인지 모르는 경우가 많다.
+    genre = esc(main_genre(g))
+    rc = " · ".join(x for x in (genre, rc) if x)
     off = g.get("discount_pct") or 0
     if g.get("recent_drop_amount"):
         left = f'<span class="offtag" style="background:var(--accent);">최근 {g["recent_drop_amount"]:,}원 인하</span>'
@@ -1597,6 +1622,13 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   var chips=document.querySelectorAll('.presets .chip');
   var lsortMsg=document.getElementById('lsortMsg');
   var f='all';
+  // 상세에서 뒤로 왔을 때 보던 자리로 돌아간다. 필터·검색·정렬은 주소에 있고,
+  // 스크롤 위치와 '더 보기'로 펼친 개수만 이 탭의 sessionStorage 에 둔다.
+  var restore = null;
+  try {{
+    var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    if (nav && nav.type === 'back_forward') restore = JSON.parse(sessionStorage.getItem('gd-home-pos') || 'null');
+  }} catch(e) {{}}
 
   var indexData = null;
   var fetchPromise = null;
@@ -1680,6 +1712,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     if (g.soon) chips.push({{cls: 'soon', txt: '출시예정'}});
     else if (g.new) chips.push({{cls: 'new', txt: '신작'}});
     if (g.kr_ov) chips.push({{cls: 'kr-ov', txt: '압도적 한국어'}});
+    chips = chips.slice(0, 3);
 
     if (chips.length > 0) {{
       var cDiv = document.createElement('div');
@@ -1701,6 +1734,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       if (g.r_tot >= 10) rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
       else rc = g.dev || '';
     }}
+    if (g.gen) rc = g.gen + (rc ? ' · ' + rc : '');
 
     var tagline = document.createElement('div');
     tagline.className = 'tagline';
@@ -1917,6 +1951,12 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     }}
     cnt.textContent = vis.length+'개';
     moreWrap.hidden = vis.length<=shown;
+    if (restore) {{
+      var r = restore; restore = null;
+      if (r.shown > shown) {{ shown = r.shown; render(); }}
+      window.scrollTo(0, r.y || 0);
+      return;
+    }}
     moreBtn.textContent = '더 보기 ('+Math.min(shown,vis.length)+' / '+vis.length+')';
 
     if (window.steamWishlist && window.steamWishlist.paint) window.steamWishlist.paint();
@@ -1933,9 +1973,14 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     history.replaceState(null, '', u.pathname + u.search + u.hash);
   }}
 
+  window.addEventListener('pagehide', function(){{
+    try {{ sessionStorage.setItem('gd-home-pos', JSON.stringify({{y: window.scrollY, shown: shown}})); }} catch(e) {{}}
+  }});
+
   function apply(){{
     var sv = sort.value;
     updateQuery('sort', sv === 'score' ? '' : sv);
+    updateQuery('f', f === 'all' ? '' : f);
     if (!indexData) {{
       loadIndex().then(render).catch(function(){{}});
     }} else {{
@@ -1983,6 +2028,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     var params = new URLSearchParams(window.location.search);
     var searchStr = params.get('q');
     var sortStr = params.get('sort');
+    var fStr = params.get('f');
+    var fChip = fStr ? document.querySelector('.presets .chip[data-f="' + fStr.replace(/[^a-z0-9]/gi, '') + '"]') : null;
+    f = fChip ? fStr : 'all';
+    chips.forEach(function(x){{ x.setAttribute('aria-pressed', String(x.dataset.f === f)); }});
     var h = location.hash||'';
     var v = '';
 
@@ -2012,9 +2061,9 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       sort.value = 'score';
     }}
 
-    if (searchStr !== null || h.indexOf('#q=') === 0 || sortStr !== null) {{
+    if (searchStr !== null || h.indexOf('#q=') === 0 || sortStr !== null || fChip || restore) {{
       apply();
-      if (searchStr !== null || h.indexOf('#q=') === 0) {{
+      if (!restore && (searchStr !== null || h.indexOf('#q=') === 0)) {{
         document.getElementById('all').scrollIntoView();
       }}
     }} else if (indexData) {{
@@ -3325,6 +3374,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
       else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
       if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
       else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+      while (chipsDiv.childNodes.length > 3) chipsDiv.removeChild(chipsDiv.lastChild);
       if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
 
       var rc = '';
@@ -3334,6 +3384,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
       } else if (g.r_tot >= 10) {
         rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
       }
+      if (g.gen) rc = g.gen + (rc ? ' · ' + rc : '');
       if (rc) {
         body.appendChild(el('div', rc, 'tagline'));
       }
@@ -3715,6 +3766,7 @@ def build_shared_games(updated: str, freshness: dict) -> str:
       else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
       if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
       else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+      while (chipsDiv.childNodes.length > 3) chipsDiv.removeChild(chipsDiv.lastChild);
       if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
 
       var rc = '';
@@ -3724,6 +3776,7 @@ def build_shared_games(updated: str, freshness: dict) -> str:
       } else if (g.r_tot >= 10) {
         rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
       }
+      if (g.gen) rc = g.gen + (rc ? ' · ' + rc : '');
       if (rc) {
         body.appendChild(el('div', rc, 'tagline'));
       }
@@ -3990,6 +4043,7 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
       else if (g.new) chipsDiv.appendChild(el('span', '신작', 't new'));
       if (g.kr_ov) chipsDiv.appendChild(el('span', '압도적 한국어', 't kr-ov'));
       else if (g.kr) chipsDiv.appendChild(el('span', '한국어', 't kr'));
+      while (chipsDiv.childNodes.length > 3) chipsDiv.removeChild(chipsDiv.lastChild);
       if (chipsDiv.childNodes.length > 0) body.appendChild(chipsDiv);
 
       var rc = '';
@@ -3999,6 +4053,7 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
       } else if (g.r_tot >= 10) {
         rc = '리뷰 ' + g.r_tot.toLocaleString('ko-KR');
       }
+      if (g.gen) rc = g.gen + (rc ? ' · ' + rc : '');
       if (rc) body.appendChild(el('div', rc, 'tagline'));
 
       var priceRow = el('div', '', 'my-price-row');
@@ -4275,6 +4330,7 @@ def main() -> int:
             "r_tot": g_copy.get("review_total") or g_copy.get("review_count") or 0,
             "r_pct": g_copy.get("review_positive_pct"), # can be None
             "dev": g_copy.get("developer") or g_copy.get("genres") or "",
+            "gen": main_genre(g_copy),
             "kr_ov": 1 if g_copy.get("korean") and g_copy.get("developer") and is_overwhelming(g_copy) else 0
         })
 

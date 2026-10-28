@@ -589,6 +589,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
     white-space:nowrap; flex:0 0 auto;
     padding:7px 11px; min-height:36px; display:inline-flex; align-items:center;
   }
+  nav.jump a.util{margin-left:4px}
   .topin{padding:10px 13px; gap:10px; max-width:100%}
   .logo span{display:none}
   .logo{margin-right:0; flex:none}
@@ -596,6 +597,12 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .freshness.f-ok .f-time{display:none}
   .hsearch{order:2; flex:1 1 100%; min-width:0}
   .hsearch input{width:100%}
+}
+/* 700px 규칙보다 뒤에 둬야 이긴다.
+   메뉴 7개가 390px 한 줄에 다 들어가게 — 옆으로 밀어야 보이는 메뉴는 없는 메뉴다. */
+@media (max-width:560px){
+  nav.jump{gap:0}
+  nav.jump a{padding:7px 6px; font-size:12.5px}
 }
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important; scroll-behavior:auto !important}
