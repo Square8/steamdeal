@@ -496,7 +496,7 @@ check("홈 HTML에는 자동재생 video가 생성되지 않음", "<video" not i
 check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천" not in h)
 check("첫 화면 명제", "검증된 핫딜부터" in h)
 check("명제 옆 숫자는 실제 값", 'class="facts"' in h and "<b>" in h)
-check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h and "70%+" in h)
+check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h and "지금 눈여겨볼 할인" in h)
 check("기대작 표현이 정직함", "출시 임박 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
 check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
 check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
@@ -721,7 +721,15 @@ drop_games = [
     {"appid": 107, "name": "Drop G", "korean": 0, "adult": 0, "price_final": 7000,
      "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 7000, "discount_pct": 30}]},
 ]
+for g in drop_games:
+    g["price_last"] = t_max
+# 8. 인하 기록은 있지만 지금 가격을 확인하지 못함
+drop_games.append({"appid": 108, "name": "Stale H", "korean": 1, "adult": 0, "price_final": 7000,
+                   "price_last": t_old,
+                   "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0},
+                               {"on_date": t_recent, "price_final": 7000, "discount_pct": 30}]})
 drops = build.get_recent_drops(drop_games)
+check("현재 가격 확인이 오래되면 최근 인하에서 제외", not any(d["appid"] == 108 for d in drops))
 check("10,000원 → 7,000원은 최근 인하로 포함", any(d["appid"] == 101 for d in drops))
 check("7,000원 → 10,000원은 제외", not any(d["appid"] == 102 for d in drops))
 check("가격 변화가 없으면 제외", not any(d["appid"] == 103 for d in drops))
@@ -754,7 +762,7 @@ check("상세페이지에 조건부 문구 미생성", "최근 3,000원 인하" 
 
 massive_drop_games = [
     {"appid": 1000 + i, "name": f"Game {i}", "korean": 1, "adult": 0, "price_final": 5000,
-     "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 5000, "discount_pct": 50}]}
+     "price_last": t_max, "history": [{"on_date": t_old, "price_final": 10000, "discount_pct": 0}, {"on_date": t_max, "price_final": 5000, "discount_pct": 50}]}
     for i in range(125)
 ]
 massive_drops = build.get_recent_drops(massive_drop_games)

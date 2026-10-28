@@ -53,6 +53,27 @@ def _collect_signals(conn, log) -> tuple[int, int]:
     return review_ok, player_ok
 
 
+def _collect_prices(conn, log, skip: set[int] | None = None) -> dict:
+    """유료 게임 가격만 일괄 확인한다. 상세 갱신 순환(약 38일)과 별개로 매 실행 돈다.
+
+    가격이 없다고 온 게임(판매 중단·무료 전환 등)과 실패한 게임은 건드리지 않는다.
+    확인일이 오래된 채 남아서 추천에서 빠지고, 카드에는 오래된 가격 경고가 붙는다."""
+    skip = skip or set()
+    ids = [a for a in store.price_refresh_appids(conn, config.PRICE_REFRESH_LIMIT)
+           if a not in skip]
+    results = steam.fetch_prices(ids)
+    stats = {"target": len(ids), "ok": 0, "none": 0, "error": 0,
+             "missing": len(ids) - len(results)}
+    for appid, res in results.items():
+        stats[res[0]] += 1
+        if res[0] == "ok":
+            store.save_price(conn, appid, *res[1:])
+    conn.commit()
+    log.info("가격 일괄 확인 — 대상 %(target)d, 확인 %(ok)d, 가격 없음 %(none)d, "
+             "실패 %(error)d, 응답 누락 %(missing)d", stats)
+    return stats
+
+
 def _collect_recent_reviews(conn, log) -> dict:
     """상세 페이지 '최근 30일 평가'용. 전체 요청 예산 안에서만 순환 수집한다.
 
@@ -238,6 +259,11 @@ def main() -> int:
         conn.close()
         return 0 if review_ok or player_ok else 1
 
+    if "--prices-only" in sys.argv:
+        stats = _collect_prices(conn, log)
+        conn.close()
+        return 0 if stats["ok"] else 1
+
     targets, explore_ids = _plan(conn, log)
     if not targets:
         log.error("부를 대상이 없다. 스팀 API 응답을 확인할 것.")
@@ -246,6 +272,7 @@ def main() -> int:
 
     ok = failed = dropped = 0
     ex_ok = ex_seen = 0          # 개척분만 따로. 적중률이 나쁘면 훑는 위치가 틀린 것이다
+    fetched: set[int] = set()
     for i, (appid, tag) in enumerate(targets, 1):
         app = steam.fetch_app(appid)
         # 실패도 기록한다 — 안 하면 다음 실행에서 같은 죽은 appid 를 또 부른다.
@@ -256,6 +283,7 @@ def main() -> int:
             failed += 1
         elif store.save(conn, app, tag):
             ok += 1
+            fetched.add(appid)
             ex_ok += is_ex
         else:
             dropped += 1        # 게임이지만 보관 대상 아님 (한국어X·데모X·구작)
@@ -264,6 +292,9 @@ def main() -> int:
             log.info("  진행 %d/%d (저장 %d, 무관 %d, 제외 %d)",
                      i, len(targets), ok, dropped, failed)
     conn.commit()
+
+    # 방금 상세조회한 게임은 가격도 오늘 확인됐으므로 일괄 확인에서 뺀다.
+    _collect_prices(conn, log, fetched)
 
     # appdetails 전체 수집과 분리된 작은 후보군만 확인한다. 이 단계가 실패해도
     # 가격 수집 결과는 유지되고, 홈은 기존 리뷰 수 기반으로 안전하게 폴백한다.

@@ -1229,6 +1229,9 @@ def get_recent_drops(games: list[dict], today: date | None = None) -> list[dict]
     for g in games:
         if g.get("adult") or not g.get("price_final") or g.get("is_free"):
             continue
+        # 지금도 그 가격인지 확인하지 못했으면 '내려간 게임'으로 내세우지 않는다.
+        if not price_is_fresh(g, today):
+            continue
 
         history = g.get("history", [])
         valid_hist = [h for h in history if h.get("price_final", 0) > 0]
@@ -1362,6 +1365,33 @@ def top_seller_games(top_sellers: dict | None, games: list[dict],
     return items, at.astimezone(KST).strftime("%m/%d %H:%M")
 
 
+def deal_picks(priced: list[dict], exclude: set[int] | None = None,
+               cap: int = 8) -> tuple[list[dict], tuple | None]:
+    """홈 할인 추천. config.DEAL_TIERS 를 앞 단계부터 채우고, cap 이 차면 멈춘다.
+
+    priced 는 최근 가격을 확인한 게임만 넘긴다. 단계마다 할인율·리뷰 수 순으로 세운 뒤
+    날짜별로 순서를 돌린다. 돌려주는 단계는 실제로 쓴 가장 낮은 기준이다(없으면 None)."""
+    exclude = exclude or set()
+    base = [g for g in priced if g.get("app_type", "game") == "game"
+            and not g.get("coming_soon") and not g.get("is_free")
+            and g["appid"] not in exclude]
+    by_deal = lambda g: (-(g.get("discount_pct") or 0), -(g.get("review_total") or 0))
+    picked: list[dict] = []
+    used = None
+    for d, p, r in config.DEAL_TIERS:
+        ids = {g["appid"] for g in picked}
+        tier = [g for g in base if g["appid"] not in ids
+                and (g.get("discount_pct") or 0) >= d
+                and (g.get("review_positive_pct") or 0) >= p
+                and (g.get("review_total") or 0) >= r]
+        if tier:
+            picked += daily_rotate(sorted(tier, key=by_deal), f"hot-{d}-{p}-{r}")
+            used = (d, p, r)
+        if len(picked) >= cap:
+            break
+    return picked, used
+
+
 def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None,
                 top_sellers: dict | None = None) -> str:
     # 기본 화면은 성적 콘텐츠를 제외한다. 전체 탐색기에서 토글로 켤 수 있다.
@@ -1378,50 +1408,50 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     popular_note = (f"Steam 동시 접속자 수(전 세계) · 최근 {config.PLAYER_FRESH_HOURS}시간 안에 "
                     "확인한 값만 · 카드에 게임별 확인 시각")
 
-    strict_hot = [g for g in korean if (g.get("discount_pct") or 0) >= 70
-                  and is_overwhelming(g)
-                  and (g.get("review_total") or g.get("review_count") or 0) >= 500]
-    by_deal = lambda g: (-(g.get("discount_pct") or 0),
-                         -(g.get("review_total") or g.get("review_count") or 0))
-    strict_ids = {g["appid"] for g in strict_hot}
-    # 70%+·압도적 긍정만으로는 3개 안팎이라 매일 같다. 50%+·'매우 긍정적' 이상으로 넓힌다.
-    good_hot = [g for g in korean if g["appid"] not in strict_ids
-                and (g.get("discount_pct") or 0) >= 50
-                and (g.get("review_score") or 0) >= 8
-                and (g.get("review_total") or 0) >= 500]
-    if strict_hot or good_hot:
-        hot = daily_rotate(sorted(strict_hot, key=by_deal) + sorted(good_hot, key=by_deal), "hot")
-        if good_hot:
-            hot_title = "💸 50%+ 할인 · 평가 좋은 게임"
-            hot_note = ("Steam 전체 리뷰 500개 이상, ‘매우 긍정적’ 이상인 게임만 골랐습니다. "
-                        "70%+ 할인·압도적 긍정 게임 포함, 날마다 순서가 바뀝니다.")
-        else:
-            hot_title = "💸 70%+ 할인 · 압도적 긍정"
-            hot_note = "할인율만 세지 않습니다. Steam 전체 리뷰가 ‘압도적으로 긍정적’인 게임만 골랐습니다."
+    # 홈 추천 섹션끼리 같은 게임을 다시 보여주지 않는다(화면 순서대로 먼저 나온 곳에 둔다).
+    # 인기·판매 상위·출시 임박·신작은 순위·날짜 목록이라 제외하지 않는다.
+    seen: set[int] = set()
+
+    def unseen(items: list[dict], cap: int = 8) -> list[dict]:
+        out = [g for g in items if g["appid"] not in seen]
+        seen.update(g["appid"] for g in out[:cap])
+        return out
+
+    # 최근 가격 확인(UTC 0~2일)이 안 된 게임은 홈 추천 어디에도 올리지 않는다.
+    priced = [g for g in korean if price_is_fresh(g)]
+    recent_drops = unseen([g for g in (recent_drops or []) if not g.get("adult")])
+    hot, hot_tier = deal_picks(priced, seen)
+    seen.update(g["appid"] for g in hot[:8])
+    hot_title = "💸 지금 눈여겨볼 할인"
+    if hot_tier is None:
+        hot_note = "최근 2일 안에 가격을 확인한 한국어 게임만 고릅니다."
     else:
-        hot = sorted([g for g in korean if (g.get("discount_pct") or 0) >= 70
-                      and (g.get("review_count") or 0) >= 500],
-                     key=lambda g: (-(g.get("discount_pct") or 0),
-                                    -(g.get("review_count") or 0)))
-        hot_title = "💸 70%+ 검증된 핫딜"
-        hot_note = "리뷰 요약을 처음 수집하기 전까지 할인율과 리뷰 수로 검증합니다."
+        d, p, r = hot_tier
+        hot_note = (f"할인 {d}% 이상 · Steam 긍정률 {p}% 이상 · 리뷰 {r:,}개 이상"
+                    + ("" if hot_tier == config.DEAL_TIERS[0] else
+                       " (조건에 맞는 게임이 적어 기준을 넓혔습니다)")
+                    + " · 최근 2일 안에 확인한 가격 · 날마다 순서가 바뀝니다.")
 
     selling, selling_stamp = top_seller_games(top_sellers, safe)
 
-    demos = daily_rotate(sorted([g for g in korean
-                                 if g.get("has_demo") or g.get("app_type") == "demo"],
-                                key=lambda g: -(g.get("review_count") or 0)), "demo")
-    under_10k = sorted([g for g in safe if g.get("korean") and 0 < (g.get("price_final") or 0) <= 10000],
+    demos = unseen(daily_rotate(sorted([g for g in priced
+                                        if g.get("has_demo") or g.get("app_type") == "demo"],
+                                       key=lambda g: -(g.get("review_count") or 0)), "demo"))
+    under_10k = sorted([g for g in priced if 0 < (g.get("price_final") or 0) <= 10000],
                        key=lambda g: g.get("price_final") or 0)
     # 홈 미리보기는 평가가 확인된 게임만. 전체 목록 페이지는 그대로 모든 게임을 보여준다.
     under_10k_good = [g for g in under_10k if (g.get("review_total") or 0) >= 50
                       and (g.get("review_positive_pct") or 0) >= 70]
+    under_10k_pool = under_10k_good if len(under_10k_good) >= 4 else under_10k
     under_10k_featured = price_diverse_sample(
-        under_10k_good if len(under_10k_good) >= 4 else under_10k, rotate="under-10000")
+        [g for g in under_10k_pool if g["appid"] not in seen], rotate="under-10000")
+    seen.update(g["appid"] for g in under_10k_featured)
     indie_spec = next(spec for spec in LANDINGS if spec["slug"] == "indie-games")
     indie_games = with_indie_picks(
-        daily_rotate(sorted([g for g in safe if is_indie_recommendation(g)],
-                            key=indie_spec["sort"]), "indie"), safe)
+        unseen(daily_rotate(sorted([g for g in safe if is_indie_recommendation(g)
+                                    and price_is_fresh(g)],
+                                   key=indie_spec["sort"]), "indie")),
+        [g for g in safe if price_is_fresh(g)])
     fresh = sorted([g for g in korean if store.is_new_release(g)],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
                    reverse=True)
@@ -1477,7 +1507,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          "최근 가격이 내려간 게임이 없습니다.", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체"))}
 
 {section("hot", hot_title, hot_note, hot,
-         "현재 조건에 맞는 70%+ 핫딜이 없습니다.", rail=True, cap=8,
+         "최근 가격을 확인한 할인 중 조건에 맞는 게임이 없습니다.", rail=True, cap=8,
          more_href="hot-deals.html", more_text="핫딜 전체")}
 
 {section("soon", "🚀 출시 임박 기대작",
@@ -1491,7 +1521,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          more_href="korean-demo.html", more_text="무료 데모 전체")}
 
 {section("under-10000", "💸 1만원 이하 게임",
-         "현재 판매가 1만원 이하 · 리뷰 50개 이상 · 긍정 70% 이상 게임을 가격대별로 골고루, 날마다 바꿔 보여줍니다.", under_10k_featured,
+         ("현재 판매가 1만원 이하 · 리뷰 50개 이상 · 긍정 70% 이상" if under_10k_pool is under_10k_good
+          else "현재 판매가 1만원 이하") + " · 최근 2일 안에 확인한 가격 · 가격대별로 골고루, 날마다 바꿔 보여줍니다.", under_10k_featured,
          "조건에 맞는 게임이 없습니다.", rail=True, cap=8,
          more_href="under-10000.html", more_text="1만원 이하 전체",
          total_count=len(under_10k))}
@@ -2678,8 +2709,9 @@ LANDINGS = [
          title="스팀 1만원 이하 게임 — 지금 싼 게임",
          h1="1만원 이하 게임",
          desc="현재 스팀 원화 판매가 기준 1만원 아래인 한국어 지원 게임을 찾습니다.",
-         note="현재 판매가 1만원 이하이며, 한국어를 지원하는 게임입니다. 기본 정렬은 추천순입니다.",
-         pick=lambda g: bool(g.get("korean") and g.get("price_final") and g["price_final"] > 0 and g["price_final"] <= 10000),
+         note="현재 판매가 1만원 이하이며, 한국어를 지원하는 게임입니다. 최근 2일 안에 가격을 확인한 게임만 보여줍니다. 기본 정렬은 추천순입니다.",
+         pick=lambda g: bool(g.get("korean") and g.get("price_final") and g["price_final"] > 0
+                             and g["price_final"] <= 10000 and price_is_fresh(g)),
          sort=lambda g: -(g.get("score") or 0)),
     dict(slug="recent-drops",
          title="스팀 최근 가격 인하 게임 — 최근 7일 가격이 내려간 것",
@@ -2692,8 +2724,9 @@ LANDINGS = [
          title="스팀 게임 핫딜 — 70% 이상 할인된 한국어 지원 명작",
          h1="70% 이상 할인 핫딜",
          desc="스팀에서 70% 이상 할인 중인 한국어 지원 게임 목록. 할인율과 평가를 함께 검증했습니다.",
-         note="할인율 70% 이상인 한국어 지원 게임입니다. 기본 정렬은 할인율과 리뷰 많은 순입니다.",
-         pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) >= 70),
+         note="할인율 70% 이상인 한국어 지원 게임입니다. 최근 2일 안에 가격을 확인한 게임만 보여줍니다. 기본 정렬은 할인율과 리뷰 많은 순입니다.",
+         pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) >= 70
+                             and price_is_fresh(g)),
          sort=lambda g: (-(g.get("discount_pct") or 0), -(g.get("review_total") or g.get("review_count") or 0))),
     dict(slug="popular-games",
          title="스팀 인기 게임 — 동시 접속자 수 순위",

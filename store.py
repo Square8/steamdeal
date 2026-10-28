@@ -237,28 +237,47 @@ def save(conn, app: dict, tag: str | None = None) -> bool:
     )
     # 가격이 있는 것만 이력에 남긴다 (무료/출시예정은 가격이 없다)
     if app["price_final"] > 0:
-        # 매 실행마다 한 행씩 쌓으면(200개 × 하루 2번) 2년에 14만 행 / 8.8MB 가 되고,
-        # 이 파일을 하루 두 번 git 에 커밋하므로 저장소 이력이 계속 불어난다.
-        # 그래서 '가격이 변했을 때만' 새 행을 남긴다. 관측 기간은 price_first/last 로 따로 센다.
-        prev = conn.execute(
-            "SELECT price_final, price_initial, discount_pct FROM prices "
-            "WHERE appid=? ORDER BY on_date DESC LIMIT 1", (app["appid"],)).fetchone()
-        cur = (app["price_final"], app["price_initial"], app["discount_pct"])
-        changed = prev is None or tuple(prev) != cur
-        if changed:
-            conn.execute(
-                """INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct)
-                   VALUES (?,?,?,?,?)
-                   ON CONFLICT(appid,on_date) DO UPDATE SET
-                     price_final=excluded.price_final,
-                     price_initial=excluded.price_initial,
-                     discount_pct=excluded.discount_pct""",
-                (app["appid"], today, *cur))
-        # 변동이 없어도 '오늘 확인했다'는 사실은 기록해야 관측 기간이 늘어난다.
-        conn.execute(
-            "UPDATE games SET price_first=COALESCE(price_first,?), price_last=? "
-            "WHERE appid=?", (today, today, app["appid"]))
+        save_price(conn, app["appid"], app["price_final"], app["price_initial"],
+                   app["discount_pct"], today)
     return True
+
+
+def save_price(conn, appid: int, final: int, initial: int, pct: int,
+               today: str | None = None) -> None:
+    """확인한 원화 가격을 기록한다. 상세조회와 가격 일괄 확인이 같은 규칙을 쓴다."""
+    today = today or datetime.now(timezone.utc).date().isoformat()
+    # 매 실행마다 한 행씩 쌓으면(200개 × 하루 2번) 2년에 14만 행 / 8.8MB 가 되고,
+    # 이 파일을 하루 두 번 git 에 커밋하므로 저장소 이력이 계속 불어난다.
+    # 그래서 '가격이 변했을 때만' 새 행을 남긴다. 관측 기간은 price_first/last 로 따로 센다.
+    prev = conn.execute(
+        "SELECT price_final, price_initial, discount_pct FROM prices "
+        "WHERE appid=? ORDER BY on_date DESC LIMIT 1", (appid,)).fetchone()
+    cur = (final, initial, pct)
+    if prev is None or tuple(prev) != cur:
+        conn.execute(
+            """INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(appid,on_date) DO UPDATE SET
+                 price_final=excluded.price_final,
+                 price_initial=excluded.price_initial,
+                 discount_pct=excluded.discount_pct""",
+            (appid, today, *cur))
+    # 변동이 없어도 '오늘 확인했다'는 사실은 기록해야 관측 기간이 늘어난다.
+    conn.execute(
+        "UPDATE games SET price_first=COALESCE(price_first,?), price_last=? "
+        "WHERE appid=?", (today, today, appid))
+
+
+def price_refresh_appids(conn, limit: int) -> list[int]:
+    """가격 일괄 확인 대상. 화면에 나갈 수 있는 유료 출시작을 먼저, 오래된 확인일 순으로.
+
+    무료 게임은 가격이 없어 일괄 확인으로 상태를 단정할 수 없으므로 상세 갱신에 맡긴다."""
+    return [r["appid"] for r in conn.execute(
+        """SELECT appid FROM games
+           WHERE COALESCE(is_free,0)=0 AND COALESCE(coming_soon,0)=0
+           ORDER BY (korean=1 AND COALESCE(adult,0)=0) DESC,
+                    COALESCE(price_last,'') ASC, appid
+           LIMIT ?""", (limit,))]
 
 
 def mark_probed(conn, appid: int, ok: bool) -> None:
@@ -339,19 +358,28 @@ def player_signal_appids(conn, limit: int, priority_ids: list[int] | tuple = ())
 
 
 def review_signal_appids(conn, limit: int) -> list[int]:
-    """평가 등급 후보: 동접자가 많은 인기작, 할인율 50% 이상, 또는 리뷰 1천개 이상인 한국어 게임 우선."""
+    """평가 등급 후보: 동접자가 있는 게임, 할인 20% 이상, 또는 리뷰 1천개 이상인 한국어 게임.
+
+    순서: 최근 가격을 확인한 할인 게임 중 평가 미수집 → 나머지 미수집 → 오래 전에 확인한 것.
+    예전에는 확인한 적 있는 인기작을 매번 다시 확인해서, 할인 게임 175개 중 112개가
+    평가 없이 남아 추천에 오르지 못했다(2026-10-29 사본 실측)."""
+    fresh_from = (datetime.now(timezone.utc).date()
+                  - timedelta(days=config.EDITORIAL_MAX_PRICE_AGE_DAYS)).isoformat()
     sql = ("SELECT g.appid FROM games g " + _current_price_join() + """
       WHERE g.korean=1 AND g.app_type='game'
         AND LOWER(g.name) NOT LIKE '%playtest%'
         AND LOWER(g.name) NOT LIKE '%play test%'
         AND g.name NOT LIKE '%플레이테스트%'
-        AND (COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=50 OR COALESCE(g.review_count,0)>=1000)
-      ORDER BY (CASE WHEN g.reviews_checked_at IS NULL OR g.reviews_checked_at='' THEN 0 ELSE 1 END) ASC,
+        AND (COALESCE(g.players_current,0)>0 OR COALESCE(p.discount_pct,0)>=20 OR COALESCE(g.review_count,0)>=1000)
+      ORDER BY CASE WHEN COALESCE(g.reviews_checked_at,'')<>'' THEN 2
+                    WHEN COALESCE(p.discount_pct,0)>=20 AND COALESCE(g.price_last,'')>=? THEN 0
+                    ELSE 1 END ASC,
+               COALESCE(g.reviews_checked_at,'') ASC,
                COALESCE(g.players_current,0) DESC,
                COALESCE(p.discount_pct,0) DESC,
                COALESCE(g.review_count,0) DESC
       LIMIT ?""")
-    return [r[0] for r in conn.execute(sql, (limit,))]
+    return [r[0] for r in conn.execute(sql, (fresh_from, limit))]
 
 
 def media_backfill_appids(conn, limit: int, exclude_appids: set[int] | None = None) -> list[int]:

@@ -30,6 +30,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+from datetime import datetime, timezone
 from urllib.parse import urlsplit, parse_qs
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -160,7 +161,9 @@ def _insert_games(conn, games):
             "players_previous": ov.get("players_previous", 0),
             "review_positive": pos, "review_negative": neg, "review_count": total,
             "first_seen": "2026-08-01", "last_seen": "2026-09-16", "checked_at": "2026-09-16",
-            "price_first": "2026-08-01", "price_last": "2026-09-16",
+            # 가격 목록(1만원 이하 등)은 최근 확인한 가격만 보여주므로 오늘 확인한 것으로 둔다.
+            "price_first": "2026-08-01",
+            "price_last": datetime.now(timezone.utc).date().isoformat(),
         }
         row = {k: v for k, v in row.items() if k in cols_games and v is not None}
         cols = list(row.keys())

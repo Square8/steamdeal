@@ -437,3 +437,49 @@ def fetch_app(appid: int) -> dict | None:
         "movie_webm": webm,
         "movie_poster": poster,
     }
+
+
+def fetch_prices(appids: list[int]) -> dict[int, tuple]:
+    """가격만 여러 게임 한 번에 확인한다 (appdetails + filters=price_overview).
+
+    전체 상세조회는 1.5초에 한 게임이라 기존 게임 가격이 한 바퀴 도는 데 한 달이 걸린다.
+    가격 필터를 주면 한 요청에 여러 appid 를 받을 수 있다(2026-10-29 실측: 600개도 200 응답).
+    반환값은 appid 별로:
+      ("ok", final, initial, pct) — 원화 가격 확인
+      ("none",)                   — 응답은 성공했지만 가격이 없다(무료·판매 중단·출시 전)
+      ("error",)                  — 요청 실패, success=false, 형식 오류
+    요청이 통째로 실패한 묶음은 결과에 넣지 않는다. 호출자는 그 게임을 건드리지 않는다.
+    """
+    out: dict[int, tuple] = {}
+    size = max(config.PRICE_BATCH_SIZE, 1)
+    for i in range(0, len(appids), size):
+        chunk = appids[i:i + size]
+        data = _get_json(config.APPDETAILS_URL,
+                         {"appids": ",".join(str(a) for a in chunk), "cc": config.CC,
+                          "l": config.LANG, "filters": "price_overview"})
+        if not isinstance(data, dict):
+            continue
+        for appid in chunk:
+            entry = data.get(str(appid))
+            if not isinstance(entry, dict) or not entry.get("success"):
+                out[appid] = ("error",)
+                continue
+            d = entry.get("data")
+            # 가격이 없으면 스팀은 data 를 빈 리스트로 준다.
+            if not d:
+                out[appid] = ("none",)
+                continue
+            po = d.get("price_overview") if isinstance(d, dict) else None
+            try:
+                if not isinstance(po, dict) or po.get("currency") != "KRW":
+                    raise ValueError
+                final = int(po["final"]) // 100
+                initial = int(po["initial"]) // 100
+                pct = int(po.get("discount_percent", 0))
+                if final <= 0 or initial < final or not 0 <= pct < 100:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                out[appid] = ("error",)
+                continue
+            out[appid] = ("ok", final, initial, pct)
+    return out
