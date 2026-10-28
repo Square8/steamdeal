@@ -80,7 +80,7 @@ class IndieGamesTest(unittest.TestCase):
         self.assertNotIn("https://gamedil.com/pick.html", sitemap)
         for path in ("index.html", "game/810001.html", "indie-games.html"):
             text = (self.site / path).read_text()
-            self.assertIn("인디 추천</a>", text)
+            self.assertIn("인디·데모</a>", text)
             self.assertNotIn("가챠", text)
         home = (self.site / "index.html").read_text()
         self.assertIn('id="indie"', home)

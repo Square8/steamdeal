@@ -802,18 +802,17 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     """depth: 하위 폴더 깊이. game/xxx.html 은 1 이라 상위 경로가 '../' 가 된다."""
     up = root_path if root_path else "../" * depth
     freshness = freshness or {"label": "자동 갱신 정상", "class": "ok", "display": updated}
-    # 홈에서 바로 비교할 수 있는 순서와 메뉴 순서를 맞춘다.
+    # 메뉴는 홈의 네 묶음(할인·인기·인디·데모·신작·기대작)과 전체 목록, 개인 도구 둘.
+    # 10개를 나열하던 때는 모바일에서 절반이 화면 밖이었고, 핫딜·최근 인하·1만원 이하가
+    # 서로 무엇이 다른지 메뉴만 보고는 알 수 없었다. 세부 목록은 첫 화면 바로가기로 간다.
     jump = (f"""<nav class="jump" aria-label="주요 탐색">
-    <a href="{up}index.html#popular">지금 인기</a>
-    <a href="{up}index.html#drop">최근 인하</a>
-    <a href="{up}index.html#hot">핫딜</a>
-    <a href="{up}index.html#soon">기대작</a>
-    <a href="{up}index.html#demo">데모</a>
-    <a href="{up}index.html#under-10000">1만원 이하</a>
-    <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
-    <a href="{up}my-games.html">내 찜 <span class="wish-count">0</span></a>
-    <a href="{up}indie-games.html">인디 추천</a>
+    <a href="{up}index.html#hot">할인</a>
+    <a href="{up}index.html#popular">인기</a>
+    <a href="{up}index.html#indie">인디·데모</a>
+    <a href="{up}index.html#new">신작·기대작</a>
     <a href="{up}index.html#all">전체</a>
+    <a class="util" href="{up}my-games.html">내 찜 <span class="wish-count">0</span></a>
+    <a href="{up}compare.html">비교 <span class="compare-count">0</span></a>
   </nav>""" if nav else "")
     search = (f"""<form class="hsearch" role="search" action="{up}index.html" method="GET">
     <input type="search" name="q" placeholder="게임 이름 검색" aria-label="게임 이름 검색">
@@ -1060,6 +1059,15 @@ def price_note(g: dict) -> str:
     return text if price_is_fresh(g) else text + " · 오래된 정보, Steam에서 확인하세요"
 
 
+def price_note_div(g: dict) -> str:
+    """카드의 가격 확인 줄. 최근에 확인한 가격이면 생략한다 — 섹션 안내가 이미 말하고,
+    모바일 카드가 한 줄 짧아진다. 오래됐거나 확인일이 없을 때만 경고로 보여준다."""
+    note = price_note(g)
+    if not note or price_is_fresh(g):
+        return ""
+    return f'<div class="price-note tagline">{esc(note)}</div>'
+
+
 def price_html(g: dict) -> str:
     if g.get("is_free"):
         return '<div class="price"><span class="now">무료</span></div>'
@@ -1120,7 +1128,7 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
     {chips_for(g)}
     <div class="tagline">{rc}</div>
     <div class="{fcls}">{left}{price_html(g)}</div>
-    <div class="price-note tagline">{esc(price_note(g))}</div>
+    {price_note_div(g)}
   </div>
 </a>"""
 
@@ -1196,29 +1204,29 @@ def section(sid: str, title: str, note: str, items: list[dict],
 
 
 def lead(games: list[dict], safe: list[dict]) -> str:
-    """첫 화면 명제 + 숫자.
+    """첫 화면 명제 + 숫자 + 목적별 바로가기.
 
     처음 온 사람은 2초 안에 '여기가 뭐 하는 곳인지' 알아야 한다.
     숫자를 문장 안에 넣으면 "스팀 게임이 78개뿐"으로 읽히므로 명제와 숫자를 분리한다.
+    바로가기는 각 목록 페이지로 바로 보낸다. 예전에는 홈 맨 아래 전체 목록으로
+    끌어내려서, 모바일에서는 무엇이 바뀌었는지 보이지 않았다.
     """
     n_kr = sum(1 for g in safe if g.get("korean"))
     n_demo = sum(1 for g in safe if g.get("korean")
                  and (g.get("has_demo") or g.get("app_type") == "demo"))
-    n_sale = sum(1 for g in safe if g.get("korean") and (g.get("discount_pct") or 0) > 0)
+    n_sale = sum(1 for g in safe if g.get("korean") and (g.get("discount_pct") or 0) > 0
+                 and price_is_fresh(g))
     facts = [("한국어 게임", n_kr), ("무료 데모", n_demo), ("지금 할인", n_sale)]
     fh = "".join(f"<span>{esc(k)} <b>{v:,}</b></span>" for k, v in facts)
+    links = [("#hot", "💸 지금 할인"), ("recent-drops.html", "📉 최근 인하"),
+             ("under-10000.html", "💰 1만원 이하"), ("korean-demo.html", "🎮 무료 데모"),
+             ("indie-games.html", "🌱 인디 추천"), ("popular-games.html", "🔥 인기 게임"),
+             ("korean-soon.html", "🚀 출시예정")]
+    qa = "".join(f'<a href="{h}">{t}</a>' for h, t in links)
     return f"""<section class="lead" id="top">
-  <p class="lead-kicker">GAMEDIL</p>
-  <h1>지금 많이 하는 한국어 게임,<br>검증된 핫딜부터.</h1>
+  <h1>한국어 스팀 게임,<br>지금 가격으로 고르기.</h1>
   <p class="facts">{fh}</p>
-  <div class="quick-actions" aria-label="빠른 조건">
-    <button type="button" data-jump-filter="off50">🔥 50%+ 할인</button>
-    <button type="button" data-jump-filter="cheap">💸 1만원 이하</button>
-    <button type="button" data-jump-filter="demo">🎮 무료 데모</button>
-    <button type="button" data-jump-filter="kr">🇰🇷 한국어</button>
-    <button type="button" data-jump-filter="soon">🚀 출시예정</button>
-    <button type="button" data-jump-filter="wish">♡ 찜 목록</button>
-  </div>
+  <nav class="quick-actions" aria-label="목적별 바로가기">{qa}</nav>
 </section>"""
 
 
@@ -1408,7 +1416,8 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     popular_note = (f"Steam 동시 접속자 수(전 세계) · 최근 {config.PLAYER_FRESH_HOURS}시간 안에 "
                     "확인한 값만 · 카드에 게임별 확인 시각")
 
-    # 홈 추천 섹션끼리 같은 게임을 다시 보여주지 않는다(화면 순서대로 먼저 나온 곳에 둔다).
+    # 홈 추천 섹션끼리 같은 게임을 다시 보여주지 않는다(화면 순서대로 먼저 나온 곳에 둔다:
+    # 할인 추천 → 최근 인하 → 1만원 이하 → 인디 → 데모).
     # 인기·판매 상위·출시 임박·신작은 순위·날짜 목록이라 제외하지 않는다.
     seen: set[int] = set()
 
@@ -1419,24 +1428,19 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
     # 최근 가격 확인(UTC 0~2일)이 안 된 게임은 홈 추천 어디에도 올리지 않는다.
     priced = [g for g in korean if price_is_fresh(g)]
-    recent_drops = unseen([g for g in (recent_drops or []) if not g.get("adult")])
     hot, hot_tier = deal_picks(priced, seen)
     seen.update(g["appid"] for g in hot[:8])
+    recent_drops = unseen([g for g in (recent_drops or []) if not g.get("adult")])
     hot_title = "💸 지금 눈여겨볼 할인"
     if hot_tier is None:
         hot_note = "최근 2일 안에 가격을 확인한 한국어 게임만 고릅니다."
     else:
         d, p, r = hot_tier
-        hot_note = (f"할인 {d}% 이상 · Steam 긍정률 {p}% 이상 · 리뷰 {r:,}개 이상"
-                    + ("" if hot_tier == config.DEAL_TIERS[0] else
-                       " (조건에 맞는 게임이 적어 기준을 넓혔습니다)")
-                    + " · 최근 2일 안에 확인한 가격 · 날마다 순서가 바뀝니다.")
+        hot_note = (f"할인 {d}% 이상 · Steam 긍정률 {p}% 이상 · 리뷰 {r:,}개 이상 · 최근 2일 안에 확인한 가격"
+                    + ("" if hot_tier == config.DEAL_TIERS[0] else " · 후보가 적어 기준을 넓혔습니다"))
 
     selling, selling_stamp = top_seller_games(top_sellers, safe)
 
-    demos = unseen(daily_rotate(sorted([g for g in priced
-                                        if g.get("has_demo") or g.get("app_type") == "demo"],
-                                       key=lambda g: -(g.get("review_count") or 0)), "demo"))
     under_10k = sorted([g for g in priced if 0 < (g.get("price_final") or 0) <= 10000],
                        key=lambda g: g.get("price_final") or 0)
     # 홈 미리보기는 평가가 확인된 게임만. 전체 목록 페이지는 그대로 모든 게임을 보여준다.
@@ -1452,6 +1456,9 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
                                     and price_is_fresh(g)],
                                    key=indie_spec["sort"]), "indie")),
         [g for g in safe if price_is_fresh(g)])
+    demos = unseen(daily_rotate(sorted([g for g in priced
+                                        if g.get("has_demo") or g.get("app_type") == "demo"],
+                                       key=lambda g: -(g.get("review_count") or 0)), "demo"))
     fresh = sorted([g for g in korean if store.is_new_release(g)],
                    key=lambda g: (g.get("release_date") or "", g.get("name") or ""),
                    reverse=True)
@@ -1492,49 +1499,53 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     body = f"""
 {lead(games, safe)}
 
-{section("popular", popular_title, popular_note, popular,
-         "최근 확인한 동접 정보가 없습니다. 다음 수집 후 다시 표시됩니다.", rail=True, cap=8,
-         more_href="popular-games.html", more_text="인기 게임 전체")}
-{section("selling", "🛒 Steam 한국 판매 상위",
-         f"Steam 한국 상점 ‘최고 판매’ 목록 순서 · {selling_stamp} KST 수집 · 동접과는 다른 지표입니다.",
-         selling, "", rail=True, cap=8, more_href="#all", more_text="전체에서 더 보기") if selling else ""}
-
+<div class="group" id="g-deals"><p class="group-label">할인</p>
+{section("hot", hot_title, hot_note, hot,
+         "최근 가격을 확인한 할인 중 조건에 맞는 게임이 없습니다.", rail=True, cap=8,
+         more_href="hot-deals.html", more_text="할인 전체")}
 {(section("drop", "📉 최근 가격이 내려간 게임",
          f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", recent_drops,
          "", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체") if recent_drops else
    section("drop", "📉 최근 가격이 내려간 게임",
          f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", [],
          "최근 가격이 내려간 게임이 없습니다.", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체"))}
-
-{section("hot", hot_title, hot_note, hot,
-         "최근 가격을 확인한 할인 중 조건에 맞는 게임이 없습니다.", rail=True, cap=8,
-         more_href="hot-deals.html", more_text="핫딜 전체")}
-
-{section("soon", "🚀 출시 임박 기대작",
-         "Steam 상점 노출과 출시일 기준입니다. 공개되지 않은 위시리스트 순위는 사용하지 않습니다.",
-         soon, "출시예정 목록이 아직 비어 있습니다.", rail=True,
-         more_href="korean-soon.html", more_text="출시예정 전체")}
-
-{section("demo", "🎮 사기 전에 해보는 무료 데모",
-         "한국어로 먼저 플레이해보고 고를 수 있는 게임입니다. 리뷰가 많은 게임 중에서 날마다 순서가 바뀝니다.", demos,
-         "한국어 데모가 아직 수집되지 않았습니다.", rail=True,
-         more_href="korean-demo.html", more_text="무료 데모 전체")}
-
 {section("under-10000", "💸 1만원 이하 게임",
          ("현재 판매가 1만원 이하 · 리뷰 50개 이상 · 긍정 70% 이상" if under_10k_pool is under_10k_good
           else "현재 판매가 1만원 이하") + " · 최근 2일 안에 확인한 가격 · 가격대별로 골고루, 날마다 바꿔 보여줍니다.", under_10k_featured,
          "조건에 맞는 게임이 없습니다.", rail=True, cap=8,
          more_href="under-10000.html", more_text="1만원 이하 전체",
          total_count=len(under_10k))}
+</div>
 
+<div class="group" id="g-trend"><p class="group-label">인기</p>
+{section("popular", popular_title, popular_note, popular,
+         "최근 확인한 동접 정보가 없습니다. 다음 수집 후 다시 표시됩니다.", rail=True, cap=8,
+         more_href="popular-games.html", more_text="인기 게임 전체")}
+{section("selling", "🛒 Steam 한국 판매 상위",
+         f"Steam 한국 상점 ‘최고 판매’ 목록 순서 · {selling_stamp} KST 수집 · 동접과는 다른 지표입니다.",
+         selling, "", rail=True, cap=8, more_href="#all", more_text="전체에서 더 보기") if selling else ""}
+</div>
+
+<div class="group" id="g-discover"><p class="group-label">인디·데모</p>
 {section("indie", "🌱 인디게임 추천",
          "Steam 인디 장르 · 한국어 지원 · 전체 리뷰 50개 이상 · 긍정률 80% 이상 · GameDil이 고른 게임 포함", indie_games,
          "아직 추천 기준에 맞는 인디게임이 없습니다.", rail=True, cap=8,
          more_href="indie-games.html", more_text="인디 추천 전체")}
+{section("demo", "🎮 사기 전에 해보는 무료 데모",
+         "한국어로 먼저 플레이해보고 고를 수 있는 게임입니다. 리뷰가 많은 게임 중에서 날마다 순서가 바뀝니다.", demos,
+         "한국어 데모가 아직 수집되지 않았습니다.", rail=True,
+         more_href="korean-demo.html", more_text="무료 데모 전체")}
+</div>
 
+<div class="group" id="g-new"><p class="group-label">신작·기대작</p>
 {section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순으로 보여줍니다.", fresh,
          "한국어 신작 목록이 아직 비어 있습니다.", rail=True,
          more_href="korean-new.html", more_text="신작 전체")}
+{section("soon", "🚀 출시 임박 기대작",
+         "Steam 상점 노출과 출시일 기준입니다. 공개되지 않은 위시리스트 순위는 사용하지 않습니다.",
+         soon, "출시예정 목록이 아직 비어 있습니다.", rail=True,
+         more_href="korean-soon.html", more_text="출시예정 전체")}
+</div>
 {atl_note}
 
 <section id="all">
@@ -1740,10 +1751,12 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     fDiv.appendChild(pDiv);
 
     cardB.appendChild(fDiv);
-    var observation = document.createElement('div');
-    observation.className = 'price-note tagline';
-    observation.textContent = g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요';
-    cardB.appendChild(observation);
+    if (!g.pf) {{
+      var observation = document.createElement('div');
+      observation.className = 'price-note tagline';
+      observation.textContent = g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요';
+      cardB.appendChild(observation);
+    }}
     a.appendChild(cardB);
     return a;
   }}
@@ -1949,13 +1962,6 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     c.addEventListener('click',function(){{
       chips.forEach(function(x){{ x.setAttribute('aria-pressed',String(x===c)); }});
       f=c.dataset.f; apply();
-    }});
-  }});
-  document.querySelectorAll('[data-jump-filter]').forEach(function(b){{
-    b.addEventListener('click',function(){{
-      var target=document.querySelector('.presets .chip[data-f="'+b.dataset.jumpFilter+'"]');
-      if(target) target.click();
-      document.getElementById('all').scrollIntoView();
     }});
   }});
   var resetBtnNode = document.getElementById('resetBtn');
@@ -2720,12 +2726,15 @@ LANDINGS = [
          note="기본 정렬은 가격 인하폭 및 할인율이 큰 순서입니다. (데이터가 많으면 최대 120개 표시)",
          pick=lambda g: True,
          sort=lambda g: 0),
+    # 홈 '지금 눈여겨볼 할인'은 평가 기준을 통과한 일부이고, 이 페이지는 확인된 할인 전부다.
+    # (70% 이상만 받던 때는 최신 가격 기준으로 0~7개라 '전체 보기'가 비어 있었다.)
     dict(slug="hot-deals",
-         title="스팀 게임 핫딜 — 70% 이상 할인된 한국어 지원 명작",
-         h1="70% 이상 할인 핫딜",
-         desc="스팀에서 70% 이상 할인 중인 한국어 지원 게임 목록. 할인율과 평가를 함께 검증했습니다.",
-         note="할인율 70% 이상인 한국어 지원 게임입니다. 최근 2일 안에 가격을 확인한 게임만 보여줍니다. 기본 정렬은 할인율과 리뷰 많은 순입니다.",
-         pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) >= 70
+         title="스팀 게임 핫딜 — 지금 할인 중인 한국어 지원 게임",
+         h1="지금 할인 중인 게임",
+         desc="스팀에서 지금 할인 중인 한국어 지원 게임 전체 목록. 최근 2일 안에 확인한 원화 가격만 보여줍니다.",
+         note="최근 2일 안에 가격을 확인한, 할인 중인 한국어 지원 게임 전부입니다. "
+              "홈의 ‘지금 눈여겨볼 할인’은 이 중 평가 기준을 통과한 게임입니다. 기본 정렬은 할인율과 리뷰 많은 순입니다.",
+         pick=lambda g: bool(g.get("korean") and (g.get("discount_pct") or 0) > 0
                              and price_is_fresh(g)),
          sort=lambda g: (-(g.get("discount_pct") or 0), -(g.get("review_total") or g.get("review_count") or 0))),
     dict(slug="popular-games",
@@ -3343,7 +3352,7 @@ def build_my_games(updated: str, freshness: dict) -> str:
       }
       priceRow.appendChild(priceBox);
       body.appendChild(priceRow);
-      body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
+      if (!g.pf) body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
 
       var targetPanel = el('div', '', 'my-target-panel');
       var targetView = el('div', '', 'my-target-view');
@@ -3733,7 +3742,7 @@ def build_shared_games(updated: str, freshness: dict) -> str:
       }
       priceRow.appendChild(priceBox);
       body.appendChild(priceRow);
-      body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
+      if (!g.pf) body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
 
       card.appendChild(body);
 
@@ -4007,7 +4016,7 @@ def build_recently_viewed(updated: str, freshness: dict) -> str:
       }
       priceRow.appendChild(priceBox);
       body.appendChild(priceRow);
-      body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
+      if (!g.pf) body.appendChild(el('div', g.price_note || '가격 확인일 미확인 · Steam에서 확인하세요', 'price-note tagline'));
       card.appendChild(body);
 
       var foot = el('div', '', 'my-card-foot');
@@ -4250,6 +4259,7 @@ def main() -> int:
             "off": g_copy.get('discount_pct') or 0,
             "price": g_copy.get('price_final') or 0,
             "price_note": price_note(g_copy),
+            "pf": 1 if price_is_fresh(g_copy) else 0,
             "p_init": g_copy.get('price_initial') or 0,
             "free": 1 if g_copy.get('is_free') else 0,
             "score": g_copy.get('score') or 0,

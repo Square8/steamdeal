@@ -494,14 +494,18 @@ check("홈 HTML에는 자동재생 video가 생성되지 않음", "<video" not i
 # '오늘의 추천'은 나머지 섹션의 합집합이라 중복의 원인이었다(측정: 중복 7개가 전부
 # 이 섹션에서 나왔고, 빼면 0이 됨). 히어로가 같은 역할을 하므로 없앴다.
 check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천" not in h)
-check("첫 화면 명제", "검증된 핫딜부터" in h)
+check("첫 화면 명제", "지금 가격으로 고르기" in h)
 check("명제 옆 숫자는 실제 값", 'class="facts"' in h and "<b>" in h)
 check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h and "지금 눈여겨볼 할인" in h)
 check("기대작 표현이 정직함", "출시 임박 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
 check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
 check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
 check("상단 갱신 상태", "최신 가격" in h and 'class="live-dot"' in h)
-check("빠른 조건 버튼", 'data-jump-filter="off50"' in h and 'data-jump-filter="cheap"' in h)
+# 바로가기는 홈 맨 아래 목록이 아니라 각 목록 페이지로 바로 간다.
+check("목적별 바로가기", 'class="quick-actions"' in h and 'href="under-10000.html">💰 1만원 이하' in h
+      and 'href="korean-demo.html">' in h and 'data-jump-filter' not in h)
+check("홈 네 묶음", all(f'id="{g}"' in h for g in ("g-deals", "g-trend", "g-discover", "g-new"))
+      and h.index('id="hot"') < h.index('id="popular"') < h.index('id="indie"') < h.index('id="new"'))
 check("찜 목록 필터", 'data-f="wish"' in h and "steamWishlist" in h)
 check("갱신 지연 상태 판정", build.freshness_info(
       (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=20)).isoformat())['label'] == "업데이트 지연")
@@ -516,7 +520,8 @@ check("하위 폴더에서도 CSS 경로가 맞다",
                                  encoding="utf-8").read())
 check("3중 테마 스코프", all(x in _css for x in
       [":root{", ':root:not([data-theme="light"])', ':root[data-theme="dark"]']))
-check("모바일 퀵 액션 가로 스크롤", "scroll-snap-type:x mandatory" in _css and "white-space:nowrap" in _css)
+check("모바일 바로가기는 줄바꿈(옆으로 밀지 않아도 전부 보임)",
+      ".quick-actions{gap:6px}" in _css and "scroll-snap-type:x mandatory" not in _css.split(".quick-actions{gap:6px}")[0][-400:])
 check("동접 뱃지 라이브 점", ".player-badge::before" in _css and "@keyframes playerPulse" in _css)
 check("찜 버튼 스타일", ".wish.on" in _css and "data-wish-id" in h)
 check("목표가 도달 스크립트", "steamdeal-target-price-v1" in h and "목표가 도달" in h)

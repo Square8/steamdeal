@@ -159,6 +159,12 @@ class StoreTest(TempDB):
         self.assertIn("KST 확인", detail)
 
 
+def sec(html, sid):
+    """홈 HTML 에서 id 가 sid 인 섹션 하나만 잘라낸다(섹션 순서와 무관)."""
+    i = html.index(f'<section id="{sid}"')
+    return html[i:html.index("</section>", i)]
+
+
 class HomeRulesTest(unittest.TestCase):
     def game(self, appid, **kw):
         g = dict(appid=appid, name=f"G{appid}", app_type="game", korean=1, adult=0, coming_soon=0,
@@ -206,13 +212,13 @@ class HomeRulesTest(unittest.TestCase):
             self.game(6, discount_pct=90, price_last="2026-09-01"),                    # 오래된 가격 → 제외
         ]
         html = build.build_index(games, "2026-10-27", None, recent_drops=[])
-        hot = html[html.index('id="hot"'):html.index('id="soon"')]
+        hot = sec(html, "hot")
         self.assertIn('data-wish="1"', hot)
         self.assertIn('data-wish="2"', hot)
         self.assertNotIn('data-wish="3"', hot)
         self.assertNotIn('data-wish="6"', hot)
         self.assertNotIn("기준을 넓혔습니다", hot)
-        soon = html[html.index('id="soon"'):html.index('id="demo"')]
+        soon = sec(html, "soon")
         self.assertIn('data-wish="5"', soon)
         self.assertNotIn('data-wish="4"', soon)
 
@@ -220,29 +226,29 @@ class HomeRulesTest(unittest.TestCase):
         # 1단계 후보가 없으면 다음 단계로 넓히고, 실제 쓴 기준을 부제에 적는다.
         low = self.game(7, discount_pct=25, review_total=40, review_positive_pct=72)
         html = build.build_index([low], "2026-10-27", None, recent_drops=[])
-        hot = html[html.index('id="hot"'):html.index('id="soon"')]
+        hot = sec(html, "hot")
         self.assertIn('data-wish="7"', hot)
         self.assertIn("할인 20% 이상 · Steam 긍정률 70% 이상 · 리뷰 30개 이상", hot)
-        self.assertIn("기준을 넓혔습니다", hot)
+        self.assertIn("후보가 적어 기준을 넓혔습니다", hot)
         # 마지막 단계 미만(리뷰 29개)은 넣지 않는다.
         weak = self.game(8, discount_pct=60, review_total=29, review_positive_pct=99)
         self.assertEqual(build.deal_picks([weak]), ([], None))
-        # 최근 인하에 이미 나온 게임은 할인 추천에서 다시 보여주지 않는다.
+        # 할인 추천에 나온 게임은 바로 아래 최근 인하에서 다시 보여주지 않는다.
         drop = dict(self.game(9, discount_pct=60), recent_drop_amount=1000,
                     recent_drop_rate=10, recent_drop_date="2026-10-27")
         html = build.build_index([self.game(9, discount_pct=60)], "2026-10-27", None,
                                  recent_drops=[drop])
-        self.assertIn('data-wish="9"', html[html.index('id="drop"'):html.index('id="hot"')])
-        self.assertNotIn('data-wish="9"', html[html.index('id="hot"'):html.index('id="soon"')])
+        self.assertIn('data-wish="9"', sec(html, "hot"))
+        self.assertNotIn('data-wish="9"', sec(html, "drop"))
 
     def test_under_10k_quality(self):
         good = [self.game(10 + i, price_final=3000 + i, review_total=100, review_positive_pct=90)
                 for i in range(5)]
         junk = self.game(99, price_final=500, review_total=0, review_positive_pct=0, review_count=0)
         html = build.build_index(good + [junk], "2026-10-27", None, recent_drops=[])
-        sec = html[html.index('id="under-10000"'):html.index('id="indie"')]
-        self.assertNotIn('data-wish="99"', sec)
-        self.assertIn('data-wish="10"', sec)
+        part = sec(html, "under-10000")
+        self.assertNotIn('data-wish="99"', part)
+        self.assertIn('data-wish="10"', part)
 
 
 if __name__ == "__main__":

@@ -115,6 +115,7 @@ nav.jump a{
 }
 nav.jump a:hover{background:var(--raised); color:var(--ink)}
 nav.jump a:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
+nav.jump a.util{margin-left:10px; border-left:1px solid var(--line); border-radius:0 8px 8px 0}
 .updated{color:var(--ink-3); font-size:11.5px}
 
 /* 헤더 검색: 처음 온 사람이 검색 기능의 존재를 알 수 있어야 한다.
@@ -148,14 +149,10 @@ nav.jump a:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
 /* 첫 화면 한 줄 명제 + 숫자.
    처음 온 사람은 2초 안에 '여기가 뭐 하는 곳인지' 알아야 한다.
    숫자는 빌드 때 실제 값으로 채운다 (문구는 오해가 없게 명제와 숫자를 분리). */
-.lead{margin:38px 0 8px}
-.lead-kicker{
-  margin:0 0 9px; color:var(--brand); font-family:"Inter",sans-serif;
-  font-size:11px; font-weight:800; letter-spacing:.16em;
-}
+.lead{margin:30px 0 8px}
 .lead h1{
   font-family:"Inter","Gothic A1",sans-serif; font-weight:800;
-  font-size:clamp(1.85rem, 4.5vw, 3rem); letter-spacing:-.055em; line-height:1.14;
+  font-size:clamp(1.6rem, 3.6vw, 2.4rem); letter-spacing:-.05em; line-height:1.16;
   margin:0 0 10px; text-wrap:balance;
 }
 .lead .facts{
@@ -169,13 +166,25 @@ nav.jump a:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
 .quick-actions{
   display:flex; gap:8px; flex-wrap:wrap; margin-top:18px;
 }
-.quick-actions button{
-  appearance:none; padding:8px 13px; border:1px solid var(--line); border-radius:999px;
-  background:var(--surface); color:var(--ink-2); cursor:pointer;
-  font-family:inherit; font-size:12.5px; font-weight:700;
+.quick-actions a{
+  display:inline-flex; align-items:center; min-height:38px; padding:0 14px;
+  border:1px solid var(--line); border-radius:999px;
+  background:var(--surface); color:var(--ink-2);
+  font-size:13px; font-weight:700; white-space:nowrap;
 }
-.quick-actions button:hover{border-color:var(--brand); color:var(--ink); background:var(--brand-soft)}
-.quick-actions button:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.quick-actions a:hover{border-color:var(--brand); color:var(--ink); background:var(--brand-soft)}
+.quick-actions a:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+
+/* 홈 네 묶음(할인·인기·인디·데모·신작·기대작). 메뉴 이름과 같은 말을 묶음 머리에 쓴다.
+   묶음 안 섹션은 간격을 좁혀서 한 덩어리로 보이게 한다. */
+.group{margin-top:3.5rem}
+.group > section{margin-top:2.25rem}
+.group > .group-label + section{margin-top:0}
+.group-label{
+  display:flex; align-items:center; gap:10px; margin:0 0 14px;
+  color:var(--brand); font-size:12.5px; font-weight:800; letter-spacing:.08em;
+}
+.group-label::after{content:""; flex:1; height:1px; background:var(--line)}
 .hero{
   display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:0;
   background:var(--surface); border:1px solid var(--line); border-radius:14px;
@@ -554,15 +563,15 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .rail .shot img, .rail .ph{aspect-ratio:16/9}
   .rail .wish{top:43px}
   section{margin-top:3.25rem}
-  .lead{margin-top:28px}
-  .lead h1{font-size:1.95rem}
+  .lead{margin-top:16px}
+  .lead h1{font-size:1.5rem; margin-bottom:6px}
   .lead .facts{gap:6px 13px; font-size:12.5px}
-  .quick-actions{
-    flex-wrap:nowrap; overflow-x:auto; white-space:nowrap; margin-left:-13px; margin-right:-13px;
-    padding:0 13px 8px; scrollbar-width:none; scroll-snap-type:x mandatory;
-  }
-  .quick-actions::-webkit-scrollbar{display:none}
-  .quick-actions button{flex:0 0 auto; white-space:nowrap; scroll-snap-align:start}
+  .quick-actions{margin-top:12px}
+  .group{margin-top:2.75rem}
+  .group > section{margin-top:2rem}
+  /* 바로가기는 옆으로 밀어야 보이면 절반은 없는 셈이다. 줄을 바꿔 전부 보여준다. */
+  .quick-actions{gap:6px}
+  .quick-actions a{min-height:36px; padding:0 11px; font-size:12.5px}
   .hero-body{padding:17px 17px 16px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
