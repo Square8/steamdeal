@@ -766,6 +766,16 @@ def autocomplete_js(up: str) -> str:
 </script>'''
     return script_tmpl.replace('__UP__', json.dumps(up)).replace('__SEARCH_NORM_JS__', SEARCH_NORM_JS)
 
+def own_analytics_tag() -> str:
+    """자체 통합 분석 태그 (analytics 프로젝트의 t.js).
+    방문·유입·스크롤·웹 속도와 스팀 이동·찜·필터·검색을 자동 수집한다. GA와 독립적으로 동작한다."""
+    src = getattr(config, "ANALYTICS_SRC", "").strip()
+    if not src:
+        return ""
+    site = getattr(config, "ANALYTICS_SITE", "").strip() or "gamedil"
+    return f'<script defer src="{esc(src)}" data-site="{esc(site)}"></script>'
+
+
 def ga_tag() -> str:
     """Google Analytics 4 (gtag.js) 태그.
     클라이언트 사이드 측정용이며, 외부 데이터·localStorage와 독립적으로 동작한다."""
@@ -865,6 +875,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
 {COMPARE_JS}
 {autocomplete_js(up) if nav else ""}
 {ga_tag()}
+{own_analytics_tag()}
 </head>
 <body>
 <header class="top"><div class="topin">

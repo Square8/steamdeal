@@ -25,6 +25,9 @@ NAVER_VERIFY = os.environ.get("NAVER_SITE_VERIFICATION", "").strip()
 
 # ---- 웹 분석 (Google Analytics 4) ----
 GA_TRACKING_ID = os.environ.get("GA_TRACKING_ID", "G-SVXW1DG02M").strip()
+# 자체 통합 분석 (/Users/Work/analytics). 주소를 비우면 태그를 넣지 않는다.
+ANALYTICS_SRC = os.environ.get("ANALYTICS_SRC", "https://toksem.com/_t/t.js").strip()
+ANALYTICS_SITE = os.environ.get("ANALYTICS_SITE", "gamedil").strip()
 
 # UTC 날짜 차이 0~2일(정확한 48시간 제한 아님)인 가격/무료 상태만 추천 후보로 공개.
 EDITORIAL_MAX_PRICE_AGE_DAYS = 2
