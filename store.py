@@ -665,7 +665,6 @@ def score_broadcast(g: dict) -> tuple[int, list[str]]:
     for need, add in ((10000, 10), (1000, 7), (100, 4)):
         if rc >= need:
             pts += add
-            why.append(f"리뷰 {rc:,}개")
             break
     return min(pts, 100), why
 

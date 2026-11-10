@@ -404,6 +404,8 @@ section{margin-top:4rem}
   padding:9px 11px; border-radius:9px; font-family:inherit; font-size:13px;
   background:var(--surface); color:var(--ink); border:1px solid var(--line);
 }
+.deal-filters{display:flex; flex-wrap:wrap; gap:8px 14px}
+.deal-filters .sw{min-height:36px; cursor:pointer}
 .sw{
   display:inline-flex; align-items:center; gap:7px; font-size:12.5px;
   color:var(--ink-2); cursor:pointer; user-select:none;
@@ -466,6 +468,11 @@ footer p{margin:0}
   display:grid; grid-template-columns:minmax(0,520px) minmax(0,1fr); gap:24px;
   align-items:start;
 }
+@media (min-width:861px){
+  .detail-hero .detail-buy-info{grid-area:1 / 2}
+  .detail-hero .dmedia{grid-area:1 / 1}
+}
+.detail-buy-info .price-now{margin-top:8px}
 .dhero .shot{border-radius:12px; overflow:hidden; border:1px solid var(--line)}
 .dhero h1{
   font-family:"Inter","Gothic A1",sans-serif; font-weight:800; font-size:1.65rem;
@@ -620,16 +627,19 @@ BADGE_ATL = (
 CSS += '''
 /* Compare Table */
 .compare-container { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2rem; }
-.compare-table { width: 100%; min-width: 600px; border-collapse: collapse; text-align: center; }
+.compare-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: center; }
 .compare-table th, .compare-table td { padding: 1rem; border: 1px solid var(--line); }
-.compare-table th { background: var(--surface); font-weight: bold; width: 10%; min-width: 80px; }
-.compare-table td { width: 30%; vertical-align: top; background: var(--surface-2); }
+.compare-table th { background: var(--surface); font-weight: bold; width: 18%; white-space: normal; overflow-wrap: anywhere; }
+.compare-table td { vertical-align: top; background: var(--surface-2); overflow-wrap: anywhere; }
 .compare-table img { max-width: 100%; border-radius: 4px; display: block; margin: 0 auto 0.5rem; }
 .compare-table .del-btn { margin-top: 1rem; }
 .empty-state { text-align: center; padding: 4rem 1rem; color: var(--ink-2); }
 .scroll-hint { text-align: center; color: var(--ink-2); font-size: 13px; margin-bottom: 0.5rem; display: none; }
 @media (max-width: 600px) {
-  .scroll-hint { display: block; }
+  .compare-table th, .compare-table td { padding: 0.55rem; font-size: 13px; }
+  .compare-table th { width: 25%; }
+  .compare-three .compare-table { min-width: 480px; }
+  .compare-three .scroll-hint { display: block; }
 }
 
 /* ================= 내 찜 목록 ================= */

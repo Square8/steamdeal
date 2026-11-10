@@ -510,7 +510,10 @@ def run_landing_sort_checks(base):
             check(f"[{slug}] 공통 정렬 UI 존재", True)
 
             opts_texts = sel.eval_on_selector_all("option", "els => els.map(e => e.textContent.trim())")
-            missing = [lbl for lbl in SORT_LABELS if lbl not in opts_texts]
+            expected_labels = SORT_LABELS if slug != "hot-deals" else [
+                "긍정률순" if label == "평가 좋은 순" else label for label in SORT_LABELS
+            ]
+            missing = [lbl for lbl in expected_labels if lbl not in opts_texts]
             check(f"[{slug}] 정렬 옵션 7종 라벨 모두 존재",
                   not missing, f"누락={missing}" if missing else "")
 

@@ -11,7 +11,7 @@
      GitHub Pages 404 폴백(요청 URL은 그대로 두고 404.html '내용'만 응답)을 재현하는
      최소 HTTP 서버 + 실제 Chromium(Playwright)으로 검증한다. 파일을 그냥 여는 것으로는
      이 문제를 재현할 수 없다(그러면 항상 파일 시스템 루트 기준으로만 해석되어 통과처럼 보인다).
-  2) 자동완성 지연 응답 — fetch('assets/game-search-index.json') 응답을 Playwright route로
+  2) 자동완성 지연 응답 — 전용 game-autocomplete.json 응답을 Playwright route로
      붙잡아 두고, 정해진 이벤트 순서(삭제/바깥클릭/Escape/검색어 교체/IME) 뒤에 응답을
      풀어주어, 닫힌 드롭다운이 다시 열리지 않고 최신 검색만 반영되는지 실제 DOM으로 확인한다.
   3) 관측 최저가 정직성 — 29/30/59/60/120일 경계 + at_lowest 참/거짓 픽스처를 만들어
@@ -371,11 +371,11 @@ else:
                     sinput.click()
                     sinput.type("Autocomplete", delay=10)
                     page.wait_for_timeout(300)
-                    json_reqs = [u for u in seen if "game-search-index.json" in u]
+                    json_reqs = [u for u in seen if "game-autocomplete.json" in u]
                     check(f"[{variant_label}|{req_path}] 자동완성 JSON fetch 발생함", len(json_reqs) > 0)
                     if json_reqs:
                         check(f"[{variant_label}|{req_path}] 자동완성 JSON fetch가 배포 루트로 해석됨",
-                              json_reqs[0].endswith("/assets/game-search-index.json"), json_reqs[0])
+                              json_reqs[0].endswith("/assets/game-autocomplete.json"), json_reqs[0])
                     try:
                         page.wait_for_selector(".ac-dropdown .ac-item", timeout=3000)
                         item_href = page.eval_on_selector(".ac-dropdown .ac-item", "el => el.href")
@@ -411,7 +411,7 @@ else:
 
     def setup_held_fetch(page):
         box = {"route": None}
-        page.route("**/assets/game-search-index.json", lambda route: box.__setitem__("route", route))
+        page.route("**/assets/game-autocomplete.json", lambda route: box.__setitem__("route", route))
         def release(json_path):
             r = box["route"]
             with open(json_path, "rb") as f:
@@ -419,7 +419,7 @@ else:
             r.fulfill(status=200, content_type="application/json", body=body)
         return release
 
-    json_path = os.path.join(SITE_DIR_LOCAL, "assets", "game-search-index.json")
+    json_path = os.path.join(SITE_DIR_LOCAL, "assets", "game-autocomplete.json")
     httpd, port = start_gh_pages_server(SITE_DIR_LOCAL)
     base = f"http://127.0.0.1:{port}"
 

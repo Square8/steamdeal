@@ -94,6 +94,10 @@ def _step_path(pts, X, Y):
     return " ".join(d)
 
 
+def price_change_count(points) -> int:
+    return sum(a[1] != b[1] for a, b in zip(points, points[1:]))
+
+
 def sparkline(hist: list[dict], end_date: str | None = None, w=88, h=40) -> str:
     """목록용 미니 추이. 형태만 보여주는 보조 표시이고, 수치는 옆에 숫자로 있다."""
     pts = _series(hist, end_date)
@@ -193,7 +197,7 @@ def detail_chart(hist: list[dict], atl: int, end_date: str | None = None) -> str
 
     return f"""<div class="chartwrap">
 <svg class="chart" viewBox="0 0 {W} {H}" role="img"
-     aria-label="가격 추이 계단 그래프. {d0} {pts[0][1]:,}원부터 {d1} {pts[-1][1]:,}원까지, 변동 {len(pts)-1}회.">
+     aria-label="가격 추이 계단 그래프. {d0} {pts[0][1]:,}원부터 {d1} {pts[-1][1]:,}원까지, 변동 {price_change_count(pts)}회.">
   {''.join(ticks)}
   {atl_line}
   <polygon points="{area}" fill="var(--brand-soft)"/>
@@ -431,6 +435,7 @@ COMPARE_JS = '''<script>
           name: typeof g.name === 'string' ? g.name : '',
           header_image: typeof g.header_image === 'string' ? g.header_image : '',
           price_final: Math.max(0, Number(g.price_final) || 0),
+          is_free: g.is_free === true,
           price_note: typeof g.price_note === 'string' ? g.price_note.slice(0, 200) : '가격 확인일 미확인 · Steam에서 확인하세요',
           discount_pct: Math.max(0, Number(g.discount_pct) || 0),
           lowest_seen: Math.max(0, Number(g.lowest_seen) || 0),
@@ -532,6 +537,15 @@ function getMatchTier(name, query) {
 }'''
 
 
+def autocomplete_index_json(index_data: list[dict]) -> str:
+    # 행 순서는 자동완성 스크립트와 공유한다. 상세 탐색용 데이터는 별도 파일에 둔다.
+    rows = [
+        [g["appid"], g["name"], g["price"], g["off"], g["soon"], g["free"], g["score"]]
+        for g in index_data if not g["adult"]
+    ]
+    return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+
+
 def autocomplete_js(up: str) -> str:
     script_tmpl = '''<script>
 (function(){
@@ -547,7 +561,7 @@ def autocomplete_js(up: str) -> str:
     fetchCallbacks.push(cb);
     if (isFetching) return;
     isFetching = true;
-    fetch(up + 'assets/game-search-index.json')
+    fetch(up + 'assets/game-autocomplete.json')
       .then(function(r){
         if (!r.ok) throw new Error('fetch error');
         return r.json();
@@ -619,43 +633,35 @@ def autocomplete_js(up: str) -> str:
       }
       dropdown.style.display = 'block';
 
-      matches.forEach(function(g, idx) {
+      matches.forEach(function(row, idx) {
+        var [appid, name, price, off, soon, free] = row;
         var a = el('a', '', 'ac-item');
-        a.href = up + 'game/' + g.appid + '.html';
+        a.href = up + 'game/' + appid + '.html';
         a.setAttribute('role', 'option');
 
         var thumb = el('div', '', 'ac-thumb');
-        if (g.img && (g.img.indexOf('http://') === 0 || g.img.indexOf('https://') === 0)) {
-          var img = document.createElement('img');
-          img.src = g.img;
-          img.alt = '';
-          img.loading = 'lazy';
-          img.decoding = 'async';
-          thumb.appendChild(img);
-        } else {
-          var ph = el('div', (g.name || '?').trim().substring(0, 2).toUpperCase(), 'ph');
-          thumb.appendChild(ph);
-        }
+        thumb.setAttribute('aria-hidden', 'true');
+        thumb.appendChild(el('div', (name || '?').trim().substring(0, 2).toUpperCase(), 'ph'));
         a.appendChild(thumb);
 
         var info = el('div', '', 'ac-info');
-        var nameSpan = el('span', g.name, 'ac-name');
+        var nameSpan = el('span', name, 'ac-name');
         info.appendChild(nameSpan);
 
         var pRow = el('div', '', 'ac-p-row');
         var priceSpan = el('span', '', 'ac-price');
-        var currentPrice = +g.price || 0;
-        if (g.free) {
+        var currentPrice = +price || 0;
+        if (free) {
           priceSpan.textContent = '무료';
         } else if (!currentPrice) {
-          priceSpan.textContent = g.soon ? '출시 전' : '가격 미정';
+          priceSpan.textContent = soon ? '출시 전' : '가격 미정';
         } else {
           priceSpan.textContent = currentPrice.toLocaleString('ko-KR') + '원';
         }
         pRow.appendChild(priceSpan);
 
-        if (g.off) {
-          var offSpan = el('span', '-' + g.off + '%', 'ribbon ' + (g.off >= 75 ? 'r-hi' : 'r-lo'));
+        if (off) {
+          var offSpan = el('span', '-' + off + '%', 'ribbon ' + (off >= 75 ? 'r-hi' : 'r-lo'));
           pRow.appendChild(offSpan);
         }
         info.appendChild(pRow);
@@ -695,18 +701,17 @@ def autocomplete_js(up: str) -> str:
         if (currentVersion !== searchVersion) return;
         var matches = [];
         for (var i = 0; i < data.length; i++) {
-          var g = data[i];
-          if (g.adult) continue;
-          var tier = getMatchTier(g.name, qTrim);
+          var row = data[i];
+          var tier = getMatchTier(row[1], qTrim);
           if (tier !== Infinity) {
-            matches.push({ g: g, tier: tier });
+            matches.push({ row: row, tier: tier, score: row[6] });
           }
         }
         matches.sort(function(a, b) {
           if (a.tier !== b.tier) return a.tier - b.tier;
-          return (b.g.score || 0) - (a.g.score || 0);
+          return b.score - a.score;
         });
-        var top = matches.slice(0, 6).map(function(m) { return m.g; });
+        var top = matches.slice(0, 6).map(function(m) { return m.row; });
         renderDropdown(top);
       });
     }
@@ -714,6 +719,7 @@ def autocomplete_js(up: str) -> str:
     input.addEventListener('input', function() {
       search(this.value);
     });
+    if (input.form) input.form.addEventListener('submit', close);
 
     input.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
@@ -1043,7 +1049,7 @@ def atl_label(g: dict) -> str:
     return f'<span class="t atl">{days}일 최저</span>'
 
 
-def shot(g: dict, ribbon: bool = True) -> str:
+def shot(g: dict, ribbon: bool = True, priority: bool = False) -> str:
     """표지 이미지. 없으면 검은 빈칸 대신 머리글자 자리표시를 쓴다."""
     pct = g.get("discount_pct") or 0
     rib = (f'<span class="ribbon {"r-hi" if pct >= 75 else "r-lo"}">-{pct}%</span>'
@@ -1052,8 +1058,9 @@ def shot(g: dict, ribbon: bool = True) -> str:
     playing = (f'<span class="player-badge" title="Steam 동접 · {esc(player_stamp(g, "%m/%d %H:%M"))} KST 확인">'
                f'{esc(badge)}</span>' if badge else "")
     if g.get("header_image"):
+        loading = 'loading="eager" fetchpriority="high"' if priority else 'loading="lazy"'
         inner = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지" '
-                 f'loading="lazy" decoding="async">')
+                 f'{loading} decoding="async">')
     else:
         initial = esc((g.get("name") or "?").strip()[:2].upper())
         inner = f'<div class="ph" aria-hidden="true">{initial}</div>'
@@ -1113,7 +1120,7 @@ def price_html(g: dict) -> str:
             f'{was}</div>')
 
 
-def card(g: dict, big: bool = False, depth: int = 0) -> str:
+def card(g: dict, big: bool = False, depth: int = 0, priority: bool = False) -> str:
     """카드에는 고를 때 필요한 것만 남긴다: 표지 · 제목 · 성격 · 가격.
 
     0~100 합성 점수는 뺐다. 이름을 뭘로 바꾸든 한눈에 뜻이 안 잡히고,
@@ -1156,7 +1163,7 @@ def card(g: dict, big: bool = False, depth: int = 0) -> str:
    data-off="{g.get('discount_pct') or 0}" data-price="{g.get('price_final') or 0}"
    data-score="{score}" data-atl="{1 if atl_label(g) else 0}" data-wish="{g['appid']}" data-free="{1 if g.get('is_free') else 0}"
    data-rev="{g.get('review_total') or g.get('review_count') or 0}" data-pos="{g.get('review_positive_pct') if g.get('review_positive_pct') is not None else -1}">
-  {shot(g)}
+  {shot(g, priority=priority)}
   <button class="wish" type="button" data-wish-id="{g['appid']}" aria-pressed="false"
           aria-label="찜 목록에 추가">♡</button>
   <div class="card-b">
@@ -1211,12 +1218,63 @@ def hero(g: dict) -> str:
 </section>"""
 
 
+LIST_RETURN_SOURCE_JS = """<script>
+(function() {
+  document.addEventListener('click', function(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey ||
+        event.ctrlKey || event.shiftKey || event.altKey) return;
+    var link = event.target.closest('a[href]');
+    if (!link || (link.target && link.target !== '_self') || link.hasAttribute('download')) return;
+    var destination = new URL(link.href);
+    if (destination.origin !== location.origin ||
+        !/\\/game\\/\\d+\\.html$/.test(destination.pathname)) return;
+    try {
+      sessionStorage.setItem('gd-list-return', JSON.stringify({
+        from: location.href, to: destination.href
+      }));
+      history.replaceState(Object.assign({}, history.state, {gdListY: window.scrollY}), '');
+    } catch (_) {}
+  });
+})();
+</script>"""
+
+LIST_RETURN_DETAIL_JS = """<script>
+(function() {
+  var link = document.querySelector('[data-list-return]');
+  var source;
+  try {
+    var pending = JSON.parse(sessionStorage.getItem('gd-list-return') || 'null');
+    sessionStorage.removeItem('gd-list-return');
+    source = history.state && history.state.gdListFrom;
+    if (!source && pending && pending.to === location.href && document.referrer) {
+      var previous = new URL(pending.from);
+      var referrer = new URL(document.referrer);
+      if (previous.origin === location.origin &&
+          previous.origin + previous.pathname + previous.search === referrer.href) {
+        source = previous.href;
+        history.replaceState(Object.assign({}, history.state, {gdListFrom: source}), '');
+      }
+    }
+    if (!source || new URL(source).origin !== location.origin || history.length < 2) return;
+  } catch (_) { return; }
+  link.href = source;
+  link.addEventListener('click', function(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey ||
+        event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    history.back();
+  });
+})();
+</script>"""
+
+
 # ---------------------------------------------------------------- 홈
 
 def section(sid: str, title: str, note: str, items: list[dict],
             empty: str, rail: bool = False, cap: int = 8,
             more_href: str = "#all", more_text: str = "전체에서 더 보기",
-            feature: bool = False, total_count: int | None = None) -> str:
+            feature: bool = False, total_count: int | None = None,
+            prioritize_first: bool = False) -> str:
     """홈 섹션. 상한은 8개다 — 120개를 세로로 다 쌓으면 모바일에서 2만 픽셀이 되고,
     그러면 아래쪽 섹션은 아무도 못 본다. 나머지는 각자의 목록 페이지로 보낸다."""
     if not items:
@@ -1226,7 +1284,10 @@ def section(sid: str, title: str, note: str, items: list[dict],
         cls = "rail" if rail else "grid"
         # feature: 첫 카드만 2칸으로. 모든 섹션에 쓰면 다시 균일해져서 의미가 없다.
         picked = items[:cap]
-        cards = "".join(card(g, big=(feature and i == 0)) for i, g in enumerate(picked))
+        cards = "".join(
+            card(g, big=feature and i == 0, priority=prioritize_first and i == 0)
+            for i, g in enumerate(picked)
+        )
         body = f'<div class="{cls}">{cards}</div>'
         cnt = f'<span class="cnt">{total_count if total_count is not None else len(items)}개</span>'
     note_html = f'<p class="sec-note">{esc(note)}</p>' if note else ""
@@ -1472,8 +1533,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
         hot_note = "최근 2일 안에 가격을 확인한 한국어 게임만 고릅니다."
     else:
         d, p, r = hot_tier
-        hot_note = (f"할인 {d}% 이상 · Steam 긍정률 {p}% 이상 · 리뷰 {r:,}개 이상 · 최근 2일 안에 확인한 가격"
-                    + ("" if hot_tier == config.DEAL_TIERS[0] else " · 후보가 적어 기준을 넓혔습니다"))
+        hot_note = f"할인 {d}% 이상 · Steam 긍정률 {p}% 이상 · 리뷰 {r:,}개 이상 · 최근 2일 안에 확인한 가격"
 
     selling, selling_stamp = top_seller_games(top_sellers, safe)
 
@@ -1538,7 +1598,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 <div class="group" id="g-deals"><p class="group-label">할인</p>
 {section("hot", hot_title, hot_note, hot,
          "최근 가격을 확인한 할인 중 조건에 맞는 게임이 없습니다.", rail=True, cap=8,
-         more_href="hot-deals.html", more_text="할인 전체")}
+         more_href="hot-deals.html", more_text="할인 전체", prioritize_first=True)}
 {(section("drop", "📉 최근 가격이 내려간 게임",
          f"최근 {config.RECENT_DROP_DAYS}일간 이 사이트가 관측한 가격 변동 기준입니다.", recent_drops,
          "", rail=True, cap=8, more_href="recent-drops.html", more_text="최근 인하 전체") if recent_drops else
@@ -1835,7 +1895,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
   var observer = new IntersectionObserver(function(entries) {{
     if (entries[0].isIntersecting) {{
-      loadIndex().then(render).catch(function(){{}});
+      if (!fetchPromise) loadIndex().then(render).catch(function(){{}});
       observer.disconnect();
     }}
   }});
@@ -1985,7 +2045,11 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   }}
 
   window.addEventListener('pagehide', function(){{
-    try {{ sessionStorage.setItem('gd-home-pos', JSON.stringify({{y: window.scrollY, shown: shown}})); }} catch(e) {{}}
+    try {{
+      sessionStorage.setItem('gd-home-pos', JSON.stringify({{
+        y: window.scrollY, shown: shown, loaded: Boolean(fetchPromise)
+      }}));
+    }} catch(e) {{}}
   }});
 
   function apply(){{
@@ -2001,16 +2065,24 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   }}
   moreBtn.addEventListener('click',function(){{ shown+=PAGE; render(); }});
 
-  function handleInput(v) {{
+  function handleInput(v, deferLoad) {{
     if (q) q.value = v;
     if (hq) hq.value = v;
     var trimmed = (v || '').trim();
     updateQuery('q', trimmed);
+    if (deferLoad && !indexData) return;
     apply();
   }}
 
   if (q) q.addEventListener('input', function() {{ handleInput(q.value); }});
-  if (hq) hq.addEventListener('input', function() {{ handleInput(hq.value); }});
+  if (hq) {{
+    hq.addEventListener('input', function() {{ handleInput(hq.value, true); }});
+    hq.form.addEventListener('submit', function(event) {{
+      event.preventDefault();
+      handleInput(hq.value);
+      if (allSec) allSec.scrollIntoView();
+    }});
+  }}
 
   sort.addEventListener('change',apply);
   adult.addEventListener('change',apply);
@@ -2072,7 +2144,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
       sort.value = 'score';
     }}
 
-    if (searchStr !== null || h.indexOf('#q=') === 0 || sortStr !== null || fChip || restore) {{
+    if (restore && restore.loaded === false) {{
+      window.scrollTo(0, restore.y || 0);
+      restore = null;
+    }} else if (searchStr !== null || h.indexOf('#q=') === 0 || sortStr !== null || fChip || restore) {{
       apply();
       if (!restore && (searchStr !== null || h.indexOf('#q=') === 0)) {{
         document.getElementById('all').scrollIntoView();
@@ -2086,6 +2161,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   window.syncURL();
 }})();
 </script>
+{LIST_RETURN_SOURCE_JS}
 """
     schema = {
         "@context": "https://schema.org",
@@ -2402,11 +2478,11 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             f'<td>{("-" + str(h["discount_pct"]) + "%") if h["discount_pct"] else "—"}</td></tr>'
             for h in reversed(hist))
         chart_inner = (detail_chart(hist, g.get("lowest_seen") or 0, g.get("price_last")) +
-                       f"""<details><summary>가격이 바뀐 날 {len(hist)}건 보기</summary>
+                       f"""<details><summary>시작 가격과 관측 기록 {len(hist)}건 보기</summary>
     <div class="tablewrap"><table><thead>
-    <tr><th>바뀐 날</th><th>가격</th><th>할인</th></tr></thead>
+    <tr><th>관측일</th><th>가격</th><th>할인</th></tr></thead>
     <tbody>{rows}</tbody></table></div></details>""")
-        sub = (f"{days}일 지켜보는 동안 {len(hist) - 1}번 바뀌었습니다. "
+        sub = (f"{days}일 지켜보는 동안 {price_change_count(_series(hist, None))}번 바뀌었습니다. "
                f"가격은 다음 변동까지 유지되므로 계단으로 그립니다.")
     else:
         # 빈 그래프를 보여주는 대신 왜 비었는지 말한다
@@ -2480,6 +2556,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             "name": g["name"],
             "header_image": g.get("header_image") or "",
             "price_final": g.get("price_final") or 0,
+            "is_free": bool(g.get("is_free")),
             "price_note": price_note(g),
             "discount_pct": g.get("discount_pct") or 0,
             "lowest_seen": g.get("lowest_seen") or 0,
@@ -2587,13 +2664,14 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     curr_p = g.get("price_final") or 0
     low_p = g.get("lowest_seen") or 0
     days_tr = g.get("days_tracked") or 0
-    if not g.get("is_free") and curr_p > 0 and low_p > 0 and days_tr >= config.MIN_DAYS_FOR_LOW:
+    if (price_is_fresh(g) and not g.get("is_free") and not g.get("coming_soon")
+            and curr_p > 0 and low_p > 0 and days_tr >= config.MIN_DAYS_FOR_LOW):
+        low_label = f"{days_tr}일 관측 최저 {low_p:,}원"
         if curr_p <= low_p:
-            lbl_v = "🔥 GameDil 관측 최저가" if g.get("atl_trustworthy") else f"🔥 {days_tr}일 관측 최저가"
-            verdict_pills.append(f'<span class="dv-pill dv-deal">{lbl_v}</span>')
+            verdict_pills.append(f'<span class="dv-pill dv-deal">{low_label}와 같음</span>')
         else:
             diff_v = curr_p - low_p
-            verdict_pills.append(f'<span class="dv-pill">관측 최저가 대비 +{diff_v:,}원</span>')
+            verdict_pills.append(f'<span class="dv-pill">{low_label}보다 {diff_v:,}원 높음</span>')
     if g.get("korean"):
         verdict_pills.append('<span class="dv-pill dv-brand">🇰🇷 한국어 공식 지원</span>')
     r_tot_v = g.get("review_total") or g.get("review_count") or 0
@@ -2601,18 +2679,17 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     if r_tot_v > 0 and r_pos_v is not None:
         verdict_pills.append(f'<span class="dv-pill">👍 긍정 {r_pos_v}% ({r_tot_v:,}개)</span>')
     verdict_strip_html = (
-        f'<div class="dhero-verdict" aria-label="핵심 구매 판단 요약">{"".join(verdict_pills)}</div>'
+        f'<div class="dhero-verdict" role="group" aria-label="핵심 구매 판단 요약">{"".join(verdict_pills)}</div>'
         if verdict_pills else ""
     )
 
     body = f"""
-<a class="back" href="./../index.html">← 목록으로</a>
-<div class="dhero">
-  {media_main(g)}
-  <div>
+<a class="back" data-list-return href="./../index.html">← 목록으로</a>
+{LIST_RETURN_DETAIL_JS}
+<div class="dhero detail-hero">
+  <div class="detail-buy-info">
     <h1>{esc(g['name'])}</h1>
     {chips_for(g)}
-    <p class="desc">{esc(g.get('description'))}</p>
     <div class="price-now">{price_block}</div>
     <p class="price-note sec-note">{esc(price_note(g))}</p>
     {verdict_strip_html}
@@ -2623,7 +2700,9 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
       <button class="btn btn-s share-btn" id="shareBtn" type="button" aria-label="공유">공유</button>
       {compare_btn}
     </div>
+    <p class="desc">{esc(g.get('description'))}</p>
   </div>
+  {media_main(g)}
 </div>
 {share_js}
 
@@ -2820,25 +2899,36 @@ def build_landing(spec: dict, games: list[dict], updated: str,
             '아직 조건에 맞는 게임이 수집되지 않았습니다. 다음 갱신에서 채워집니다.'
             '</div></div>')
     demo_msg = ("가격·할인은 본편 기준이며 데모는 무료입니다" if spec["slug"] == "korean-demo" else "")
+    is_deals = spec["slug"] == "hot-deals"
+    rating_label = "긍정률순" if is_deals else "평가 좋은 순"
+    quick_filters = """
+    <div class="deal-filters" role="group" aria-label="할인 게임 필터">
+      <label class="sw"><input type="checkbox" data-filter="budget"> 1만원 이하</label>
+      <label class="sw"><input type="checkbox" data-filter="demo"> 데모 있음</label>
+      <label class="sw"><input type="checkbox" data-filter="reviews"> 리뷰 100개 이상</label>
+    </div>""" if is_deals else ""
+    no_matches = ('<p class="none" id="dealNoMatches" hidden>조건에 맞는 게임이 없습니다. '
+                  '필터를 풀어서 다시 찾아보세요.</p>' if is_deals else "")
     body = f"""
 <section id="top">
   <div class="sec-head"><h2>{esc(spec['h1'])}</h2>
-    <span class="cnt">{len(items)}개</span>
+    <span class="cnt" aria-live="polite">{len(items)}개</span>
     <a class="more" href="./index.html">홈으로 돌아가기 →</a></div>
   <p class="sec-note">{esc(spec['note'])}</p>
   <div class="tools" style="margin-bottom: 16px;">
     <select id="lsort" aria-label="정렬 기준">
       <option value="default">기본순</option>
-      <option value="pos">평가 좋은 순</option>
+      <option value="pos">{rating_label}</option>
       <option value="rev">리뷰 많은 순</option>
       <option value="cheap">낮은 가격순</option>
       <option value="exp">높은 가격순</option>
       <option value="off">할인율순</option>
       <option value="name">이름순</option>
-    </select>
+    </select>{quick_filters}
   </div>
   <div class="presets" aria-live="polite" id="lsortMsg" style="margin-bottom:12px; font-size:13px; color:var(--ink-2); display:{'block' if demo_msg else 'none'};">{demo_msg}</div>
   {grid}
+  {no_matches}
 </section>
 <script>
 (function() {{
@@ -2847,20 +2937,31 @@ def build_landing(spec: dict, games: list[dict], updated: str,
   var msg = document.getElementById('lsortMsg');
   if (!grid || !sel) return;
   var cards = Array.prototype.slice.call(grid.querySelectorAll('.card'));
+  var filters = Array.from(document.querySelectorAll('.deal-filters input'));
+  var count = document.querySelector('#top .cnt');
+  var noMatches = document.getElementById('dealNoMatches');
   cards.forEach(function(c, i) {{ c.dataset.idx = i; }});
 
-  function updateQuery(k, v) {{
+  function updateQuery(values) {{
     if (!window.history || !window.URLSearchParams) return;
     var params = new URLSearchParams(location.search);
-    if (v) params.set(k, v); else params.delete(k);
+    Object.keys(values).forEach(function(k) {{
+      if (values[k]) params.set(k, values[k]); else params.delete(k);
+    }});
     var qs = params.toString();
-    history.replaceState(null, '', qs ? '?' + qs + location.hash : location.pathname + location.hash);
+    history.replaceState(history.state, '', qs ? '?' + qs + location.hash : location.pathname + location.hash);
   }}
 
   var demoMsg = "{demo_msg}";
   function apply(skipHistory) {{
     var s = sel.value;
-    if (!skipHistory) updateQuery('sort', s === 'default' ? '' : s);
+    var active = {{}};
+    var query = {{sort: s === 'default' ? '' : s}};
+    filters.forEach(function(input) {{
+      active[input.dataset.filter] = input.checked;
+      query[input.dataset.filter] = input.checked ? '1' : '';
+    }});
+    if (!skipHistory) updateQuery(query);
     cards.sort(function(a, b) {{
       if (s === 'pos') {{
         var pa = Number(a.dataset.pos); var pb = Number(b.dataset.pos);
@@ -2904,7 +3005,21 @@ def build_landing(spec: dict, games: list[dict], updated: str,
       }}
       return Number(a.dataset.idx) - Number(b.dataset.idx);
     }});
-    cards.forEach(function(c) {{ grid.appendChild(c); }});
+    var visible = 0;
+    cards.forEach(function(c) {{
+      if (filters.length) {{
+        var price = Number(c.dataset.price);
+        c.hidden = (active.budget && !(price > 0 && price <= 10000))
+          || (active.demo && c.dataset.demo !== '1')
+          || (active.reviews && Number(c.dataset.rev) < 100);
+        if (!c.hidden) visible++;
+      }}
+      grid.appendChild(c);
+    }});
+    if (filters.length) {{
+      count.textContent = visible + '개';
+      noMatches.hidden = !cards.length || visible > 0;
+    }}
 
     var txt = demoMsg;
     if (s === 'pos') txt = (txt ? txt + ' / ' : '') + '긍정률 기준, 동률은 리뷰 수';
@@ -2913,17 +3028,24 @@ def build_landing(spec: dict, games: list[dict], updated: str,
   }}
 
   sel.addEventListener('change', function() {{ apply(false); }});
+  filters.forEach(function(input) {{
+    input.addEventListener('change', function() {{ apply(false); }});
+  }});
 
   window.syncURL = function() {{
     if (!window.URLSearchParams) return;
-    var p = new URLSearchParams(location.search).get('sort');
+    var params = new URLSearchParams(location.search);
+    filters.forEach(function(input) {{
+      input.checked = params.get(input.dataset.filter) === '1';
+    }});
+    var p = params.get('sort');
     if (p) {{
       var opts = Array.from(sel.options).map(function(o) {{ return o.value; }});
       if (opts.indexOf(p) !== -1) {{
         sel.value = p;
       }} else {{
         sel.value = 'default';
-        updateQuery('sort', '');
+        updateQuery({{sort: ''}});
       }}
     }} else {{
       sel.value = 'default';
@@ -2933,8 +3055,19 @@ def build_landing(spec: dict, games: list[dict], updated: str,
 
   window.addEventListener('popstate', window.syncURL);
   window.syncURL();
+  window.addEventListener('pageshow', function(event) {{
+    var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    if ((event.persisted || (nav && nav.type === 'back_forward')) &&
+        history.state && typeof history.state.gdListY === 'number') {{
+      var state = Object.assign({{}}, history.state);
+      window.scrollTo(0, state.gdListY);
+      delete state.gdListY;
+      history.replaceState(state, '');
+    }}
+  }});
 }})();
 </script>
+{LIST_RETURN_SOURCE_JS}
 """
     schema = {
         "@context": "https://schema.org",
@@ -3020,8 +3153,10 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
     }
 
     var container = el('div', '', 'compare-container');
-    var hint = el('div', '← 표를 좌우로 스크롤하여 비교하세요 →', 'scroll-hint');
-    container.appendChild(hint);
+    if (arr.length === 3) {
+      container.classList.add('compare-three');
+      container.appendChild(el('p', '표를 좌우로 스크롤해 세 게임을 비교하세요.', 'scroll-hint'));
+    }
     var table = el('table', '', 'compare-table');
     var tbody = document.createElement('tbody');
 
@@ -3040,6 +3175,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
           td.appendChild(a);
       } },
       { key: '저장 당시 가격', render: function(g, td) {
+          if (g.is_free) { td.textContent = '무료'; return; }
           if (!g.price_final) { td.textContent = '정보 없음'; return; }
           var b = el('b', g.price_final.toLocaleString('ko-KR') + '원');
           td.appendChild(b);
@@ -3053,6 +3189,14 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
       { key: '관측 최저가', render: function(g, td) {
           td.textContent = g.lowest_seen ? g.lowest_seen.toLocaleString('ko-KR') + '원' : '정보 없음';
       } },
+      { key: 'Steam 리뷰', render: function(g, td) {
+          if (!g.review_label) { td.textContent = '정보 없음'; return; }
+          var text = g.review_label;
+          if (g.review_positive_pct !== '') text += ' (' + g.review_positive_pct + '%)';
+          td.textContent = text;
+      } },
+      { key: '한국어', render: function(g, td) { td.textContent = g.korean ? '지원' : '미지원'; } },
+      { key: '가격 확인일 (저장 당시)', render: function(g, td) { td.textContent = g.price_note || '확인일 미확인 · Steam에서 확인하세요'; } },
       { key: '최근 인하', render: function(g, td) {
           if (g.recent_drop_amount) {
             var sp = el('span', '최근 ' + g.recent_drop_amount.toLocaleString('ko-KR') + '원 인하');
@@ -3062,15 +3206,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
             td.textContent = '해당 없음';
           }
       } },
-      { key: '가격 확인일 (저장 당시)', render: function(g, td) { td.textContent = g.price_note || '확인일 미확인 · Steam에서 확인하세요'; } },
-      { key: '한국어', render: function(g, td) { td.textContent = g.korean ? '지원' : '미지원'; } },
       { key: '데모', render: function(g, td) { td.textContent = g.has_demo ? '있음' : '없음'; } },
-      { key: 'Steam 리뷰', render: function(g, td) {
-          if (!g.review_label) { td.textContent = '정보 없음'; return; }
-          var text = g.review_label;
-          if (g.review_positive_pct) text += ' (' + g.review_positive_pct + '%)';
-          td.textContent = text;
-      } },
       { key: 'Steam 동접', render: function(g, td) { td.textContent = '상세 페이지에서 최신값 확인'; } },
       { key: '출시', render: function(g, td) { td.textContent = g.release_text || '정보 없음'; } },
       { key: '관리', render: function(g, td) {
@@ -3093,13 +3229,6 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
         tr.appendChild(td);
       });
 
-      for (var i = arr.length; i < 3; i++) {
-        var td = document.createElement('td');
-        var sp = el('span', '비어 있음');
-        sp.style.color = 'var(--ink-3)';
-        td.appendChild(sp);
-        tr.appendChild(td);
-      }
       tbody.appendChild(tr);
     });
 
@@ -4353,6 +4482,7 @@ def main() -> int:
         with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
             f.write(text)
 
+    write("assets/game-autocomplete.json", autocomplete_index_json(index_data))
     write("style.css", theme.CSS)
     if os.path.exists(os.path.join(config.ROOT, "favicon.svg")):
         write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())

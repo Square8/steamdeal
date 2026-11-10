@@ -130,12 +130,21 @@ def run_playwright_checks(site_dir):
             page = browser.new_page()
             page.goto(f"{base}/index.html?{UTM}")
             page.wait_for_timeout(200)
+            requests = []
+            page.on("request", lambda req: requests.append(urlsplit(req.url).path))
             inp = page.query_selector('form.hsearch input[name="q"]')
             inp.click()
             inp.type("Zelda", delay=10)
-            page.wait_for_timeout(200)
+            page.locator(".ac-dropdown .ac-item").first.wait_for(state="visible")
             check("[검색 입력] UTM 보존", utm_intact(page.url), page.url)
             check("[검색 입력] q 파라미터 반영", "q=Zelda" in page.url, page.url)
+            check("[검색 입력] 자동완성 파일만 요청",
+                  [path for path in requests if path.endswith(".json")] == ["/assets/game-autocomplete.json"],
+                  str(requests))
+            with page.expect_response("**/assets/game-search-index.json") as full_index:
+                page.locator('form.hsearch button[type="submit"]').click()
+            check("[검색 실행] 전체 검색 파일을 읽고 UTM 보존",
+                  full_index.value.ok and utm_intact(page.url), page.url)
             page.close()
 
             page = browser.new_page()
@@ -144,10 +153,12 @@ def run_playwright_checks(site_dir):
             inp = page.query_selector('form.hsearch input[name="q"]')
             inp.click()
             inp.type("존재하지않는게임쿼리", delay=10)
+            page.locator('form.hsearch button[type="submit"]').click()
             page.wait_for_timeout(200)
-            clear_btn = page.query_selector("#noneMsg button")
-            check("[검색어 지우기] 버튼 노출됨", clear_btn is not None)
-            if clear_btn:
+            clear_btn = page.locator("#noneMsg button")
+            clear_btn.wait_for(state="visible")
+            check("[검색어 지우기] 버튼 노출됨", clear_btn.is_visible())
+            if clear_btn.is_visible():
                 clear_btn.click()
                 page.wait_for_timeout(200)
                 check("[검색어 지우기] UTM 보존", utm_intact(page.url), page.url)

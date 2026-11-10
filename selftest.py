@@ -1195,13 +1195,19 @@ print("\n18) 발견·재방문 패키지 (검색 자동완성 / 최근 본 게�
 
 # A. 검색 자동완성 검증
 check("초기 HTML에 검색 JSON이 인라인되지 않음", 'var ALL_GAMES=' not in idx_html and 'var indexData=[' not in idx_html)
-check("검색 입력 시 fetch 코드 존재", "fetch(up + 'assets/game-search-index.json')" in idx_html or 'fetch(up+"assets/game-search-index.json")' in idx_html)
+check("검색 입력 시 전용 파일 fetch", "fetch(up + 'assets/game-autocomplete.json')" in idx_html)
+ac_path = os.path.join(config.SITE_DIR, "assets", "game-autocomplete.json")
+with open(ac_path, encoding="utf-8") as ac_file:
+    ac_rows = json.load(ac_file)
+full_rows = json.loads(search_json)
+check("자동완성 인덱스는 비성인 게임의 검색 필드만 담음", ac_rows == [
+    [g["appid"], g["name"], g["price"], g["off"], g["soon"], g["free"], g["score"]]
+    for g in full_rows if not g["adult"]
+])
 check("자동완성 최대 6개 제한", ".slice(0, 6)" in idx_html or "matches.length >= 6" in idx_html or "matches.length>=6" in idx_html)
-check("자동완성에서 성인 게임 제외", "if (g.adult) continue" in idx_html or "if(g.adult)continue" in idx_html)
 check("자동완성 키보드 이동/선택/닫기 지원", "ArrowDown" in idx_html and "ArrowUp" in idx_html and "Enter" in idx_html and "Escape" in idx_html)
 check("자동완성 DOM API createElement 사용", "createElement" in idx_html and "ac-item" in idx_html)
 check("자동완성 JSON 기반 innerHTML/insertAdjacentHTML 미사용", "innerHTML = g." not in idx_html and "innerHTML=g." not in idx_html and "insertAdjacentHTML" not in idx_html)
-check("자동완성 이미지 URL http/https 검증", "indexOf('http://') === 0" in idx_html and "indexOf('https://') === 0" in idx_html)
 
 # 모든 nav=True 페이지에 자동완성 스크립트 존재 검증
 my_html = open(os.path.join(config.SITE_DIR, "my-games.html"), encoding="utf-8").read()
@@ -1322,7 +1328,8 @@ tier_run = subprocess.run(["node", "-e", test_tier_js], capture_output=True, tex
 check("정렬 우선순위 및 특수문자 완화 로직 검증 (Node 실행)", tier_run.returncode == 0, tier_run.stderr.strip()[:80] if tier_run.returncode != 0 else "")
 
 # 6. 성인 게임 필터링
-check("자동완성에서 성인 게임 제외", "if (g.adult) continue" in idx_html or "if(g.adult)continue" in idx_html)
+adult_ids = {g["appid"] for g in full_rows if g["adult"]}
+check("자동완성에서 성인 게임 제외", bool(adult_ids) and adult_ids.isdisjoint(row[0] for row in ac_rows))
 check("전체 목록에서 성인 게임 기본 제외", "adult.checked" in idx_html and "!adult.checked" in idx_html)
 
 # 7. JSON 기반 렌더링 경로에 위험한 innerHTML / insertAdjacentHTML 없음

@@ -223,13 +223,13 @@ class HomeRulesTest(unittest.TestCase):
         self.assertNotIn('data-wish="4"', soon)
 
     def test_deal_tiers_and_dedupe(self):
-        # 1단계 후보가 없으면 다음 단계로 넓히고, 실제 쓴 기준을 부제에 적는다.
+        # 1단계 후보가 없으면 다음 단계로 넓히고, 실제 쓴 기준만 부제에 적는다(넓혔다는 안내는 없음).
         low = self.game(7, discount_pct=25, review_total=40, review_positive_pct=72)
         html = build.build_index([low], "2026-10-27", None, recent_drops=[])
         hot = sec(html, "hot")
         self.assertIn('data-wish="7"', hot)
         self.assertIn("할인 20% 이상 · Steam 긍정률 70% 이상 · 리뷰 30개 이상", hot)
-        self.assertIn("후보가 적어 기준을 넓혔습니다", hot)
+        self.assertNotIn("기준을 넓혔습니다", hot)
         # 마지막 단계 미만(리뷰 29개)은 넣지 않는다.
         weak = self.game(8, discount_pct=60, review_total=29, review_positive_pct=99)
         self.assertEqual(build.deal_picks([weak]), ([], None))
