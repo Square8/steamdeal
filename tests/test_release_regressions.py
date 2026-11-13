@@ -333,6 +333,15 @@ else:
             browser = p.chromium.launch()
             for req_path in REQUEST_PATHS:
                 page = browser.new_page()
+                # 운영 주소도 이번 테스트의 빌드 산출물로 검증한다.
+                # 라이브 데이터에는 fixture 검색어가 없으므로 직접 요청하면 재현할 수 없다.
+                page.route("https://gamedil.com/assets/game-autocomplete.json",
+                           lambda route: route.fulfill(
+                               path=os.path.join(site_dir, "assets", "game-autocomplete.json"),
+                               content_type="application/json"))
+                page.route("https://gamedil.com/style.css*",
+                           lambda route: route.fulfill(
+                               path=os.path.join(site_dir, "style.css"), content_type="text/css"))
                 seen = []
                 page.on("request", lambda r: seen.append(r.url))
                 resp = page.goto(base + req_path, wait_until="networkidle")
@@ -384,13 +393,8 @@ else:
                         check(f"[{variant_label}|{req_path}] 자동완성 상세 링크가 배포 루트로 해석됨",
                               ok, item_href)
                     except Exception:
-                        if not is_external:
-                            check(f"[{variant_label}|{req_path}] 자동완성 상세 링크가 배포 루트로 해석됨",
-                                  False, "드롭다운 미표시 — 로컬 서버인데도 실패(실결함)")
-                        else:
-                            skip(f"[{variant_label}|{req_path}] 자동완성 드롭다운 렌더 확인",
-                                 "SITE_URL이 실제 gamedil.com을 가리켜 이 샌드박스 네트워크로는 "
-                                 "왕복 재현 불가 (URL 자체 해석은 위에서 이미 검증됨)")
+                        check(f"[{variant_label}|{req_path}] 자동완성 상세 링크가 배포 루트로 해석됨",
+                              False, "드롭다운 미표시 — 테스트 빌드 데이터로 검증 실패")
                 page.close()
             browser.close()
         httpd.shutdown()

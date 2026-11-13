@@ -546,7 +546,7 @@ else:
 l_html = open(os.path.join(config.SITE_DIR, "korean-games.html"), encoding="utf-8").read()
 l_s_action = re.search(r'"@type":\s*"SearchAction",\s*"target":\s*"([^"]+)"', l_html)
 if l_s_action:
-    check("랜딩페이지 SearchAction도 홈페이지 ?q= 형식인지", "index.html?q={search_term_string}" in l_s_action.group(1))
+    check("랜딩페이지 SearchAction도 홈페이지 ?q= 형식인지", build.abs_url('/') + "?q={search_term_string}" == l_s_action.group(1))
 else:
     check("랜딩페이지 SearchAction도 홈페이지 ?q= 형식인지", False)
 check("전체 목록 더 보기 버튼", 'id="moreBtn"' in h)
@@ -582,17 +582,29 @@ _free = build.card({"appid": 1, "name": "테스트", "is_free": 1, "history": []
                     "price_final": 0, "discount_pct": 0})
 check("무료 게임에 중복 할인태그가 없다", "offtag" not in _free)
 check("무료 게임 하단은 구분선 없이 정리된다", "card-f bare" in _free)
-check("스크린샷이 있으면 상세에 게임 화면 절이 생긴다",
-      "게임 화면" in build.shots_strip({"name": "x", "screenshots": "http://a\nhttp://b"}))
-check("스크린샷이 없으면 빈 절을 만들지 않는다",
-      build.shots_strip({"name": "x", "screenshots": ""}) == "")
-check("트레일러가 없으면 이미지 fallback (Steam 트레일러 제목 없음)",
+mm_shots = build.media_main({
+    "appid": 1, "name": "x", "header_image": "http://h",
+    "screenshots": "https://cdn.example/ss_1.600x338.jpg\nhttps://cdn.example/ss_2.600x338.jpg",
+})
+check("트레일러 없이 스크린샷만 있으면 첫 스샷(1920x1080) + 썸네일 스트립 + 확대 모달 생성",
+      "<video" not in mm_shots and "dmedia-thumbs" in mm_shots and
+      ".1920x1080.jpg" in mm_shots and "dmedia-lightbox" in mm_shots)
+check("트레일러·스크린샷이 모두 없으면 표지 fallback",
       "<video" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}) and
-      "Steam 트레일러" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}))
+      "dmedia-thumbs" not in build.media_main({"appid": 1, "name": "x", "header_image": "http://h"}))
 mm_video = build.media_main({"appid": 1, "name": "x", "header_image": "http://h",
-                             "movie_mp4": "http://m.mp4", "movie_poster": "http://p"})
-check("트레일러가 있으면 Steam 트레일러 제목과 video 태그 생성",
-      "Steam 트레일러" in mm_video and "<video" in mm_video and 'poster="http://p"' in mm_video)
+                             "movie_mp4": "http://m.mp4", "movie_poster": "http://p",
+                             "screenshots": "http://s1\nhttp://s2"})
+check("트레일러 + 스크린샷이 있으면 통합 갤러리(video + 재생배지 썸네일 + 화살표) 생성",
+      "<video" in mm_video and 'poster="http://p"' in mm_video and
+      "dthumb-play" in mm_video and "dmedia-nav" in mm_video)
+detail_media = build.build_detail(
+    {"appid": 99, "name": "갤러리", "header_image": "http://h",
+     "movie_mp4": "http://m.mp4", "movie_poster": "http://p",
+     "screenshots": "http://s1\nhttp://s2", "history": []},
+    [], "")
+check("상세 통합 갤러리 사용 시 아래 중복 '게임 화면' 패널이 없다",
+      "게임 화면</h3>" not in detail_media and "dmedia-thumbs" in detail_media and "showModal" in detail_media)
 check("데모가 있으면 데모 섹션이 비지 않음",
       "한국어 데모가 아직 수집되지 않았습니다" not in h)
 # hidden 속성이 실제로 먹는지. .card 가 display:flex 라서 이 규칙이 없으면
@@ -614,6 +626,10 @@ check("sitemap.xml 생성", os.path.exists(sm_path))
 for spec in build.LANDINGS:
     p = os.path.join(config.SITE_DIR, f"{spec['slug']}.html")
     check(f"랜딩 {spec['slug']}.html", os.path.exists(p))
+    landing_html = open(p, encoding="utf-8").read()
+    check(f"랜딩 {spec['slug']} 대표 h1 정확히 1개",
+          len(re.findall(r'<h1\b', landing_html)) == 1 and
+          f"<h1>{build.esc(spec['h1'])}</h1>" in landing_html)
 kd = open(os.path.join(config.SITE_DIR, "korean-demo.html"), encoding="utf-8").read()
 # 제목은 '자동완성이 실제로 제안하는 표현'만 써야 한다.
 # "스팀 한국어 데모" 는 실측 제안 0건이었다 — 다시 들어오면 잡는다.
@@ -638,11 +654,25 @@ importlib.reload(config); importlib.reload(build)
 build.main()
 sm = open(sm_path, encoding="utf-8").read()
 idx2 = open(idx, encoding="utf-8").read()
-check("사이트맵에 절대 URL", "https://gamedil.com/index.html" in sm, )
+check("사이트맵 홈 대표 URL은 루트", "<loc>https://gamedil.com/</loc>" in sm and
+      "https://gamedil.com/index.html" not in sm)
+check("사이트맵은 미확인 수정일을 출력하지 않는다", "<lastmod>" not in sm)
 check("사이트맵에 랜딩 포함", "korean-demo.html" in sm)
 check("사이트맵에 게임 상세 포함", "game/730.html" in sm)
 check("성인 게임은 사이트맵에서 제외", "game/700.html" not in sm)
 check("canonical 절대 URL", 'rel="canonical" href="https://' in idx2)
+check("홈 canonical과 OG는 루트 주소", 'rel="canonical" href="https://gamedil.com/"' in idx2 and
+      'property="og:url" content="https://gamedil.com/"' in idx2)
+check("홈 JSON-LD는 루트 주소", '"url": "https://gamedil.com/"' in idx2 and
+      '"target": "https://gamedil.com/?q={search_term_string}"' in idx2)
+llms = open(os.path.join(config.SITE_DIR, "llms.txt"), encoding="utf-8").read()
+check("llms 출처와 예약 주기 안내", "Steam의 공개" in llms and "하루 2회 예약" in llms)
+check("llms 주요 목록 링크", all(build.abs_url(spec['slug'] + '.html') in llms for spec in build.LANDINGS))
+llms_sample = build.build_llms([{"adult": 0, "korean": 1}, {"adult": 0, "korean": 0}, {"adult": 1, "korean": 1}])
+check("llms 수록 수는 실제 공개 범위로 집계", "Steam 항목 2개" in llms_sample and "한국어 지원 항목 1개" in llms_sample)
+check("llms 빈 데이터는 0개", "Steam 항목 0개" in build.build_llms([]))
+trimmed_detail = build.build_detail({"appid": 123, "name": " DIBARO ", "history": []}, [], "")
+check("상세 제목 앞뒤 공백 제거", "<title>DIBARO</title>" in trimmed_detail)
 check("robots 에 사이트맵 주소", "Sitemap: https://" in
       open(os.path.join(config.SITE_DIR, "robots.txt"), encoding="utf-8").read())
 del os.environ["SITE_URL"]
@@ -1280,6 +1310,7 @@ def node_syntax_check(html_code, label):
 node_syntax_check(idx_html, "index.html (자동완성 포함)")
 node_syntax_check(rv_html, "recently-viewed.html")
 node_syntax_check(detail_730, "game/730.html (최근 본 게임 기록 스크립트 포함)")
+node_syntax_check(detail_media, "상세 통합 미디어 갤러리")
 
 print("\n19) 검색·탐색 완성 패키지 (결과 상태 / 검색 품질 / 접근성 / 보안)")
 

@@ -246,7 +246,7 @@ nav.jump a.util{margin-left:10px; border-left:1px solid var(--line); border-radi
 html { scroll-padding-top: calc(var(--header-height, 60px) + 16px); }
 section{margin-top:4rem}
 .sec-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px}
-.sec-head h2{
+.sec-head h1,.sec-head h2{
   font-family:"Inter","Gothic A1",sans-serif; font-weight:800;
   font-size:clamp(1.3rem, 2vw, 1.5rem);
   margin:0; letter-spacing:-.03em;
@@ -449,16 +449,73 @@ footer p{margin:0}
 
 /* ================= 상세: '이게 무슨 게임인가'에 답하는 부분 ================= */
 .dmedia{border-radius:12px; overflow:hidden; border:1px solid var(--line);
-  background:var(--raised); max-width: 100%}
-.dmedia-title{padding:8px 12px; font-size:13px; font-weight:700; color:var(--ink-2); background:var(--surface); border-bottom:1px solid var(--line)}
+  background:var(--surface); max-width:100%}
 .dmedia .shot{border:0; border-radius:0}
-.dvid{display:block; width:100%; max-width:100%; height:auto; aspect-ratio:16/9;
-  background:#000; object-fit:contain}
-/* 스크린샷 스트립. 좁은 화면에서는 손가락으로 밀 수 있게 가로 스크롤. */
-.shots{display:grid; grid-template-columns:repeat(4,1fr); gap:9px}
-.shots img{
-  width:100%; aspect-ratio:16/9; object-fit:cover; display:block;
-  border-radius:9px; border:1px solid var(--line); background:var(--raised);
+.dmedia-stage{position:relative; aspect-ratio:16/9; background:#000; overflow:hidden}
+.dvid{display:block; width:100%; height:100%; background:#000; object-fit:contain}
+.dmedia-img{display:block; width:100%; height:100%; object-fit:cover; cursor:zoom-in; background:#000}
+.dmedia-nav{
+  position:absolute; top:50%; transform:translateY(-50%); z-index:2;
+  width:34px; height:48px; border:0; border-radius:8px;
+  background:rgba(11,18,32,.62); color:#fff; font-size:24px; line-height:1;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  opacity:.82; transition:opacity .15s, background .15s;
+}
+.dmedia-nav:hover{opacity:1; background:rgba(11,18,32,.86)}
+.dmedia-nav.prev{left:8px}
+.dmedia-nav.next{right:8px}
+.dmedia-nav:focus-visible,.dmedia-zoom:focus-visible,.dthumb:focus-visible,
+.dlbox-close:focus-visible,.dlbox-nav:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.dmedia-zoom{
+  position:absolute; top:10px; right:10px; z-index:2;
+  width:32px; height:32px; border:0; border-radius:8px;
+  background:rgba(11,18,32,.68); color:#fff; font-size:15px; line-height:1;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+.dmedia-zoom:hover{background:rgba(11,18,32,.9)}
+.dmedia-thumbs{
+  display:flex; gap:6px; padding:8px; background:var(--surface);
+  border-top:1px solid var(--line); overflow-x:auto; scrollbar-width:none;
+}
+.dmedia-thumbs::-webkit-scrollbar{display:none}
+.dthumb{
+  position:relative; flex:0 0 calc((100% - 24px) / 5); min-width:74px; aspect-ratio:16/9;
+  padding:0; border:2px solid transparent; border-radius:7px; overflow:hidden;
+  background:var(--raised); cursor:pointer; opacity:.68;
+  transition:opacity .15s, border-color .15s;
+}
+.dthumb:hover{opacity:.95}
+.dthumb.is-active{opacity:1; border-color:var(--brand)}
+.dthumb img{display:block; width:100%; height:100%; object-fit:cover}
+.dthumb-play{
+  position:absolute; inset:0; margin:auto; width:26px; height:26px; border-radius:999px;
+  background:rgba(11,18,32,.78); color:#fff; font-size:11px; padding-left:2px;
+  display:flex; align-items:center; justify-content:center; pointer-events:none;
+  box-shadow:0 1px 4px rgba(0,0,0,.4);
+}
+.dthumb-ph{display:flex; width:100%; height:100%; align-items:center; justify-content:center; color:var(--ink-2); font-size:14px}
+dialog.dmedia-lightbox{
+  margin:auto; padding:0; border:0; background:transparent; max-width:min(94vw,1280px); max-height:92vh;
+  overflow:visible; color:#fff;
+}
+dialog.dmedia-lightbox::backdrop{background:rgba(6,10,18,.84); backdrop-filter:blur(3px)}
+.dlbox-inner{position:relative; display:flex; align-items:center; justify-content:center}
+.dlbox-img{display:block; max-width:92vw; max-height:84vh; width:auto; height:auto; border-radius:10px; background:#000; box-shadow:0 18px 48px rgba(0,0,0,.6)}
+.dlbox-close{
+  position:absolute; top:-42px; right:0; width:34px; height:34px; border:0; border-radius:999px;
+  background:rgba(255,255,255,.16); color:#fff; font-size:16px; cursor:pointer;
+}
+.dlbox-close:hover{background:rgba(255,255,255,.28)}
+.dlbox-nav{
+  position:absolute; top:50%; transform:translateY(-50%); width:42px; height:58px; border:0; border-radius:10px;
+  background:rgba(11,18,32,.68); color:#fff; font-size:28px; cursor:pointer;
+}
+.dlbox-nav:hover{background:rgba(11,18,32,.9)}
+.dlbox-nav.prev{left:10px}
+.dlbox-nav.next{right:10px}
+.dlbox-cap{
+  position:absolute; bottom:-32px; left:50%; transform:translateX(-50%);
+  font-size:13px; color:rgba(255,255,255,.85); font-weight:600; white-space:nowrap;
 }
 
 /* ================= 상세 ================= */
@@ -551,8 +608,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-img{aspect-ratio:460/215; min-height:0}
   .dhero{grid-template-columns:1fr}
   .dhero .shot{max-width:420px}
-  .dmedia{max-width:560px}
-  .shots{grid-template-columns:repeat(2,1fr)}
+  .dmedia{max-width:560px; width:100%}
 }
 @media (max-width:560px){
   .wrap{padding:0 13px 60px}

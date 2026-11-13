@@ -2167,10 +2167,10 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": "GameDil",
-        "url": abs_url(""),
+        "url": abs_url("/"),
         "potentialAction": {
             "@type": "SearchAction",
-            "target": abs_url("index.html") + "?q={search_term_string}",
+            "target": abs_url("/") + "?q={search_term_string}",
             "query-input": "required name=search_term_string"
         }
     }
@@ -2178,7 +2178,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
                     .replace('<', '\\u003c').replace('>', '\\u003e'))
     extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
     return page("GameDil — 지금 많이 하는 한국어 게임과 검증된 핫딜",
-                body, updated, canonical="index.html",
+                body, updated, canonical="/",
                 og_image=(top.get("header_image") or ""),
                 freshness=freshness,
                 desc=(f"한국어 스팀 게임 {n_kr:,}개의 현재 인기와 원화 가격을 추적합니다. "
@@ -2188,47 +2188,104 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
 # ---------------------------------------------------------------- 상세
 
+def _shot_full_url(url: str) -> str:
+    """Steam 600x338 썸네일 URL을 1920x1080 고화질 URL로 바꾼다."""
+    return url.replace(".600x338.", ".1920x1080.", 1) if ".600x338." in url else url
+
+
 def media_main(g: dict) -> str:
-    """상세 페이지 대표 미디어. 트레일러가 있으면 영상, 없으면 표지.
+    """상세 페이지 Steam 스타일 통합 미디어 갤러리 (트레일러 + 스크린샷 전환·확대).
 
-    표지(460x215 배너)는 대부분 로고와 제목뿐이라 '이게 무슨 게임인가'에 답하지 못한다.
-    영상·스크린샷이 그 답을 한다. 다만 스팀 CDN 이 외부 재생을 막을 수도 있으므로
-    poster 를 항상 깔아두고, 영상이 없거나 못 틀면 표지가 그대로 보이게 한다."""
-    poster = g.get("movie_poster") or g.get("header_image") or ""
+    트레일러·스크린샷을 한 뷰어 안에 묶어 썸네일 클릭·화살표로 전환한다.
+    둘 다 없으면 표지 이미지로 폴백한다."""
+    urls = [u.strip() for u in (g.get("screenshots") or "").split("\n") if u.strip()]
+    poster = g.get("movie_poster") or g.get("header_image") or (urls[0] if urls else "")
     mp4, webm = g.get("movie_mp4") or "", g.get("movie_webm") or ""
-    if not (mp4 or webm):
+    has_video = bool(mp4 or webm)
+    if not has_video and not urls:
         return f'<div class="dmedia">{shot(g, ribbon=False)}</div>'
-    is_hls = ".m3u8" in mp4
-    src = ""
-    if webm:
-        src += f'<source src="{esc(webm)}" type="video/webm">'
-    if mp4:
-        if is_hls:
-            src += f'<source src="{esc(mp4)}" type="application/vnd.apple.mpegurl">'
-        else:
-            src += f'<source src="{esc(mp4)}" type="video/mp4">'
-    alt = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지">'
-           if g.get("header_image") else "")
-    hls_attr = f' data-hls="{esc(mp4)}"' if is_hls else ""
-    return f"""<div class="dmedia">
-  <div class="dmedia-title">Steam 트레일러</div>
-  <video class="dvid" playsinline muted loop controls preload="none"
-         poster="{esc(poster)}" aria-label="{esc(g['name'])} 트레일러"{hls_attr}>
-    {src}{alt}
-  </video>
-</div>"""
 
+    items = []
+    if has_video:
+        is_hls = ".m3u8" in mp4
+        src = ""
+        if webm:
+            src += f'<source src="{esc(webm)}" type="video/webm">'
+        if mp4:
+            if is_hls:
+                src += f'<source src="{esc(mp4)}" type="application/vnd.apple.mpegurl">'
+            else:
+                src += f'<source src="{esc(mp4)}" type="video/mp4">'
+        alt = (f'<img src="{esc(g["header_image"])}" alt="{esc(g["name"])} 표지">'
+               if g.get("header_image") else "")
+        hls_attr = f' data-hls="{esc(mp4)}"' if is_hls else ""
+        stage_main = (
+            f'<video class="dvid" playsinline muted loop controls preload="none" '
+            f'poster="{esc(poster)}" aria-label="{esc(g["name"])} 트레일러"{hls_attr}>'
+            f'{src}{alt}</video>'
+            f'<img class="dmedia-img" alt="{esc(g["name"])} 게임 화면" decoding="async" hidden>'
+        )
+        items.append({"kind": "video", "thumb": poster, "full": "", "label": f"{g['name']} 트레일러"})
+    else:
+        first_full = _shot_full_url(urls[0])
+        stage_main = (
+            f'<img class="dmedia-img" src="{esc(first_full)}" data-fb="{esc(urls[0])}" '
+            f'alt="{esc(g["name"])} 스크린샷 1" loading="eager" fetchpriority="high" decoding="async">'
+        )
 
-def shots_strip(g: dict) -> str:
-    """스크린샷 스트립. 실제 게임 화면이라 한 줄 설명보다 빠르게 이해된다."""
-    urls = [u for u in (g.get("screenshots") or "").split("\n") if u.strip()]
-    if not urls:
-        return ""
-    imgs = "".join(
-        f'<img src="{esc(u)}" alt="{esc(g["name"])} 스크린샷 {i}" '
-        f'loading="lazy" decoding="async">'
-        for i, u in enumerate(urls, 1))
-    return f'<div class="panel"><h3>게임 화면</h3><div class="shots">{imgs}</div></div>'
+    for i, u in enumerate(urls, 1):
+        items.append({"kind": "image", "thumb": u, "full": _shot_full_url(u), "label": f"{g['name']} 스크린샷 {i}"})
+
+    nav_html = ""
+    thumbs_html = ""
+    if len(items) >= 2:
+        nav_html = (
+            '<button type="button" class="dmedia-nav prev" aria-label="이전 미디어">&#8249;</button>'
+            '<button type="button" class="dmedia-nav next" aria-label="다음 미디어">&#8250;</button>'
+        )
+        thumbs = []
+        for idx, it in enumerate(items):
+            active = " is-active" if idx == 0 else ""
+            sel = "true" if idx == 0 else "false"
+            play_badge = '<span class="dthumb-play" aria-hidden="true">&#9654;</span>' if it["kind"] == "video" else ""
+            full_attr = f' data-full="{esc(it["full"])}"' if it["full"] else ""
+            thumb_inner = (
+                f'<img src="{esc(it["thumb"])}" alt="" loading="lazy" decoding="async">'
+                if it["thumb"] else '<span class="dthumb-ph" aria-hidden="true">&#9654;</span>'
+            )
+            thumbs.append(
+                f'<button type="button" class="dthumb{active}" role="tab" aria-selected="{sel}" '
+                f'data-idx="{idx}" data-kind="{it["kind"]}" data-thumb="{esc(it["thumb"])}"{full_attr} '
+                f'aria-label="{esc(it["label"])}">{thumb_inner}{play_badge}</button>'
+            )
+        thumbs_html = f'<div class="dmedia-thumbs" role="tablist" aria-label="트레일러 및 스크린샷">{"".join(thumbs)}</div>'
+
+    zoom_btn = ""
+    lightbox_html = ""
+    if urls:
+        zoom_btn = (
+            f'<button type="button" class="dmedia-zoom" aria-label="스크린샷 크게 보기" '
+            f'title="크게 보기"{" hidden" if has_video else ""}>&#x2922;</button>'
+        )
+        lb_nav = (
+            '<button type="button" class="dlbox-nav prev" aria-label="이전 스크린샷">&#8249;</button>'
+            '<button type="button" class="dlbox-nav next" aria-label="다음 스크린샷">&#8250;</button>'
+            if len(urls) >= 2 else ""
+        )
+        lightbox_html = (
+            f'<dialog class="dmedia-lightbox" aria-label="{esc(g["name"])} 스크린샷 확대 보기">'
+            f'<div class="dlbox-inner">'
+            f'<button type="button" class="dlbox-close" aria-label="닫기">&#10005;</button>'
+            f'{lb_nav}<img class="dlbox-img" alt="">'
+            f'<div class="dlbox-cap" aria-live="polite"></div>'
+            f'</div></dialog>'
+        )
+
+    return (
+        f'<div class="dmedia" data-gallery>'
+        f'<div class="dmedia-stage">{stage_main}{nav_html}{zoom_btn}</div>'
+        f'{thumbs_html}{lightbox_html}</div>'
+    )
 
 
 def build_related(g: dict, all_games: list[dict]) -> str:
@@ -2628,33 +2685,154 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 }})();
 </script>"""
 
-    trailer_js = ""
-    if g.get("movie_mp4") or g.get("movie_webm"):
-        trailer_js = """<script>
+    media_js = ""
+    if g.get("movie_mp4") or g.get("movie_webm") or g.get("screenshots"):
+        media_js = """<script>
 (function(){
-  var v = document.querySelector('video.dvid');
-  if(!v) return;
-  v.addEventListener('error', function(){
-    var p = v.closest('.dmedia');
-    if(p && v.poster){
-      p.innerHTML = '<div class="dmedia-title">Steam 대표 이미지</div><img src="' + v.poster + '" alt="대표 이미지" style="width:100%;border-radius:12px;aspect-ratio:16/9;object-fit:cover;display:block;">';
+  var box = document.querySelector('.dmedia[data-gallery]');
+  if(!box) return;
+  var v = box.querySelector('video.dvid');
+  var img = box.querySelector('img.dmedia-img');
+  var zoomBtn = box.querySelector('.dmedia-zoom');
+  var thumbs = Array.prototype.slice.call(box.querySelectorAll('.dthumb'));
+  var dlg = box.querySelector('dialog.dmedia-lightbox');
+  var dlgImg = dlg && dlg.querySelector('.dlbox-img');
+  var dlgCap = dlg && dlg.querySelector('.dlbox-cap');
+  var cur = 0;
+
+  function setFallbackImg(el, full, thumb, label){
+    if(!el) return;
+    el.dataset.fb = thumb || '';
+    el.alt = label || '';
+    el.src = full || thumb || '';
+  }
+  function bindImgFallback(el){
+    if(!el) return;
+    el.addEventListener('error', function(){
+      var fb = el.dataset.fb;
+      if(fb && el.src !== fb){
+        el.dataset.fb = '';
+        el.src = fb;
+      }
+    });
+  }
+  bindImgFallback(img);
+  bindImgFallback(dlgImg);
+
+  function showIdx(idx){
+    if(!thumbs.length) return;
+    cur = (idx + thumbs.length) % thumbs.length;
+    thumbs.forEach(function(b, i){
+      var on = i === cur;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    var btn = thumbs[cur];
+    if(btn && btn.scrollIntoView){
+      try { btn.scrollIntoView({block:'nearest', inline:'nearest', behavior:'smooth'}); } catch(e){}
     }
-  }, true);
-  var hlsUrl = v.getAttribute('data-hls');
-  if(hlsUrl){
-    if(v.canPlayType('application/vnd.apple.mpegurl')){
-      v.src = hlsUrl;
-    } else {
-      var s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.light.min.js';
-      s.onload = function(){
-        if(window.Hls && Hls.isSupported()){
-          var hls = new Hls();
-          hls.loadSource(hlsUrl);
-          hls.attachMedia(v);
+    var kind = btn.getAttribute('data-kind');
+    if(kind === 'video' && v){
+      if(img) img.hidden = true;
+      if(zoomBtn) zoomBtn.hidden = true;
+      if(v.dataset.broken === '1'){
+        if(img && v.poster){
+          setFallbackImg(img, v.poster, '', btn.getAttribute('aria-label') || '대표 이미지');
+          img.hidden = false;
         }
-      };
-      document.head.appendChild(s);
+      } else {
+        v.hidden = false;
+      }
+    } else if(img){
+      if(v){ try { v.pause(); } catch(e){} v.hidden = true; }
+      setFallbackImg(img, btn.getAttribute('data-full'), btn.getAttribute('data-thumb'), btn.getAttribute('aria-label'));
+      img.hidden = false;
+      if(zoomBtn) zoomBtn.hidden = false;
+    }
+  }
+
+  thumbs.forEach(function(btn, i){
+    btn.addEventListener('click', function(){ showIdx(i); });
+  });
+  var prevBtn = box.querySelector('.dmedia-nav.prev');
+  var nextBtn = box.querySelector('.dmedia-nav.next');
+  if(prevBtn) prevBtn.addEventListener('click', function(){ showIdx(cur - 1); });
+  if(nextBtn) nextBtn.addEventListener('click', function(){ showIdx(cur + 1); });
+
+  var shotBtns = thumbs.filter(function(b){ return b.getAttribute('data-kind') === 'image'; });
+  function syncLightbox(sIdx){
+    if(!dlg || !dlgImg || !shotBtns.length) return;
+    var i = (sIdx + shotBtns.length) % shotBtns.length;
+    var b = shotBtns[i];
+    dlg.dataset.shotIdx = String(i);
+    setFallbackImg(dlgImg, b.getAttribute('data-full'), b.getAttribute('data-thumb'), b.getAttribute('aria-label'));
+    if(dlgCap) dlgCap.textContent = (i + 1) + ' / ' + shotBtns.length;
+    var mainIdx = thumbs.indexOf(b);
+    if(mainIdx >= 0 && mainIdx !== cur) showIdx(mainIdx);
+  }
+  function openLightbox(){
+    if(!dlg || !dlg.showModal) return;
+    if(!shotBtns.length && img && img.src){
+      setFallbackImg(dlgImg, img.src, img.dataset.fb || '', img.alt);
+      if(dlgCap) dlgCap.textContent = '1 / 1';
+      dlg.showModal();
+      return;
+    }
+    if(!shotBtns.length) return;
+    var activeBtn = thumbs[cur];
+    var sIdx = activeBtn ? shotBtns.indexOf(activeBtn) : 0;
+    if(sIdx < 0) sIdx = 0;
+    syncLightbox(sIdx);
+    dlg.showModal();
+  }
+  if(zoomBtn) zoomBtn.addEventListener('click', openLightbox);
+  if(img) img.addEventListener('click', openLightbox);
+  if(dlg){
+    var closeBtn = dlg.querySelector('.dlbox-close');
+    var dPrev = dlg.querySelector('.dlbox-nav.prev');
+    var dNext = dlg.querySelector('.dlbox-nav.next');
+    if(closeBtn) closeBtn.addEventListener('click', function(){ dlg.close(); });
+    if(dPrev) dPrev.addEventListener('click', function(){ syncLightbox((parseInt(dlg.dataset.shotIdx||'0',10)||0) - 1); });
+    if(dNext) dNext.addEventListener('click', function(){ syncLightbox((parseInt(dlg.dataset.shotIdx||'0',10)||0) + 1); });
+    dlg.addEventListener('click', function(e){ if(e.target === dlg) dlg.close(); });
+    dlg.addEventListener('keydown', function(e){
+      if(shotBtns.length < 2) return;
+      if(e.key === 'ArrowLeft'){ e.preventDefault(); syncLightbox((parseInt(dlg.dataset.shotIdx||'0',10)||0) - 1); }
+      else if(e.key === 'ArrowRight'){ e.preventDefault(); syncLightbox((parseInt(dlg.dataset.shotIdx||'0',10)||0) + 1); }
+    });
+  }
+
+  if(v){
+    var hlsUrl = v.getAttribute('data-hls');
+    function markBroken(){
+      v.dataset.broken = '1';
+      v.hidden = true;
+      var activeKind = thumbs[cur] ? thumbs[cur].getAttribute('data-kind') : 'video';
+      if(activeKind === 'video' && img && v.poster){
+        setFallbackImg(img, v.poster, '', v.getAttribute('aria-label') || '대표 이미지');
+        img.hidden = false;
+      }
+    }
+    v.addEventListener('error', function(e){
+      if(hlsUrl && e.target !== v) return;
+      markBroken();
+    }, true);
+    if(hlsUrl){
+      if(v.canPlayType('application/vnd.apple.mpegurl')){
+        v.src = hlsUrl;
+      } else {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.light.min.js';
+        s.onload = function(){
+          if(window.Hls && Hls.isSupported()){
+            var hls = new Hls();
+            hls.on(Hls.Events.ERROR, function(_, d){ if(d && d.fatal) markBroken(); });
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(v);
+          }
+        };
+        document.head.appendChild(s);
+      }
     }
   }
 })();
@@ -2706,8 +2884,6 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 </div>
 {share_js}
 
-{shots_strip(g)}
-
 {why_panel}
 
 <div class="panel">
@@ -2721,7 +2897,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
 
 {build_related(g, all_games)}
 {recent_view_js}
-{trailer_js}
+{media_js}
 """
     # 제목에 가격을 넣으면 검색결과에서 클릭할 이유가 생긴다.
     if not price_is_fresh(g) and (g.get("is_free") or g.get("price_final")):
@@ -2791,7 +2967,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
                     .replace('<', '\\u003c').replace('>', '\\u003e'))
     extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
 
-    return page(pt, body, updated, canonical=f"game/{g['appid']}.html",
+    return page(pt.strip(), body, updated, canonical=f"game/{g['appid']}.html",
                 og_image=(g.get("header_image") or ""), desc=d, depth=1,
                 freshness=freshness, extra_head=extra_head)
 
@@ -2911,7 +3087,7 @@ def build_landing(spec: dict, games: list[dict], updated: str,
                   '필터를 풀어서 다시 찾아보세요.</p>' if is_deals else "")
     body = f"""
 <section id="top">
-  <div class="sec-head"><h2>{esc(spec['h1'])}</h2>
+  <div class="sec-head"><h1>{esc(spec['h1'])}</h1>
     <span class="cnt" aria-live="polite">{len(items)}개</span>
     <a class="more" href="./index.html">홈으로 돌아가기 →</a></div>
   <p class="sec-note">{esc(spec['note'])}</p>
@@ -3073,10 +3249,10 @@ def build_landing(spec: dict, games: list[dict], updated: str,
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": "GameDil",
-        "url": abs_url(""),
+        "url": abs_url("/"),
         "potentialAction": {
             "@type": "SearchAction",
-            "target": abs_url("index.html") + "?q={search_term_string}",
+            "target": abs_url("/") + "?q={search_term_string}",
             "query-input": "required name=search_term_string"
         }
     }
@@ -3094,19 +3270,45 @@ def build_sitemap(paths: list[str], updated: str) -> str:
     if not config.SITE_URL:
         # 절대 URL 없이는 유효한 사이트맵을 만들 수 없다. 빈 파일보다 낫게 표시만 남긴다.
         return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>\n'
-    # sitemaps.org W3C Datetime 규격: YYYY-MM-DD
-    if updated and len(updated) >= 10 and updated[:4].isdigit() and updated[4] == '-':
-        day = updated[:10]
-    else:
-        day = datetime.now(KST).strftime("%Y-%m-%d")
+    # 페이지별 주요 내용 변경일을 추적하기 전에는 선택 항목 lastmod를 생략한다.
     urls = "".join(
-        f"  <url><loc>{esc(abs_url(p))}</loc><lastmod>{day}</lastmod>"
+        f"  <url><loc>{esc(abs_url('/' if p == 'index.html' else p))}</loc>"
         f"<changefreq>daily</changefreq>"
         f"<priority>{'1.0' if p == 'index.html' else ('0.8' if '/' not in p else '0.6')}</priority>"
         f"</url>\n" for p in paths)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
             f"{urls}</urlset>\n")
+
+
+def build_llms(games: list[dict]) -> str:
+    public = [g for g in games if not g.get("adult")]
+    korean = sum(1 for g in public if g.get("korean"))
+    links = "\n".join(
+        f"- [{spec['title']}]({abs_url(spec['slug'] + '.html')})"
+        for spec in LANDINGS
+    )
+    return f"""# GameDil
+
+GameDil은 Steam 게임의 원화 가격, 할인, 한국어 지원, 평가와 무료 데모 정보를 모아
+게임 선택을 돕는 사이트입니다. 가격 이력은 GameDil이 관측한 기간을 기준으로 합니다.
+
+## 수록 범위
+
+빌드 시점 DB 기준 성인 분류를 제외한 Steam 항목 {len(public):,}개,
+그중 한국어 지원 항목 {korean:,}개를 수록합니다. 목록별 선정 조건에 따라 표시 수는 다릅니다.
+
+## 주요 페이지
+
+- [홈]({abs_url('/')})
+{links}
+
+## 데이터 출처와 갱신
+
+데이터 출처는 Steam의 공개 상점·리뷰·동시 접속자 정보입니다.
+자동 수집은 하루 2회 예약되어 있습니다. 항목별 확인 시점은 다를 수 있으며,
+수집 실패나 지연이 발생할 수 있습니다. 구매 전 Steam 상점에서 현재 가격을 확인하세요.
+"""
 
 
 def build_robots() -> str:
@@ -4513,6 +4715,7 @@ def main() -> int:
 
     write("sitemap.xml", build_sitemap(paths, updated))
     write("robots.txt", build_robots())
+    write("llms.txt", build_llms(games))
     # GitHub Pages 가 _ 로 시작하는 경로를 Jekyll 로 처리하지 않게
     open(os.path.join(config.SITE_DIR, ".nojekyll"), "w").close()
 
