@@ -83,8 +83,34 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL
 );
 
+-- 에픽·Steam(-100%)·GOG 기간 한정 무료 배포 전용 테이블.
+-- Steam 최저가 계산(prices 테이블)을 0원으로 오염시키지 않기 위해 별도 저장한다.
+CREATE TABLE IF NOT EXISTS freebies (
+    id                  TEXT PRIMARY KEY,
+    store               TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    url                 TEXT NOT NULL,
+    image_url           TEXT,
+    description         TEXT,
+    developer           TEXT,
+    genres              TEXT,
+    original_price      INTEGER DEFAULT 0,
+    original_price_text TEXT,
+    currency            TEXT DEFAULT 'KRW',
+    korean              INTEGER DEFAULT 0,
+    review_desc         TEXT,
+    review_positive_pct INTEGER,
+    review_total        INTEGER DEFAULT 0,
+    steam_appid         INTEGER,
+    start_at            TEXT,
+    end_at              TEXT,
+    checked_at          TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_prices_appid ON prices(appid);
 CREATE INDEX IF NOT EXISTS idx_games_checked ON games(checked_at);
+CREATE INDEX IF NOT EXISTS idx_freebies_store_status ON freebies(store, status);
 """
 
 
@@ -686,3 +712,107 @@ def broadcast_candidates(games: list[dict], include_adult: bool = False) -> list
         if interesting:
             out.append(g)
     return sorted(out, key=lambda g: (-score_broadcast(g)[0], g.get("name") or ""))
+
+
+def replace_freebies_for_store(conn, store_name: str, items: list[dict],
+                               checked_at: str | None = None) -> int:
+    """특정 스토어(epic/steam/gog)의 무료 배포 목록만 원자적으로 교체한다.
+    한 스토어 API가 실패해도 다른 스토어의 기존 데이터는 지우지 않는다."""
+    stamp = checked_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute("DELETE FROM freebies WHERE store=?", (store_name,))
+    count = 0
+    for it in items:
+        fid = str(it.get("id") or "").strip()
+        title = str(it.get("title") or "").strip()
+        url = str(it.get("url") or "").strip()
+        if not (fid and title and url):
+            continue
+        conn.execute(
+            """INSERT OR REPLACE INTO freebies (
+                 id, store, status, title, url, image_url, description,
+                 developer, genres, original_price, original_price_text, currency,
+                 korean, review_desc, review_positive_pct, review_total,
+                 steam_appid, start_at, end_at, checked_at
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                fid,
+                store_name,
+                str(it.get("status") or "active"),
+                title,
+                url,
+                it.get("image_url") or "",
+                it.get("description") or "",
+                it.get("developer") or "",
+                it.get("genres") or "",
+                int(it.get("original_price") or 0),
+                it.get("original_price_text") or "",
+                it.get("currency") or "KRW",
+                1 if it.get("korean") else 0,
+                it.get("review_desc") or "",
+                it.get("review_positive_pct"),
+                int(it.get("review_total") or 0),
+                it.get("steam_appid"),
+                it.get("start_at"),
+                it.get("end_at"),
+                it.get("checked_at") or stamp,
+            ),
+        )
+        count += 1
+    set_meta(conn, f"freebies_{store_name}_checked_at", stamp)
+    set_meta(conn, "freebies_checked_at", stamp)
+    return count
+
+
+def load_freebies(conn, now: datetime | None = None) -> dict[str, list[dict]]:
+    """현재 진행 중('active')과 예정('upcoming') 무료 배포 목록을 반환한다.
+    종료 시각이 이미 지난 항목은 자동 제외하고, 시작 시각이 지난 예정작은 active로 승격한다."""
+    now_dt = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    active: list[dict] = []
+    upcoming: list[dict] = []
+    for r in conn.execute("SELECT * FROM freebies"):
+        item = dict(r)
+        start_dt = parse_utc(item.get("start_at"))
+        end_dt = parse_utc(item.get("end_at"))
+        if end_dt is not None and end_dt <= now_dt:
+            continue
+        status = item.get("status") or "active"
+        if status == "upcoming":
+            if start_dt is not None and start_dt <= now_dt:
+                item["status"] = "active"
+                item["promoted_from_upcoming"] = True
+                active.append(item)
+            else:
+                upcoming.append(item)
+        else:
+            if start_dt is not None and start_dt > now_dt:
+                item["status"] = "upcoming"
+                upcoming.append(item)
+            else:
+                active.append(item)
+
+    store_order = {"epic": 0, "steam": 1, "gog": 2}
+    active.sort(key=lambda x: (
+        0 if x.get("end_at") else 1,
+        x.get("end_at") or "9999",
+        -(int(x.get("original_price") or 0)),
+        store_order.get(x.get("store") or "", 9),
+        (x.get("title") or "").lower(),
+    ))
+    upcoming.sort(key=lambda x: (
+        x.get("start_at") or "9999",
+        store_order.get(x.get("store") or "", 9),
+        (x.get("title") or "").lower(),
+    ))
+    return {"active": active, "upcoming": upcoming}
+
+
+def steam_freebie_candidates_from_db(conn, today: date | None = None) -> list[dict]:
+    """DB 내 Steam 게임 중 최근 관측에서 유료 게임이 -100%(0원) 할인 중인 항목을 찾는다."""
+    today = today or datetime.now(timezone.utc).date()
+    cutoff = (today - timedelta(days=config.EDITORIAL_MAX_PRICE_AGE_DAYS)).isoformat()
+    sql = ("SELECT g.*, p.price_final, p.price_initial, p.discount_pct "
+           "FROM games g " + _current_price_join() + """
+           WHERE g.is_free=0 AND g.adult=0 AND g.app_type='game'
+             AND g.price_last >= ?
+             AND p.discount_pct >= 100 AND p.price_final = 0 AND p.price_initial > 0""")
+    return [dict(r) for r in conn.execute(sql, (cutoff,))]

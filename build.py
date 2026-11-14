@@ -823,6 +823,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
     # 서로 무엇이 다른지 메뉴만 보고는 알 수 없었다. 세부 목록은 첫 화면 바로가기로 간다.
     jump = (f"""<nav class="jump" aria-label="주요 탐색">
     <a href="{up}index.html#hot">할인</a>
+    <a href="{up}free-games.html">무료 배포</a>
     <a href="{up}index.html#popular">인기</a>
     <a href="{up}index.html#indie">인디·데모</a>
     <a href="{up}index.html#new">신작·기대작</a>
@@ -1315,7 +1316,8 @@ def lead(games: list[dict], safe: list[dict]) -> str:
                  and price_is_fresh(g))
     facts = [("한국어 게임", n_kr), ("무료 데모", n_demo), ("지금 할인", n_sale)]
     fh = "".join(f"<span>{esc(k)} <b>{v:,}</b></span>" for k, v in facts)
-    links = [("#hot", "💸 지금 할인"), ("recent-drops.html", "📉 최근 인하"),
+    links = [("#hot", "💸 지금 할인"), ("free-games.html", "🎁 무료 배포"),
+             ("recent-drops.html", "📉 최근 인하"),
              ("under-10000.html", "💰 1만원 이하"), ("korean-demo.html", "🎮 무료 데모"),
              ("indie-games.html", "🌱 인디 추천"), ("popular-games.html", "🔥 인기 게임"),
              ("korean-soon.html", "🚀 출시예정")]
@@ -1497,8 +1499,304 @@ def deal_picks(priced: list[dict], exclude: set[int] | None = None,
     return picked, used
 
 
+_FREEBIE_STORES = {
+    "epic": {"label": "Epic Games", "cls": "s-epic", "cta": "에픽에서 받기 ↗"},
+    "steam": {"label": "Steam", "cls": "s-steam", "cta": "Steam에서 받기 ↗"},
+    "gog": {"label": "GOG", "cls": "s-gog", "cta": "GOG에서 받기 ↗"},
+}
+
+FREEBIES_JS = r"""<script>
+(function(){
+  var now = Date.now();
+  document.querySelectorAll('.freebie-card').forEach(function(card){
+    var dl = card.querySelector('.freebie-deadline');
+    if(!dl) return;
+    var tag = card.querySelector('.freebie-tag');
+    var cta = card.querySelector('.freebie-cta');
+    var endMs = parseInt(dl.getAttribute('data-end') || '0', 10) || 0;
+    var startMs = parseInt(dl.getAttribute('data-start') || '0', 10) || 0;
+    var status = dl.getAttribute('data-status') || 'active';
+    var endKst = dl.getAttribute('data-end-kst') || '';
+    var startKst = dl.getAttribute('data-start-kst') || '';
+    if(endMs > 0 && now >= endMs){
+      card.classList.add('is-expired');
+      if(tag){ tag.className = 'freebie-tag is-end'; tag.textContent = '기간 종료'; }
+      dl.textContent = '배포 기간 종료' + (endKst ? ' (' + endKst + ' KST 마감)' : ' · 상점 확인');
+      if(cta) cta.textContent = '상점에서 확인 ↗';
+    } else if(status === 'upcoming'){
+      if(startMs > 0 && now >= startMs && (!endMs || now < endMs)){
+        if(tag){ tag.className = 'freebie-tag is-free'; tag.textContent = '무료 오픈 시작'; }
+        var soon = card.querySelector('.now-soon');
+        if(soon){ soon.className = 'now-free'; soon.textContent = '무료 오픈 (0원 확인)'; }
+        dl.textContent = '지금 무료 오픈 · 상점에서 0원 확인' + (endKst ? ' (~ ' + endKst + ' KST)' : '');
+      } else if(startMs > 0 && now < startMs){
+        var waitMs = startMs - now;
+        var waitLbl = waitMs < 3600000
+          ? Math.max(1, Math.floor(waitMs / 60000)) + '분 뒤 오픈'
+          : (waitMs < 86400000
+            ? Math.floor(waitMs / 3600000) + '시간 뒤 오픈'
+            : 'D-' + Math.floor(waitMs / 86400000) + ' 오픈 예정');
+        dl.textContent = waitLbl + (startKst ? ' · ' + startKst + ' KST' : '');
+      }
+    } else if(endMs > now){
+      var remMs = endMs - now;
+      var remLbl = remMs < 3600000
+        ? Math.max(1, Math.floor(remMs / 60000)) + '분 후 마감'
+        : (remMs < 86400000
+          ? Math.floor(remMs / 3600000) + '시간 후 마감'
+          : Math.floor(remMs / 86400000) + '일 남음');
+      dl.textContent = remLbl + (endKst ? ' · ~ ' + endKst + ' KST' : '');
+    }
+  });
+
+  var filterBar = document.getElementById('freeFilter');
+  if(!filterBar) return;
+  var btns = Array.prototype.slice.call(filterBar.querySelectorAll('.chip[data-store]'));
+  function applyStore(sel){
+    btns.forEach(function(b){
+      b.setAttribute('aria-pressed', b.getAttribute('data-store') === sel ? 'true' : 'false');
+    });
+    [['freeActiveGrid', 'freeActiveCnt', 'freeActiveFilterEmpty'],
+     ['freeUpcomingGrid', 'freeUpcomingCnt', 'freeUpcomingEmpty']].forEach(function(cfg){
+      var grid = document.getElementById(cfg[0]);
+      var cnt = document.getElementById(cfg[1]);
+      var empty = document.getElementById(cfg[2]);
+      if(!grid) return;
+      var vis = 0;
+      grid.querySelectorAll('.freebie-card').forEach(function(c){
+        var show = sel === 'all' || c.getAttribute('data-store') === sel;
+        c.hidden = !show;
+        if(show) vis += 1;
+      });
+      if(cnt) cnt.textContent = vis + '개';
+      if(empty) empty.hidden = vis > 0;
+    });
+  }
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      applyStore(b.getAttribute('data-store') || 'all');
+    });
+  });
+})();
+</script>"""
+
+
+def _freebie_time_info(iso_raw: str | None) -> tuple[str, int]:
+    dt = store.parse_utc(iso_raw)
+    if dt is None:
+        return "", 0
+    return dt.astimezone(KST).strftime("%m/%d %H:%M"), int(dt.timestamp() * 1000)
+
+
+def freebie_card(it: dict, game_ids: set[int]) -> str:
+    """에픽·Steam(-100%)·GOG 무료 배포 카드 한 장."""
+    st = str(it.get("store") or "epic")
+    meta = _FREEBIE_STORES.get(st, {"label": st.upper(), "cls": "", "cta": "상점에서 받기 ↗"})
+    status = "upcoming" if it.get("status") == "upcoming" else "active"
+    title = str(it.get("title") or "")
+    img = str(it.get("image_url") or "")
+    if img:
+        media_inner = f'<img src="{esc(img)}" alt="{esc(title)} 표지" loading="lazy" decoding="async">'
+    else:
+        initial = esc((title or "?").strip()[:2].upper())
+        media_inner = f'<div class="ph" aria-hidden="true">{initial}</div>'
+
+    if status == "upcoming":
+        tag_html = '<span class="freebie-tag is-soon">무료 예정</span>'
+    else:
+        tag_html = '<span class="freebie-tag is-free">한시 무료 -100%</span>'
+
+    chips = []
+    if it.get("korean"):
+        chips.append('<span class="t kr">한국어</span>')
+    if it.get("review_desc") and (it.get("review_total") or 0) > 0:
+        pct = it.get("review_positive_pct")
+        rev_txt = f'👍 긍정 {pct}% ({int(it["review_total"]):,}개)' if pct is not None else it["review_desc"]
+        chips.append(f'<span class="t">{esc(rev_txt)}</span>')
+    elif it.get("genres"):
+        chips.append(f'<span class="t">{esc(it["genres"])}</span>')
+    chips_html = f'<div class="chips">{"".join(chips[:3])}</div>' if chips else ""
+
+    desc = str(it.get("description") or "").strip()
+    desc_html = f'<p class="freebie-desc">{esc(desc)}</p>' if desc else ""
+    dev = str(it.get("developer") or "").strip()
+    meta_line = f'<div class="freebie-meta"><span>{esc(dev)}</span></div>' if dev else ""
+
+    orig_text = str(it.get("original_price_text") or "").strip()
+    strike = f'<span class="strike">정가 {esc(orig_text)}</span>' if orig_text else ""
+    if status == "upcoming":
+        now_price = '<span class="now-soon">무료 예정</span>'
+    elif it.get("currency") == "KRW":
+        now_price = '<span class="now-free">0원 (무료 소장)</span>'
+    else:
+        now_price = '<span class="now-free">무료 소장 ($0)</span>'
+
+    start_kst, start_ms = _freebie_time_info(it.get("start_at"))
+    end_kst, end_ms = _freebie_time_info(it.get("end_at"))
+    chk_kst, _ = _freebie_time_info(it.get("checked_at"))
+    if status == "upcoming" and start_kst:
+        dl_txt = f"오픈 {start_kst} KST" + (f" (~ {end_kst})" if end_kst else "")
+    elif end_kst:
+        dl_txt = f"~ {end_kst} KST 마감"
+    elif chk_kst:
+        dl_txt = f"{chk_kst} KST 확인 · 상점서 마감 확인"
+    else:
+        dl_txt = "상점 페이지에서 마감 확인"
+
+    sid = it.get("steam_appid")
+    detail_btn = (
+        f'<a class="btn btn-s" href="game/{int(sid)}.html">상세 정보</a>'
+        if sid and int(sid) in game_ids else ""
+    )
+
+    return f"""<article class="freebie-card" data-store="{esc(st)}" data-status="{esc(status)}">
+  <div class="freebie-media">
+    {media_inner}
+    <div class="freebie-badges">
+      <span class="store-pill {meta['cls']}">{esc(meta['label'])}</span>
+      {tag_html}
+    </div>
+  </div>
+  <div class="freebie-body">
+    <h3 class="freebie-title">{esc(title)}</h3>
+    {chips_html}
+    {desc_html}
+    {meta_line}
+    <div class="freebie-price">{strike}{now_price}</div>
+    <div class="freebie-deadline" data-status="{esc(status)}" data-start="{start_ms}" data-end="{end_ms}" data-start-kst="{esc(start_kst)}" data-end-kst="{esc(end_kst)}" data-checked-kst="{esc(chk_kst)}">{esc(dl_txt)}</div>
+    <div class="freebie-actions">
+      <a class="btn btn-p freebie-cta" href="{esc(it['url'])}" target="_blank" rel="noopener">{esc(meta['cta'])}</a>
+      {detail_btn}
+    </div>
+  </div>
+</article>"""
+
+
+def home_freebies_section(freebies: dict | None, game_ids: set[int]) -> str:
+    """홈 상단에 진행 중인 한시 무료 소장 게임(최대 4장)만 간결하게 붙인다."""
+    active = (freebies or {}).get("active") or []
+    if not active:
+        return ""
+    cards = "".join(freebie_card(it, game_ids) for it in active[:4])
+    return f"""<section id="free-strip">
+  <div class="sec-head">
+    <h2>🎁 지금 무료 영구 소장</h2>
+    <span class="cnt">{len(active)}개</span>
+    <a class="more" href="free-games.html">예정작 · 전체 보기 →</a>
+  </div>
+  <p class="sec-note freebie-legend"><span>에픽게임즈·Steam(-100%)·GOG 기간 한정 0원 배포</span><span class="fb-keys"><span class="fb-key"><i class="store-dot s-epic" aria-hidden="true"></i>에픽게임즈</span><span class="fb-key"><i class="store-dot s-steam" aria-hidden="true"></i>Steam</span><span class="fb-key"><i class="store-dot s-gog" aria-hidden="true"></i>GOG</span></span></p>
+  <div class="freebie-grid">{cards}</div>
+</section>"""
+
+
+def build_free_games(freebies: dict, game_ids: set[int], updated: str, freshness: dict) -> str:
+    """에픽게임즈·Steam·GOG 기간 한정 무료 배포 전용 페이지."""
+    active = freebies.get("active") or []
+    upcoming = freebies.get("upcoming") or []
+    all_items = active + upcoming
+
+    cnt_by_store = {s: sum(1 for x in all_items if x.get("store") == s) for s in ("epic", "steam", "gog")}
+    filter_btns = [
+        f'<button type="button" class="chip" data-store="all" aria-pressed="true">전체 {len(all_items)}</button>',
+        f'<button type="button" class="chip" data-store="epic" aria-pressed="false"><i class="store-dot s-epic" aria-hidden="true"></i>에픽게임즈 {cnt_by_store["epic"]}</button>',
+        f'<button type="button" class="chip" data-store="steam" aria-pressed="false"><i class="store-dot s-steam" aria-hidden="true"></i>Steam {cnt_by_store["steam"]}</button>',
+        f'<button type="button" class="chip" data-store="gog" aria-pressed="false"><i class="store-dot s-gog" aria-hidden="true"></i>GOG {cnt_by_store["gog"]}</button>',
+    ]
+
+    if active:
+        active_cards = "".join(freebie_card(it, game_ids) for it in active)
+        active_block = (
+            f'<div class="freebie-grid" id="freeActiveGrid">{active_cards}</div>'
+            '<div class="freebie-empty" id="freeActiveFilterEmpty" hidden>'
+            '<p>선택한 상점에 현재 무료 배포 중인 게임이 없습니다.</p>'
+            '</div>'
+        )
+    else:
+        active_block = """<div class="freebie-empty" id="freeActiveFilterEmpty">
+  <p>현재 확인된 기간 한정 100% 무료 영구 소장 게임이 없습니다.<br>에픽게임즈 주간 무료 전환 또는 Steam·GOG 깜짝 배포 시 자동 반영됩니다.</p>
+  <div class="buyrow">
+    <a class="btn btn-p" href="korean-demo.html">🎮 한국어 무료 데모 보기</a>
+    <a class="btn btn-s" href="under-10000.html">💸 1만원 이하 추천</a>
+  </div>
+</div>"""
+
+    if upcoming:
+        upcoming_cards = "".join(freebie_card(it, game_ids) for it in upcoming)
+        upcoming_block = f"""<section id="upcoming-free">
+  <div class="sec-head">
+    <h2>🗓️ 곧 무료 예정</h2>
+    <span class="cnt" id="freeUpcomingCnt">{len(upcoming)}개</span>
+  </div>
+  <p class="sec-note">공개된 차주 무료 예고입니다. 오픈 시각이 지난 뒤 각 상점에서 0원으로 전환됩니다.</p>
+  <div class="freebie-grid" id="freeUpcomingGrid">{upcoming_cards}</div>
+  <div class="freebie-empty" id="freeUpcomingEmpty" hidden>
+    <p>선택한 상점에 예정된 무료 배포 정보가 없습니다.</p>
+  </div>
+</section>"""
+    else:
+        upcoming_block = ""
+
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "무료 배포 게임 — 에픽게임즈·Steam·GOG",
+        "url": abs_url("free-games.html"),
+        "description": "에픽게임즈·Steam(-100%)·GOG 기간 한정 무료 영구 소장 게임 목록과 마감 시각 안내.",
+    }
+    if active:
+        schema["mainEntity"] = {
+            "@type": "ItemList",
+            "numberOfItems": len(active),
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "position": idx,
+                    "name": it.get("title"),
+                    "url": it.get("url"),
+                }
+                for idx, it in enumerate(active[:20], 1)
+            ],
+        }
+    _schema_json = (json.dumps(schema, ensure_ascii=False, indent=2)
+                    .replace("<", "\\u003c").replace(">", "\\u003e"))
+    extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
+    og_img = next((x.get("image_url") for x in (active + upcoming) if x.get("image_url")), "")
+
+    body = f"""<a class="back" href="index.html">← 홈으로</a>
+<section class="lead">
+  <h1>무료 배포 게임</h1>
+  <p class="sub">에픽게임즈·Steam(-100%)·GOG의 <b>기간 한정 100% 무료 영구 소장</b> 게임만 모았습니다.<br>원래 무료(F2P)·구독자 전용·체험판은 제외하며, Steam 최저가 이력(0원 오염 방지)과 분리해 관리합니다.</p>
+  <div class="presets" id="freeFilter" role="group" aria-label="상점별 보기">{"".join(filter_btns)}</div>
+  <div class="freebie-note-box">
+    ⏰ 배포 시작·종료는 각 상점 사정에 따라 바뀔 수 있습니다. 받기 전 링크된 상점 페이지에서 최종 <b>0원(무료)</b> 표기를 꼭 확인하세요.
+  </div>
+</section>
+
+<section id="active-free">
+  <div class="sec-head">
+    <h2>🎁 지금 무료로 영구 소장</h2>
+    <span class="cnt" id="freeActiveCnt">{len(active)}개</span>
+  </div>
+  {active_block}
+</section>
+
+{upcoming_block}
+{FREEBIES_JS}"""
+
+    return page(
+        "무료 배포 게임 — 에픽게임즈·Steam·GOG 한시 무료 소장 — GameDil",
+        body,
+        updated,
+        canonical="free-games.html",
+        desc="이번 주 에픽게임즈 무료 게임, Steam -100% 한시 무료, GOG 무료 배포 소식을 마감 시각과 함께 모아봅니다.",
+        og_image=og_img,
+        freshness=freshness,
+        extra_head=extra_head,
+    )
+
+
 def build_index(games: list[dict], updated: str, freshness: dict | None = None, recent_drops: list[dict] | None = None,
-                top_sellers: dict | None = None) -> str:
+                top_sellers: dict | None = None, freebies: dict | None = None) -> str:
     # 기본 화면은 성적 콘텐츠를 제외한다. 전체 탐색기에서 토글로 켤 수 있다.
     safe = [g for g in games if not g.get("adult")]
     korean = [g for g in safe if g.get("korean")]
@@ -1592,8 +1890,13 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
                 f'<p class="sec-note">가격 추적은 {days}일째입니다. '
                 f'최저가 표시는 {config.MIN_DAYS_FOR_LOW}일이 모여야 나옵니다.</p>')
 
+    game_ids = {int(g["appid"]) for g in games}
+    free_strip = home_freebies_section(freebies, game_ids)
+    free_js = FREEBIES_JS if free_strip else ""
+
     body = f"""
 {lead(games, safe)}
+{free_strip}
 
 <div class="group" id="g-deals"><p class="group-label">할인</p>
 {section("hot", hot_title, hot_note, hot,
@@ -2161,6 +2464,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
   window.syncURL();
 }})();
 </script>
+{free_js}
 {LIST_RETURN_SOURCE_JS}
 """
     schema = {
@@ -3281,7 +3585,7 @@ def build_sitemap(paths: list[str], updated: str) -> str:
             f"{urls}</urlset>\n")
 
 
-def build_llms(games: list[dict]) -> str:
+def build_llms(games: list[dict], freebies: dict | None = None) -> str:
     public = [g for g in games if not g.get("adult")]
     korean = sum(1 for g in public if g.get("korean"))
     links = "\n".join(
@@ -3292,6 +3596,7 @@ def build_llms(games: list[dict]) -> str:
 
 GameDil은 Steam 게임의 원화 가격, 할인, 한국어 지원, 평가와 무료 데모 정보를 모아
 게임 선택을 돕는 사이트입니다. 가격 이력은 GameDil이 관측한 기간을 기준으로 합니다.
+에픽게임즈·Steam(-100%)·GOG 기간 한정 무료 배포 정보도 별도 페이지에서 안내합니다.
 
 ## 수록 범위
 
@@ -3301,13 +3606,14 @@ GameDil은 Steam 게임의 원화 가격, 할인, 한국어 지원, 평가와 �
 ## 주요 페이지
 
 - [홈]({abs_url('/')})
+- [무료 배포 게임 (에픽게임즈·Steam·GOG)]({abs_url('free-games.html')})
 {links}
 
 ## 데이터 출처와 갱신
 
-데이터 출처는 Steam의 공개 상점·리뷰·동시 접속자 정보입니다.
+데이터 출처는 Steam의 공개 상점·리뷰·동시 접속자 정보와 에픽게임즈·GOG 공개 상점 목록입니다.
 자동 수집은 하루 2회 예약되어 있습니다. 항목별 확인 시점은 다를 수 있으며,
-수집 실패나 지연이 발생할 수 있습니다. 구매 전 Steam 상점에서 현재 가격을 확인하세요.
+수집 실패나 지연이 발생할 수 있습니다. 구매·수령 전 각 상점에서 현재 가격을 확인하세요.
 """
 
 
@@ -4618,6 +4924,7 @@ def main() -> int:
     conn = store.connect()
     games = store.all_games(conn)
     top_sellers = store.load_top_sellers(conn)
+    freebies = store.load_freebies(conn)
     last_collection = store.get_meta(conn, "last_collection_at")
     if not last_collection:
         # 메타 기록이 생기기 전 DB도 현재 동접/리뷰 수집 시각으로 최대한 정확히 표시한다.
@@ -4684,12 +4991,14 @@ def main() -> int:
         with open(os.path.join(config.SITE_DIR, rel), "w", encoding="utf-8") as f:
             f.write(text)
 
+    game_ids = {int(g["appid"]) for g in games}
     write("assets/game-autocomplete.json", autocomplete_index_json(index_data))
     write("style.css", theme.CSS)
     if os.path.exists(os.path.join(config.ROOT, "favicon.svg")):
         write("favicon.svg", open(os.path.join(config.ROOT, "favicon.svg"), encoding="utf-8").read())
     write("index.html", build_index(games, updated, freshness, recent_drops=recent_drops,
-                                    top_sellers=top_sellers))
+                                    top_sellers=top_sellers, freebies=freebies))
+    write("free-games.html", build_free_games(freebies, game_ids, updated, freshness))
     write("compare.html", build_compare(games, updated, freshness, recent_drops_map))
     write("my-games.html", build_my_games(updated, freshness))
     write("shared-games.html", build_shared_games(updated, freshness))
@@ -4697,7 +5006,7 @@ def main() -> int:
     write("pick.html", build_pick(updated, freshness, games))
     write("status.html", build_status(games, updated, freshness, recent_drops=recent_drops))
     write("404.html", build_404(updated, freshness))
-    paths = ["index.html"]
+    paths = ["index.html", "free-games.html"]
 
     for spec in LANDINGS:
         if spec["slug"] == "recent-drops":

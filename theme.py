@@ -29,6 +29,9 @@ CSS = """
   --deal:#3f6212; --deal-mark:#4d7c0f; --deal-soft:rgba(101,163,13,.16);
   --warn:#9a3412; --warn-soft:rgba(234,88,12,.14);
   --amber:#b45309; --amber-soft:rgba(180,83,9,.14);
+  --st-epic:#7c3aed; --st-epic-btn:#7c3aed; --st-epic-ink:#ffffff; --st-epic-soft:rgba(124,58,237,.16);
+  --st-steam:#2563eb; --st-steam-btn:#1d4ed8; --st-steam-ink:#ffffff; --st-steam-soft:rgba(37,99,235,.16);
+  --st-gog:#eab308; --st-gog-btn:#facc15; --st-gog-ink:#141002; --st-gog-soft:rgba(234,179,8,.20);
   --grid:#e6ebf3; --shadow:0 1px 2px rgba(11,18,32,.06),0 8px 24px rgba(11,18,32,.06);
 }
 /* ---- 다크(시스템 설정) ---- */
@@ -40,6 +43,9 @@ CSS = """
     --deal:#a3e635; --deal-mark:#a3e635; --deal-soft:rgba(163,230,53,.16);
     --warn:#fb923c; --warn-soft:rgba(251,146,60,.16);
     --amber:#fbbf24; --amber-soft:rgba(251,191,36,.18);
+    --st-epic:#a855f7; --st-epic-btn:#7e22ce; --st-epic-ink:#ffffff; --st-epic-soft:rgba(168,85,247,.22);
+    --st-steam:#3b82f6; --st-steam-btn:#2563eb; --st-steam-ink:#ffffff; --st-steam-soft:rgba(59,130,246,.22);
+    --st-gog:#facc15; --st-gog-btn:#facc15; --st-gog-ink:#141002; --st-gog-soft:rgba(250,204,21,.20);
     --grid:#1e2939; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
   }
 }
@@ -51,6 +57,9 @@ CSS = """
   --deal:#a3e635; --deal-mark:#a3e635; --deal-soft:rgba(163,230,53,.16);
   --warn:#fb923c; --warn-soft:rgba(251,146,60,.16);
   --amber:#fbbf24; --amber-soft:rgba(251,191,36,.18);
+  --st-epic:#a855f7; --st-epic-btn:#7e22ce; --st-epic-ink:#ffffff; --st-epic-soft:rgba(168,85,247,.22);
+  --st-steam:#3b82f6; --st-steam-btn:#2563eb; --st-steam-ink:#ffffff; --st-steam-soft:rgba(59,130,246,.22);
+  --st-gog:#facc15; --st-gog-btn:#facc15; --st-gog-ink:#141002; --st-gog-soft:rgba(250,204,21,.20);
   --grid:#1e2939; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
 }
 
@@ -1108,5 +1117,121 @@ CSS += '''
     width: 100%;
     justify-content: center;
   }
+}
+
+/* ================= 무료 배포 (Epic 보라 · Steam 파랑 · GOG 노랑) ================= */
+.freebie-grid{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(285px, 1fr));
+  gap:14px; margin-top:14px;
+}
+.freebie-card[data-store="epic"],#freeFilter .chip[data-store="epic"]{
+  --store-c:var(--st-epic); --store-btn:var(--st-epic-btn);
+  --store-ink:var(--st-epic-ink); --store-soft:var(--st-epic-soft);
+}
+.freebie-card[data-store="steam"],#freeFilter .chip[data-store="steam"]{
+  --store-c:var(--st-steam); --store-btn:var(--st-steam-btn);
+  --store-ink:var(--st-steam-ink); --store-soft:var(--st-steam-soft);
+}
+.freebie-card[data-store="gog"],#freeFilter .chip[data-store="gog"]{
+  --store-c:var(--st-gog); --store-btn:var(--st-gog-btn);
+  --store-ink:var(--st-gog-ink); --store-soft:var(--st-gog-soft);
+}
+.freebie-card{
+  display:flex; flex-direction:column;
+  background:var(--surface);
+  border:2px solid var(--store-c, var(--line));
+  border-radius:13px; overflow:hidden;
+  box-shadow:0 4px 16px -4px var(--store-soft, transparent);
+  transition:border-color .15s, box-shadow .15s, transform .15s;
+}
+.freebie-card:hover{
+  border-color:var(--store-c, var(--brand));
+  box-shadow:0 10px 26px -6px var(--store-soft, transparent), 0 0 0 1px var(--store-c, var(--brand));
+  transform:translateY(-2px);
+}
+.freebie-card.is-expired{opacity:.62; border-style:dashed; filter:saturate(.55)}
+.freebie-media{
+  position:relative; aspect-ratio:16/9; background:var(--raised); overflow:hidden;
+  border-bottom:1px solid color-mix(in srgb, var(--store-c, var(--line)) 42%, var(--line));
+}
+.freebie-media img{width:100%; height:100%; object-fit:cover; display:block}
+.freebie-media .ph{width:100%; height:100%; font-size:28px}
+.freebie-badges{
+  position:absolute; top:9px; left:9px; right:9px;
+  display:flex; justify-content:space-between; align-items:flex-start; gap:6px;
+  pointer-events:none;
+}
+.store-pill,.freebie-tag{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:4px 8px; border-radius:7px; font-size:11.5px; font-weight:800;
+  line-height:1.2; white-space:nowrap;
+}
+.store-pill{background:rgba(11,18,32,.86); color:#fff; border:1px solid rgba(255,255,255,.2)}
+.store-pill.s-epic{background:rgba(124,58,237,.95); color:#fff; border-color:rgba(221,214,254,.55)}
+.store-pill.s-steam{background:rgba(29,78,216,.95); color:#fff; border-color:rgba(147,197,253,.55)}
+.store-pill.s-gog{background:rgba(250,204,21,.96); color:#141002; border-color:rgba(20,16,2,.24)}
+.store-dot{width:8px; height:8px; border-radius:50%; display:inline-block; flex:none}
+.store-dot.s-epic{background:var(--st-epic)}
+.store-dot.s-steam{background:var(--st-steam)}
+.store-dot.s-gog{background:var(--st-gog)}
+#freeFilter .chip{display:inline-flex; align-items:center; gap:6px}
+#freeFilter .chip[data-store][aria-pressed="false"]:hover{border-color:var(--store-c, var(--ink-3))}
+#freeFilter .chip[data-store="epic"][aria-pressed="true"],
+#freeFilter .chip[data-store="steam"][aria-pressed="true"],
+#freeFilter .chip[data-store="gog"][aria-pressed="true"]{
+  background:var(--store-btn); border-color:var(--store-c); color:var(--store-ink);
+}
+#freeFilter .chip[aria-pressed="true"] .store-dot{background:currentColor; box-shadow:0 0 0 2px rgba(255,255,255,.32)}
+#freeFilter .chip[data-store="gog"][aria-pressed="true"] .store-dot{box-shadow:0 0 0 2px rgba(20,16,2,.22)}
+.freebie-legend{display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px}
+.fb-keys{display:inline-flex; flex-wrap:wrap; align-items:center; gap:10px}
+.fb-key{display:inline-flex; align-items:center; gap:5px; font-weight:700; color:var(--ink)}
+.freebie-tag{background:rgba(11,18,32,.88); backdrop-filter:blur(4px)}
+.freebie-tag.is-free{color:#bef264; border:1px solid rgba(190,242,100,.45)}
+.freebie-tag.is-soon{color:#fcd34d; border:1px solid rgba(252,211,77,.45)}
+.freebie-tag.is-end{color:#fda4af; border:1px solid rgba(253,164,175,.45)}
+.freebie-body{
+  flex:1; display:flex; flex-direction:column; gap:8px; padding:13px 14px 14px;
+}
+.freebie-title{
+  margin:0; font-family:"Inter","Gothic A1",sans-serif;
+  font-size:16px; font-weight:800; letter-spacing:-.02em; line-height:1.28;
+  word-break:keep-all;
+}
+.freebie-desc{
+  margin:0; font-size:12.5px; color:var(--ink-2); line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.freebie-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:11.5px; color:var(--ink-3)}
+.freebie-price{
+  display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:auto; padding-top:4px;
+}
+.freebie-price .strike{color:var(--ink-3); text-decoration:line-through; font-size:13px}
+.freebie-price .now-free{font-size:17px; font-weight:800; color:var(--deal); letter-spacing:-.02em}
+.freebie-price .now-soon{font-size:15px; font-weight:800; color:var(--amber); letter-spacing:-.02em}
+.freebie-deadline{
+  font-size:12px; font-weight:600; color:var(--ink-2);
+  padding:6px 9px; border-radius:8px; background:var(--surface-2); border:1px solid var(--line);
+}
+.freebie-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:2px}
+.freebie-actions .btn{flex:1; justify-content:center; min-width:110px; padding:8px 12px; font-size:13px}
+.freebie-actions .freebie-cta{
+  background:var(--store-btn, var(--brand));
+  color:var(--store-ink, var(--brand-ink));
+  border-color:transparent;
+}
+.freebie-note-box{
+  margin-top:12px; padding:12px 14px; border-radius:10px;
+  background:var(--surface); border:1px solid var(--line);
+  font-size:13px; color:var(--ink-2); line-height:1.6;
+}
+.freebie-empty{
+  margin-top:14px; padding:26px 18px; border-radius:12px; text-align:center;
+  background:var(--surface); border:1px solid var(--line); color:var(--ink-2);
+}
+.freebie-empty p{margin:0 0 14px; font-size:14px}
+.freebie-empty .buyrow{justify-content:center}
+@media (max-width:560px){
+  .freebie-grid{grid-template-columns:1fr; gap:12px}
 }
 '''

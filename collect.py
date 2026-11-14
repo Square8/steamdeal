@@ -17,6 +17,7 @@ import sys
 from datetime import datetime, timezone
 
 import config
+import freebies
 import steam
 import store
 
@@ -274,6 +275,11 @@ def main() -> int:
         conn.close()
         return 0 if stats["ok"] else 1
 
+    if "--freebies-only" in sys.argv:
+        res = freebies.collect_all_freebies(conn, log)
+        conn.close()
+        return 0 if any(v.get("ok") for v in res.values()) else 1
+
     targets, explore_ids = _plan(conn, log)
     if not targets:
         log.error("부를 대상이 없다. 스팀 API 응답을 확인할 것.")
@@ -314,6 +320,9 @@ def main() -> int:
     # 미디어 백필: 기존 수집 대상과 중복되지 않게 배제하고 백필 진행
     regular_appids = {appid for appid, _ in targets}
     _collect_media_backfill(conn, log, regular_appids)
+
+    # 에픽·Steam(-100%)·GOG 기간 한정 무료 배포 수집
+    freebies.collect_all_freebies(conn, log)
 
     store.set_meta(conn, "last_collection_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     conn.commit()

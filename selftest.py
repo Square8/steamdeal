@@ -5,7 +5,7 @@ TMP = tempfile.mkdtemp(prefix="steamradar_test_")
 os.environ["DB_PATH"] = os.path.join(TMP, "t.sqlite3")
 os.environ["SITE_DIR"] = os.path.join(TMP, "site")
 
-import config, store, build, steam
+import config, store, build, steam, freebies
 import requests
 import re
 
@@ -1494,6 +1494,7 @@ ga_my_html = open(os.path.join(config.SITE_DIR, "my-games.html"), encoding="utf-
 ga_recent_html = open(os.path.join(config.SITE_DIR, "recently-viewed.html"), encoding="utf-8").read()
 ga_status_html = open(os.path.join(config.SITE_DIR, "status.html"), encoding="utf-8").read()
 ga_404_html = open(os.path.join(config.SITE_DIR, "404.html"), encoding="utf-8").read()
+ga_free_html = open(os.path.join(config.SITE_DIR, "free-games.html"), encoding="utf-8").read()
 
 GA_ID = "G-SVXW1DG02M"
 target_pages = [
@@ -1501,6 +1502,7 @@ target_pages = [
     ("game/730.html", ga_detail_html),
     ("korean-games.html", ga_landing_html),
     ("hot-deals.html", ga_hot_html),
+    ("free-games.html", ga_free_html),
     ("compare.html", ga_compare_html),
     ("my-games.html", ga_my_html),
     ("recently-viewed.html", ga_recent_html),
@@ -1537,6 +1539,187 @@ check("홈페이지 검색 입력창 유지", 'name="q"' in ga_idx_html)
 # 5. Node.js로 GA 코드를 포함한 실행 스크립트 문법 검사
 for p_name, p_content in target_pages:
     node_syntax_check(p_content, f"{p_name} (GA4 포함)")
+
+print("\n23) 무료 배포 (Epic · Steam -100% · GOG)")
+_fb_now = dt.datetime(2026, 11, 14, 12, 0, tzinfo=dt.timezone.utc)
+_epic_payload = {
+    "data": {"Catalog": {"searchStore": {"elements": [
+        # 정상 활성 무료 배포 (UUID urlSlug 대신 productHome slug 선택 확인)
+        {
+            "id": "ep1", "title": "Knightica", "offerType": "BASE_GAME",
+            "description": "에픽 무료 테스트", "seller": {"name": "Goblinz"},
+            "productSlug": None, "urlSlug": "72b46f5d95624fd5b7e7d81b7dcaead1",
+            "offerMappings": [{"pageSlug": "knightica-3be45c", "pageType": "productHome"}],
+            "price": {"totalPrice": {"originalPrice": 15300, "discountPrice": 0, "currencyCode": "KRW",
+                                     "fmtPrice": {"originalPrice": "₩15,300"}}},
+            "keyImages": [{"type": "OfferImageWide", "url": "https://cdn.example/k-wide.jpg"}],
+            "promotions": {"promotionalOffers": [{"promotionalOffers": [
+                {"startDate": "2026-11-12T16:00:00Z", "endDate": "2026-11-19T16:00:00Z",
+                 "discountSetting": {"discountType": "PERCENTAGE", "discountPercentage": 0}}
+            ]}], "upcomingPromotionalOffers": []},
+        },
+        # 번들 + productSlug /home 제거 확인
+        {
+            "id": "ep2", "title": "Next Bundle", "offerType": "BUNDLE",
+            "description": "차주 무료 예정", "seller": {"name": "IndiePub"},
+            "productSlug": "next-bundle/home", "urlSlug": "next-bundle-uuid",
+            "price": {"totalPrice": {"originalPrice": 28000, "discountPrice": 28000, "currencyCode": "KRW",
+                                     "fmtPrice": {"originalPrice": "₩28,000"}}},
+            "keyImages": [{"type": "Thumbnail", "url": "https://cdn.example/nb.jpg"}],
+            "promotions": {"promotionalOffers": [], "upcomingPromotionalOffers": [{"promotionalOffers": [
+                {"startDate": "2026-11-19T16:00:00Z", "endDate": "2026-11-26T16:00:00Z",
+                 "discountSetting": {"discountType": "PERCENTAGE", "discountPercentage": 0}}
+            ]}]},
+        },
+        # 예정 일반 할인 (discountPercentage=20 -> 무료 아님, 반드시 제외!)
+        {
+            "id": "ep_paid", "title": "Not Free Sale", "offerType": "BASE_GAME",
+            "productSlug": "not-free",
+            "price": {"totalPrice": {"originalPrice": 40000, "discountPrice": 40000, "currencyCode": "KRW"}},
+            "promotions": {"promotionalOffers": [], "upcomingPromotionalOffers": [{"promotionalOffers": [
+                {"startDate": "2026-11-19T16:00:00Z", "endDate": "2026-11-26T16:00:00Z",
+                 "discountSetting": {"discountType": "PERCENTAGE", "discountPercentage": 20}}
+            ]}]},
+        },
+        # DLC 제외 확인
+        {
+            "id": "ep_dlc", "title": "Some DLC", "offerType": "DLC",
+            "productSlug": "some-dlc",
+            "price": {"totalPrice": {"originalPrice": 9900, "discountPrice": 0, "currencyCode": "KRW"}},
+            "promotions": {"promotionalOffers": [{"promotionalOffers": [
+                {"startDate": "2026-11-12T16:00:00Z", "endDate": "2026-11-19T16:00:00Z",
+                 "discountSetting": {"discountType": "PERCENTAGE", "discountPercentage": 0}}
+            ]}]},
+        },
+        # 지역 제외 등으로 KR discountPrice > 0 인 경우 제외 확인
+        {
+            "id": "ep_region", "title": "Paid In KR", "offerType": "BASE_GAME",
+            "productSlug": "paid-kr",
+            "price": {"totalPrice": {"originalPrice": 15000, "discountPrice": 5000, "currencyCode": "KRW"}},
+            "promotions": {"promotionalOffers": [{"promotionalOffers": [
+                {"startDate": "2026-11-12T16:00:00Z", "endDate": "2026-11-19T16:00:00Z",
+                 "discountSetting": {"discountType": "PERCENTAGE", "discountPercentage": 0}}
+            ]}]},
+        },
+    ]}}}
+}
+_epic_parsed = freebies.parse_epic_freebies(_epic_payload, now=_fb_now)
+check("Epic 활성·예정 2건만 추출(일반할인·DLC·비무료 제외)", len(_epic_parsed) == 2, str([x["title"] for x in _epic_parsed]))
+check("Epic UUID urlSlug 대신 productHome slug URL 생성",
+      _epic_parsed[0]["url"] == "https://store.epicgames.com/ko/p/knightica-3be45c", _epic_parsed[0]["url"])
+check("Epic BUNDLE은 /bundles/ 경로 + /home 꼬리 제거",
+      _epic_parsed[1]["url"] == "https://store.epicgames.com/ko/bundles/next-bundle" and _epic_parsed[1]["status"] == "upcoming",
+      _epic_parsed[1]["url"])
+
+_steam_html = """
+<a href="https://store.steampowered.com/app/555123/Free_Game/?snr=1" data-ds-appid="555123" class="search_result_row">
+  <div class="search_capsule"><img src="https://cdn.example/555123.jpg"></div>
+  <span class="title">Free Keep &amp; Play</span>
+  <div class="discount_block" data-price-final="0" data-discount="100">
+    <div class="discount_original_price">₩ 15,500</div>
+  </div>
+</a>
+<a href="https://store.steampowered.com/app/555999/Paid_Game/" data-ds-appid="555999" class="search_result_row">
+  <span class="title">90 Off Game</span>
+  <div class="discount_block" data-price-final="1500" data-discount="90">
+    <div class="discount_original_price">₩ 15,000</div>
+  </div>
+</a>
+<a href="https://store.steampowered.com/sub/1234/" data-ds-appid="11,22" class="search_result_row">
+  <span class="title">Bundle Ignore</span>
+  <div class="discount_block" data-price-final="0" data-discount="100">
+    <div class="discount_original_price">₩ 10,000</div>
+  </div>
+</a>
+"""
+_steam_parsed = freebies.parse_steam_search_freebies(_steam_html)
+check("Steam 검색에서 -100% 단일 앱만 추출(-90%·멀티번들 제외)",
+      len(_steam_parsed) == 1 and _steam_parsed[0]["steam_appid"] == 555123 and _steam_parsed[0]["title"] == "Free Keep & Play")
+
+_gog_payload = {
+    "products": [
+        {
+            "id": "901", "title": "GOG Free Gift", "slug": "gog_free_gift", "productType": "game",
+            "storeLink": "https://www.gog.com/en/game/gog_free_gift",
+            "coverHorizontal": "//images.gog-statics.com/free.png",
+            "developers": ["GOG Dev"],
+            "genres": [{"name": "RPG"}],
+            "price": {"base": "$19.99", "discount": "-100%",
+                      "finalMoney": {"amount": "0.00", "currency": "USD"},
+                      "baseMoney": {"amount": "19.99", "currency": "USD"}},
+        },
+        {
+            "id": "902", "title": "Permanent Free", "slug": "perm_free", "productType": "game",
+            "price": {"base": "$0.00", "discount": None,
+                      "finalMoney": {"amount": "0.00", "currency": "USD"},
+                      "baseMoney": {"amount": "0.00", "currency": "USD"}},
+        },
+        {
+            "id": "903", "title": "Almost Free", "slug": "almost_free", "productType": "game",
+            "price": {"base": "$19.99", "discount": "-95%",
+                      "finalMoney": {"amount": "0.99", "currency": "USD"},
+                      "baseMoney": {"amount": "19.99", "currency": "USD"}},
+        },
+    ]
+}
+_gog_parsed = freebies.parse_gog_freebies(_gog_payload)
+check("GOG -100% 유료 배포만 추출(영구무료·-95% 제외) 및 https 보정",
+      len(_gog_parsed) == 1 and _gog_parsed[0]["image_url"] == "https://images.gog-statics.com/free.png"
+      and _gog_parsed[0]["original_price_text"] == "$19.99")
+
+# DB 저장, 부분 실패 격리, 만료 필터링, 홈·무료페이지 빌드 검증 (임시 DB)
+_fb_db = os.path.join(TMP, "fb.sqlite3")
+_old_db_fb = config.DB_PATH
+config.DB_PATH = _fb_db
+try:
+    _fc = store.connect()
+    _fb_now_iso = _fb_now.isoformat(timespec="seconds")
+    _expired_epic = dict(_epic_parsed[0], id="epic:expired", title="Expired Game",
+                         end_at="2026-11-10T00:00:00+00:00")
+    store.replace_freebies_for_store(_fc, "epic", _epic_parsed + [_expired_epic])
+    store.replace_freebies_for_store(_fc, "gog", _gog_parsed)
+    # Epic 재갱신 시에도 GOG 데이터 유지 확인
+    store.replace_freebies_for_store(_fc, "epic", _epic_parsed)
+    _fc.commit()
+    _loaded = store.load_freebies(_fc, now=_fb_now)
+    check("load_freebies 만료 항목 제외 + 타 스토어 데이터 보존",
+          len(_loaded["active"]) == 2 and len(_loaded["upcoming"]) == 1
+          and {x["store"] for x in _loaded["active"]} == {"epic", "gog"})
+    check("prices 테이블에 에픽·GOG 0원 오염 없음",
+          _fc.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 0)
+    _fc.close()
+finally:
+    config.DB_PATH = _old_db_fb
+
+_fb_page = build.build_free_games(_loaded, set(), "2026-11-14 12:00",
+                                  {"label": "자동 갱신 정상", "class": "ok", "display": "2026-11-14 12:00"})
+check("free-games.html 단일 h1 및 canonical/JSON-LD 포함",
+      len(re.findall(r'<h1\b', _fb_page)) == 1 and "<h1>무료 배포 게임</h1>" in _fb_page
+      and "free-games.html" in _fb_page and "Knightica" in _fb_page and "GOG Free Gift" in _fb_page
+      and "Next Bundle" in _fb_page)
+_fb_css = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
+check("상점별 구분 색(에픽 보라·Steam 파랑·GOG 노랑) CSS·도트 포함",
+      '.freebie-card[data-store="epic"]' in _fb_css
+      and '.freebie-card[data-store="steam"]' in _fb_css
+      and '.freebie-card[data-store="gog"]' in _fb_css
+      and '--st-epic:#' in _fb_css and '--st-steam:#' in _fb_css and '--st-gog:#' in _fb_css
+      and 'store-dot s-epic' in _fb_page
+      and 'store-dot s-steam' in _fb_page
+      and 'store-dot s-gog' in _fb_page)
+node_syntax_check(_fb_page, "free-games.html (무료 배포 필터/마감 JS)")
+
+_sample_games = store.all_games(store.connect())
+_home_with_fb = build.build_index(_sample_games, "2026-11-14 12:00", freebies=_loaded)
+_home_no_fb = build.build_index(_sample_games, "2026-11-14 12:00", freebies={"active": [], "upcoming": _loaded["upcoming"]})
+check("활성 무료 배포가 있으면 홈 #free-strip 이 #hot 앞에 노출",
+      'id="free-strip"' in _home_with_fb and _home_with_fb.index('id="free-strip"') < _home_with_fb.index('id="hot"'))
+check("활성 무료 배포가 없으면 홈 #free-strip 미표시", 'id="free-strip"' not in _home_no_fb)
+check("상단 nav 및 바로가기·사이트맵에 free-games.html 포함",
+      'href="free-games.html">무료 배포</a>' in ga_idx_html
+      and 'href="free-games.html">🎁 무료 배포</a>' in ga_idx_html
+      and "free-games.html" in open(os.path.join(config.SITE_DIR, "sitemap.xml"), encoding="utf-8").read()
+      and "free-games.html" in open(os.path.join(config.SITE_DIR, "llms.txt"), encoding="utf-8").read())
+
 if FAILS:
     print(f"!! 실패 {len(FAILS)}건: {FAILS}"); sys.exit(1)
 print("전 구간 통과 — 파싱/저장/회전/추천후보/차트/사이트 기계는 정상")
