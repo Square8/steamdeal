@@ -81,27 +81,69 @@ class PresentationTests(unittest.TestCase):
         active=html.split('<section id="active-free">')[1].split('</section>')[0]
         upcoming=html.split('<section id="upcoming-free">')[1].split('</section>')[0]
         self.assertIn('무료로 받기',active)
-        self.assertEqual(upcoming.count('>상점 보기 ↗</a>'),2)
+        self.assertEqual(upcoming.count('>상점 미리보기 ↗</a>'),2)
         self.assertEqual(upcoming.count('>시작 11/18 09:00 KST</div>'),2)
         checked=re.search(r'<p class="free-checked">(.*?)</p>',html).group(1)
         self.assertEqual(checked.count('title="2026-11-15 09:00 KST"'),3)
         self.assertEqual(checked.count('<time datetime='),3)
         self.assertNotIn('오염',html)
-    def test_home_has_four_image_sections_and_shortcuts(self):
+    def test_home_has_three_image_sections_and_shortcuts(self):
         games=[game(i, discount_pct=60 if i<10 else 0, has_demo=i>20,
                     players_current=100+i, players_at=NOW.isoformat(),
                     release_date=datetime.now(timezone.utc).date().isoformat()) for i in range(1,30)]
         html=build.build_index(games,'now',freebies=self.freebies())
         sections=dict(re.findall(r'<section id="([^"]+)"[^>]*>(.*?)</section>',html,re.S))
-        self.assertEqual([key for key, val in sections.items() if '<div class="rail">' in val],['hot','indie','demo','new'])
+        self.assertEqual([key for key, val in sections.items() if '<div class="rail">' in val],['hot','indie','demo'])
         for sid, href in [('drop','recent-drops.html'),('under-10000','under-10000.html')]:
             self.assertIn(f'href="{href}"',sections[sid])
             self.assertNotIn('class="card',sections[sid])
         self.assertIn('class="compact-row"',sections['popular'])
-        self.assertNotIn('class="freebie-card"',sections['free-strip'])
+        self.assertIn('freebie-home',sections['home-freebies'])
+        self.assertNotIn('id="free-strip"', html)
         ids=re.findall(r'data-wish="(\d+)"', ''.join(sections[sid] for sid in ('hot','indie','demo')))
         self.assertEqual(len(ids),len(set(ids)))
         self.assertNotIn('id="free-strip"',build.build_index(games,'now',freebies=dict(active=[],upcoming=self.freebies()['upcoming'])))
+    def test_home_freebie_variants_and_limit(self):
+        free = self.freebies()
+        free['active'] *= 4
+        html = build.home_freebies_section(free, set())
+        self.assertEqual(html.count('<article'), 3)
+        self.assertIn('지금 무료 4개', html)
+        self.assertIn('free-games.html#upcoming', html)
+        self.assertIn('곧 무료 2개', html)
+        free['active'] = []
+        html = build.home_freebies_section(free, set())
+        self.assertEqual(html.count('<article'), 1)
+        self.assertIn('상점 미리보기', html)
+        self.assertNotIn('now-free', html)
+        self.assertEqual(build.home_freebies_section({}, set()), '')
+    def test_free_layout_and_information_preserved(self):
+        free = self.freebies()
+        free['active'][0].update(image_url='https://example.com/cover.jpg', description='긴 설명 전체',
+                                 korean=1, review_total=321, review_positive_pct=92, developer='개발사',
+                                 original_price=25000, currency='KRW')
+        html = build.build_free_games(free, set(), 'now', {})
+        self.assertIn('class="free-layout free-split"', html)
+        for text in ('긴 설명 전체', '한국어 지원', '리뷰 321', '긍정 92%', '개발사', '25,000원', '>0원<', '에픽에서 무료로 받기', 'id="upcoming"'):
+            self.assertIn(text, html)
+        self.assertIn('loading="eager"', html)
+        free['active'] *= 2
+        self.assertNotIn('class="free-layout free-split"', build.build_free_games(free, set(), 'now', {}))
+        free['active'] = []
+        self.assertIn('확인한 범위에서 현재 무료 배포 없음', build.build_free_games(free, set(), 'now', {}))
+    def test_compact_rows_keep_images_prices_and_stale_dates(self):
+        now = datetime.now(timezone.utc)
+        games = [game(i, name='아주 긴 게임 이름 ' + str(i), players_current=100+i,
+                      players_at=(now-timedelta(hours=1 if i < 8 else 25)).isoformat(),
+                      discount_pct=50, price_final=10000) for i in range(1, 10)]
+        html = build.compact_section('popular', '인기', '전 세계 동접', games, '', 'popular-games.html', '전체')
+        self.assertEqual(html.count('class="compact-row"'), 8)
+        self.assertEqual(html.count('class="row-cover cover-fallback"'), 8)
+        self.assertEqual(html.count('loading="lazy"'), 8)
+        self.assertEqual(html.count('재확인 필요'), 1)
+        self.assertIn('기준 (KST)', html)
+        for text in ('리뷰 1,000', '긍정 90%', '한국어', '-50%', '10,000원', '20,000원', 'onerror="this.remove()"'):
+            self.assertIn(text, html)
     def test_sales_rank_preserves_skipped_positions(self):
         html=build.compact_section('selling','순위','',[game(5),game(8)],'','#all','더 보기',ranks={5:1,8:4})
         self.assertEqual(re.findall(r'<span class="row-marker">(.*?)</span>',html),['1','4'])

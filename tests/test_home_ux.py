@@ -47,9 +47,9 @@ class HomeTest(unittest.TestCase):
         html = build.build_index([game(1, discount_pct=50, review_total=500)], TODAY, None,
                                  recent_drops=[])
         lead = html[html.index('class="lead"'):html.index("</section>", html.index('class="lead"'))]
-        for href in ("#hot", "recent-drops.html", "under-10000.html", "korean-demo.html",
-                     "indie-games.html", "popular-games.html", "korean-soon.html"):
+        for href in ("recent-drops.html", "under-10000.html", "korean-demo.html"):
             self.assertIn(f'href="{href}"', lead)
+        self.assertEqual(lead.count('<a href='), 3)
         self.assertNotIn("data-jump-filter", html)
         # 필터는 주소(?f=)에, 스크롤·펼친 개수는 sessionStorage 에 남겨 뒤로 가기 때 복원한다.
         self.assertIn("updateQuery('f'", html)

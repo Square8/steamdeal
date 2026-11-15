@@ -1712,12 +1712,12 @@ node_syntax_check(_fb_page, "free-games.html (무료 배포 필터/마감 JS)")
 _sample_games = store.all_games(store.connect())
 _home_with_fb = build.build_index(_sample_games, "2026-11-14 12:00", freebies=_loaded)
 _home_no_fb = build.build_index(_sample_games, "2026-11-14 12:00", freebies={"active": [], "upcoming": _loaded["upcoming"]})
-check("활성 무료 배포가 있으면 홈 #free-strip 이 #hot 앞에 노출",
-      'id="free-strip"' in _home_with_fb and _home_with_fb.index('id="free-strip"') < _home_with_fb.index('id="hot"'))
-check("활성 무료 배포가 없으면 홈 #free-strip 미표시", 'id="free-strip"' not in _home_no_fb)
-check("상단 nav 및 바로가기·사이트맵에 free-games.html 포함",
+check("활성 무료 배포 표지 카드가 홈 소개 옆, #hot 앞에 노출",
+      'id="home-freebies"' in _home_with_fb and _home_with_fb.index('id="home-freebies"') < _home_with_fb.index('id="hot"')
+      and 'freebie-home' in _home_with_fb and 'id="free-strip"' not in _home_with_fb)
+check("예정만 있어도 홈 무료 카드 표시", 'id="home-freebies"' in _home_no_fb and '상점 미리보기' in _home_no_fb)
+check("상단 nav 및 사이트맵에 free-games.html 포함",
       'href="free-games.html">무료 배포</a>' in ga_idx_html
-      and 'href="free-games.html">🎁 무료 배포</a>' in ga_idx_html
       and "free-games.html" in open(os.path.join(config.SITE_DIR, "sitemap.xml"), encoding="utf-8").read()
       and "free-games.html" in open(os.path.join(config.SITE_DIR, "llms.txt"), encoding="utf-8").read())
 

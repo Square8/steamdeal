@@ -1,0 +1,12 @@
+{
+  "before": 20894,
+  "after": 20894,
+  "added": [],
+  "removed": [],
+  "changed": [
+    "assets/editorial-picks.json",
+    "free-games.html",
+    "index.html",
+    "style.css"
+  ]
+}

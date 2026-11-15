@@ -1286,7 +1286,7 @@ def section(sid: str, title: str, note: str, items: list[dict],
         # feature: 첫 카드만 2칸으로. 모든 섹션에 쓰면 다시 균일해져서 의미가 없다.
         picked = items[:cap]
         cards = "".join(
-            card(g, big=feature and i == 0, priority=prioritize_first and i == 0)
+            card(g, big=feature and i == 0, priority=prioritize_first and i < 5)
             for i, g in enumerate(picked)
         )
         body = f'<div class="{cls}">{cards}</div>'
@@ -1301,23 +1301,57 @@ def section(sid: str, title: str, note: str, items: list[dict],
 </section>"""
 
 
+def small_cover(url: str, title: str, cls: str, priority: bool = False) -> str:
+    """다운로드 실패도 이름 자리표시로 처리하는 작은 표지."""
+    initial = esc((title.strip() or "?")[:2].upper())
+    loading = 'loading="eager"' if priority else 'loading="lazy"'
+    img = (f'<img src="{esc(url)}" alt="" {loading} decoding="async" '
+           'onerror="this.remove()">' if url else "")
+    return f'<span class="{cls} cover-fallback"><span aria-hidden="true">{initial}</span>{img}</span>'
+
+
 def compact_section(sid: str, title: str, note: str, items: list[dict],
                     empty: str, href: str, label: str, ranks: dict | None = None) -> str:
-    """순위·출시일은 표지 카드 대신 짧은 목록으로 읽는다."""
+    """표지와 판단 정보를 모은 순위·출시일 목록. 긴 내용은 잘라내지 않는다."""
     rows = []
+    now = datetime.now(timezone.utc)
+    stamp_key = "players_at" if sid == "popular" else "checked_at"
+    stamps = [store.parse_utc(g.get(stamp_key)) for g in items[:8]]
+    stamps = [s for s in stamps if s and s <= now]
+    if stamps and sid != "selling":
+        note += f" · {min(stamps).astimezone(KST):%m/%d %H:%M} 기준 (KST)"
     for i, g in enumerate(items[:8], 1):
-        if sid == "soon":
-            marker = esc(g.get("release_date") or g.get("release_text") or "일정 미정")
-            detail = "출시 예정"
+        marker = str((ranks or {}).get(g["appid"], i))
+        if sid in ("soon", "new"):
+            detail = g.get("release_date") or g.get("release_text") or "일정 미정"
         elif sid == "selling":
-            marker = str((ranks or {}).get(g["appid"], i))
-            detail = "한국 판매 순위"
+            detail = f"판매 {marker}위"
         else:
-            marker = str(i)
-            detail = f'{g.get("players_current", 0):,}명 · {player_stamp(g, "%m/%d %H:%M")} KST'
+            detail = f'{g.get("players_current", 0):,}명'
+        meta = [main_genre(g)]
+        total = g.get("review_total") or g.get("review_count") or 0
+        pct = g.get("review_positive_pct")
+        if total:
+            meta.append(f"리뷰 {total:,}" + (f" · 긍정 {pct}%" if pct is not None else ""))
+        meta.append("한국어" if g.get("korean") else "한국어 없음")
+        if g.get("developer") and not total:
+            meta.append(g["developer"])
+        at = store.parse_utc(g.get(stamp_key))
+        if at and now - at > timedelta(hours=24):
+            meta.append(f"확인 {at.astimezone(KST):%m/%d %H:%M} KST · 재확인 필요")
+        price = ""
+        if sid == "new" or (g.get("discount_pct") or 0) > 0:
+            off = (f'<span class="row-off">-{g["discount_pct"]}%</span>'
+                   if (g.get("discount_pct") or 0) > 0 else "")
+            price = f'<span class="row-price">{off}{price_html(g)}</span>{price_note_div(g)}'
+        image_url = g.get("header_image") or f'https://cdn.akamai.steamstatic.com/steam/apps/{int(g["appid"])}/header.jpg'
+        media = small_cover(image_url, g["name"], "row-cover")
+        badges = chips_for(g) if sid == "new" else ""
         rows.append(f'<li><a class="compact-row" data-wish="{g["appid"]}" href="game/{g["appid"]}.html">'
-                    f'<span class="row-marker">{marker}</span><span class="row-name">{esc(g["name"])}</span>'
-                    f'<span class="row-detail">{esc(detail)}</span></a></li>')
+                    f'<span class="row-marker">{marker}</span>{media}'
+                    f'<span class="row-copy"><span class="row-name">{esc(g["name"])}</span>'
+                    f'<span class="row-meta">{esc(" · ".join(x for x in meta if x))}</span>{badges}</span>'
+                    f'<span class="row-detail"><span>{esc(detail)}</span>{price}</span></a></li>')
     body = ('<ol class="compact-list">' + "".join(rows) + '</ol>' if rows
             else f'<p class="sec-note">{esc(empty)}</p>')
     return f"""<section id="{sid}" class="compact-section">
@@ -1341,11 +1375,8 @@ def lead(games: list[dict], safe: list[dict]) -> str:
                  and price_is_fresh(g))
     facts = [("한국어 게임", n_kr), ("무료 데모", n_demo), ("지금 할인", n_sale)]
     fh = "".join(f"<span>{esc(k)} <b>{v:,}</b></span>" for k, v in facts)
-    links = [("#hot", "💸 지금 할인"), ("free-games.html", "🎁 무료 배포"),
-             ("recent-drops.html", "📉 최근 인하"),
-             ("under-10000.html", "💰 1만원 이하"), ("korean-demo.html", "🎮 무료 데모"),
-             ("indie-games.html", "🌱 인디 추천"), ("popular-games.html", "🔥 인기 게임"),
-             ("korean-soon.html", "🚀 출시예정")]
+    links = [("recent-drops.html", "📉 최근 인하"),
+             ("under-10000.html", "💰 1만원 이하"), ("korean-demo.html", "🎮 무료 데모")]
     qa = "".join(f'<a href="{h}">{t}</a>' for h, t in links)
     return f"""<section class="lead" id="top">
   <h1>한국어 스팀 게임,<br>지금 가격으로 고르기.</h1>
@@ -1613,43 +1644,73 @@ def _freebie_time_info(iso_raw: str | None) -> tuple[str, int]:
     return dt.astimezone(KST).strftime("%m/%d %H:%M"), int(dt.timestamp() * 1000)
 
 
-def freebie_card(it: dict, game_ids: set[int]) -> str:
-    """배포 상태·기한·받기 동작이 한눈에 보이는 가로 카드."""
+def freebie_card(it: dict, game_ids: set[int], variant: str = "detail", priority: bool = False) -> str:
+    """홈 요약·현재 상세·예정 목록을 같은 상태/가격 규칙으로 표시한다."""
     st = str(it.get("store") or "")
     meta = _FREEBIE_STORES.get(st, {"label": st.upper(), "cls": ""})
     status = "upcoming" if it.get("status") == "upcoming" else "active"
     title = str(it.get("title") or "")
     img = str(it.get("image_url") or "")
-    media = (f'<img src="{esc(img)}" alt="" loading="lazy" decoding="async">'
-             if img else '<span class="ph" aria-hidden="true">🎮</span>')
+    media = small_cover(img, title, "freebie-media", priority)
     start_kst, start_ms = _freebie_time_info(it.get("start_at"))
     end_kst, end_ms = _freebie_time_info(it.get("end_at"))
     chk_kst, _ = _freebie_time_info(it.get("checked_at"))
     upcoming = status == "upcoming"
     deadline = (f"시작 {start_kst} KST" if start_kst else "시작일 상점 확인") if upcoming else (
         f"{end_kst} KST 마감" if end_kst else "마감일 상점 확인")
-    cta = "상점 보기 ↗" if upcoming else "무료로 받기 ↗"
+    shop = {"epic": "에픽", "steam": "Steam", "gog": "GOG"}.get(st, meta["label"])
+    cta = "상점 미리보기 ↗" if upcoming else f"{shop}에서 무료로 받기 ↗"
+    if variant == "home" and not upcoming:
+        cta = "무료로 받기 ↗"
     label = "무료 예정" if upcoming else "한시 무료 소장"
-    return f"""<article class="freebie-card" data-store="{esc(st)}" data-status="{status}">
-  <div class="freebie-media">{media}</div>
+    original = it.get("original_price_text") or ""
+    if not original and it.get("original_price") and it.get("currency", "KRW") == "KRW":
+        original = f'{it["original_price"]:,}원'
+    was = f'<span class="strike">{esc(original)}</span><span aria-hidden="true">→</span>' if original else ""
+    price = ("" if upcoming else f'<div class="freebie-price">{was}<strong class="now-free">0원</strong></div>')
+    info = ""
+    if variant == "detail":
+        bits = ["한국어 지원" if it.get("korean") else "한국어 상점 확인"]
+        if it.get("genres"):
+            bits.append(it["genres"])
+        if it.get("review_total"):
+            bits.append(f'리뷰 {it["review_total"]:,}')
+        if it.get("review_positive_pct") is not None:
+            bits.append(f'긍정 {it["review_positive_pct"]}%')
+        if it.get("review_desc"):
+            bits.append(review_label(it))
+        if it.get("developer"):
+            bits.append(it["developer"])
+        info = f'<div class="freebie-meta">{esc(" · ".join(bits))}</div>'
+        if it.get("description"):
+            info += f'<p class="freebie-desc">{esc(it["description"])}</p>'
+    button_cls = "btn-s" if upcoming else "btn-p"
+    return f"""<article class="freebie-card freebie-{variant}" data-store="{esc(st)}" data-status="{status}">
+  {media}
   <div class="freebie-body">
     <span class="freebie-store"><i class="store-dot {meta['cls']}" aria-hidden="true"></i>{esc(meta['label'])} · <span class="freebie-tag">{label}</span></span>
     <h3 class="freebie-title">{esc(title)}</h3>
+    {info}{price}
     <div class="freebie-deadline" data-status="{status}" data-start="{start_ms}" data-end="{end_ms}" data-start-kst="{esc(start_kst)}" data-end-kst="{esc(end_kst)}" data-checked-kst="{esc(chk_kst)}">{esc(deadline)}</div>
   </div>
-  <a class="btn btn-p freebie-cta" href="{esc(it['url'])}" target="_blank" rel="noopener" aria-label="{esc(title)} · {cta}">{cta}</a>
+  <a class="btn {button_cls} freebie-cta" href="{esc(it['url'])}" target="_blank" rel="noopener" aria-label="{esc(title)} · {cta}">{cta}</a>
 </article>"""
 
 
 def home_freebies_section(freebies: dict | None, game_ids: set[int]) -> str:
-    """현재 무료 배포가 있을 때만 목록으로 가는 작은 띠를 붙인다."""
+    """소개 옆에 현재 최대 3개, 예정만 있으면 1개를 표지와 함께 표시한다."""
     active = (freebies or {}).get("active") or []
-    if not active:
+    upcoming = (freebies or {}).get("upcoming") or []
+    if not active and not upcoming:
         return ""
-    names = " · ".join(esc(it["title"]) for it in active[:2])
-    return f"""<section id="free-strip" class="free-strip">
-  <a href="free-games.html"><strong>🎁 지금 받기 {len(active)}개</strong>
-  <span>{names}</span><b>무료 배포 보기 →</b></a>
+    selected = active[:3] if active else upcoming[:1]
+    cards = "".join(freebie_card(it, game_ids, "home", priority=True) for it in selected)
+    title = f"지금 무료 {len(active)}개" if active else "곧 무료"
+    upcoming_link = (f'<a class="home-upcoming" href="free-games.html#upcoming">곧 무료 {len(upcoming)}개 →</a>'
+                     if upcoming else "")
+    return f"""<section id="home-freebies" aria-label="무료 배포">
+  <div class="home-free-head"><h2>{title}</h2><a href="free-games.html">전체 보기 →</a></div>
+  {cards}{upcoming_link}
 </section>"""
 
 
@@ -1667,20 +1728,22 @@ def build_free_games(freebies: dict, game_ids: set[int], updated: str, freshness
     ]
 
     if active:
-        active_cards = "".join(freebie_card(it, game_ids) for it in active)
+        active_cards = "".join(freebie_card(it, game_ids, priority=i < 2) for i, it in enumerate(active))
         active_block = (
             f'<div class="freebie-grid" id="freeActiveGrid">{active_cards}</div>'
             '<div class="freebie-empty" id="freeActiveFilterEmpty" hidden>'
-            '<p>이 상점에서 확인된 현재 무료 배포가 없습니다.</p>'
+            '<p>확인한 범위에서 현재 무료 배포 없음</p>'
             '</div>'
         )
     else:
-        active_block = '<div class="freebie-empty" id="freeActiveFilterEmpty"><p>현재 확인된 무료 배포가 없습니다.</p></div>'
+        active_block = '<div class="freebie-empty" id="freeActiveFilterEmpty"><p>확인한 범위에서 현재 무료 배포 없음</p></div>'
 
 
     if upcoming:
-        upcoming_cards = "".join(freebie_card(it, game_ids) for it in upcoming)
+        upcoming_cards = "".join(freebie_card(it, game_ids, "upcoming", priority=len(active) <= 1 and i < 2)
+                                 for i, it in enumerate(upcoming))
         upcoming_block = f"""<section id="upcoming-free">
+  <span id="upcoming" class="anchor-alias" aria-hidden="true"></span>
   <div class="sec-head">
     <h2>🗓️ 곧 무료 예정</h2>
     <span class="cnt" id="freeUpcomingCnt">{len(upcoming)}개</span>
@@ -1692,7 +1755,7 @@ def build_free_games(freebies: dict, game_ids: set[int], updated: str, freshness
   </div>
 </section>"""
     else:
-        upcoming_block = '<section id="upcoming-free"><h2>무료 예정 0</h2><p class="sec-note">확인된 예정 배포가 없습니다.</p></section>'
+        upcoming_block = '<section id="upcoming-free"><span id="upcoming" class="anchor-alias" aria-hidden="true"></span><h2>무료 예정 0</h2><p class="sec-note">확인된 예정 배포가 없습니다.</p></section>'
 
     schema = {
         "@context": "https://schema.org",
@@ -1744,6 +1807,7 @@ def build_free_games(freebies: dict, game_ids: set[int], updated: str, freshness
   <p class="free-checked">마지막 확인 (KST) · {checked_line}</p>
 </section>
 
+<div class="free-layout{' free-split' if len(active) == 1 and upcoming else ''}">
 <section id="active-free">
   <div class="sec-head">
     <h2>🎁 지금 무료로 영구 소장</h2>
@@ -1753,6 +1817,7 @@ def build_free_games(freebies: dict, game_ids: set[int], updated: str, freshness
 </section>
 
 {upcoming_block}
+</div>
 {FREEBIES_JS}</div>"""
 
     return page(
@@ -1780,8 +1845,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
     popular = sorted(player_pool, key=lambda g: (-(g.get("players_current") or 0),
                                                   -(g.get("review_count") or 0)))
     popular_title = "🔥 많이 플레이 중인 한국어 게임"
-    popular_note = (f"Steam 동시 접속자 수(전 세계) · 최근 {config.PLAYER_FRESH_HOURS}시간 안에 "
-                    "확인한 값만 · 게임별 확인 시각")
+    popular_note = f"Steam 전 세계 동접 · 최근 {config.PLAYER_FRESH_HOURS}시간 내 확인"
 
     # 홈 추천 섹션끼리 같은 게임을 다시 보여주지 않는다(화면 순서대로 먼저 나온 곳에 둔다:
     # 할인 추천 → 인디 → 데모).
@@ -1854,12 +1918,14 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
                 f'최저가 표시는 {config.MIN_DAYS_FOR_LOW}일이 모여야 나옵니다.</p>')
 
     game_ids = {int(g["appid"]) for g in games}
-    free_strip = home_freebies_section(freebies, game_ids)
-    free_js = ""
+    home_freebies = home_freebies_section(freebies, game_ids)
+    free_js = FREEBIES_JS if home_freebies else ""
 
     body = f"""
+<div class="home-intro{' has-freebies' if home_freebies else ''}">
 {lead(games, safe)}
-{free_strip}
+{home_freebies}
+</div>
 
 <div class="group" id="g-deals"><p class="group-label">할인</p>
 {section("hot", hot_title, hot_note, hot,
@@ -1872,13 +1938,15 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 </div>
 
 <div class="group" id="g-trend"><p class="group-label">인기</p>
+<div class="home-pair">
 {compact_section("popular", popular_title, popular_note, popular,
          "최근 확인한 동접 정보가 없습니다. 다음 수집 후 다시 표시됩니다.",
          "popular-games.html", "인기 게임 전체")}
 {compact_section("selling", "🛒 Steam 한국 판매 상위",
-         f"Steam 한국 상점 ‘최고 판매’ 목록 순서 · {selling_stamp} KST 수집 · 동접과는 다른 지표입니다.",
+         f"Steam 한국 판매 순위 · {selling_stamp} 기준 (KST) · 동접과 다른 지표",
          selling, "", "#all", "전체에서 더 보기",
          ranks={int(appid): i for i, appid in enumerate((top_sellers or {}).get("appids", []), 1)}) if selling else ""}
+</div>
 </div>
 
 <div class="group" id="g-discover"><p class="group-label">인디·데모</p>
@@ -1893,12 +1961,13 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 </div>
 
 <div class="group" id="g-new"><p class="group-label">신작·기대작</p>
-{section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순으로 보여줍니다.", fresh,
-         "한국어 신작 목록이 아직 비어 있습니다.", rail=True,
-         more_href="korean-new.html", more_text="신작 전체")}
+<div class="home-pair">
+{compact_section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순", fresh,
+         "한국어 신작 목록이 아직 비어 있습니다.", "korean-new.html", "신작 전체")}
 {compact_section("soon", "🚀 출시 임박 기대작",
          "Steam에 공개된 출시일 기준입니다. 위시리스트 순위는 사용하지 않습니다.",
          soon, "출시예정 목록이 아직 비어 있습니다.", "korean-soon.html", "출시예정 전체")}
+</div>
 </div>
 {atl_note}
 

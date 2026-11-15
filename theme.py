@@ -1274,42 +1274,116 @@ CSS += """
 """
 
 CSS += """
-/* 홈: 이미지 추천 4줄 + 전체 탐색, 순위와 날짜는 가벼운 목록 */
+/* 홈 v2: 소개 옆 무료 카드, 표지를 포함한 두 열 목록 */
+.home-intro{display:grid; gap:20px; align-items:center; margin-top:24px}
+.home-intro #top{margin:0}
+.home-intro #top h1{font-size:32px}
+.home-intro .quick-actions{margin-top:14px}
+#home-freebies{margin:0; min-width:0}
+.home-free-head{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px}
+.home-free-head h2{font-size:15px; margin:0}
+.home-free-head a,.home-upcoming{font-size:12px; color:var(--brand)}
+.home-upcoming{display:block; margin-top:8px; text-align:right}
+#home-freebies .freebie-card+.freebie-card{margin-top:8px}
+.home-pair{display:grid; gap:26px; align-items:start}
+.home-pair>section{margin:0; min-width:0}
+.home-pair .sec-head{flex-wrap:wrap; gap:6px 10px}
+.home-pair .sec-head h2{font-size:20px}
+.home-pair .more{font-size:12px; white-space:nowrap}
+.home-pair .sec-note{font-size:11px; line-height:1.5}
+.home-intro~section,.home-intro~.group{margin-top:2.5rem}
+.home-intro~.group>section{margin-top:2rem}
+.home-intro~.group>.group-label+section{margin-top:0}
 .deal-shortcuts{display:flex; flex-wrap:wrap; gap:10px; margin:16px 0 0}
 .deal-shortcuts section{margin:0}
 .deal-shortcuts a{display:block; padding:10px 14px; background:var(--surface); border:1px solid var(--line); border-radius:10px; font-size:14px; color:var(--ink)}
 .compact-list{list-style:none; margin:0; padding:0; border-top:1px solid var(--line)}
-.compact-row{display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:12px; padding:13px 10px; border-bottom:1px solid var(--line); color:var(--ink); text-decoration:none}
+.compact-row{display:grid; grid-template-columns:18px 96px minmax(0,1fr) minmax(72px,auto); align-items:center; gap:10px; padding:8px 0; min-height:64px; border-bottom:1px solid var(--line); color:var(--ink); text-decoration:none}
 .compact-row:hover{background:var(--raised)}
-.compact-row:focus-visible,.free-strip a:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
-.row-marker{color:var(--brand); font-weight:700; font-variant-numeric:tabular-nums}
-.row-name{font-weight:650; overflow-wrap:anywhere; min-width:0}
-.row-detail{color:var(--ink-2); font-size:12px}
-#soon .compact-row{grid-template-columns:125px minmax(0,1fr) auto}
-.free-strip{margin:14px 0 0}
-.free-strip>a{display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; padding:12px 14px; border:1px solid var(--line); border-radius:10px; color:var(--ink); text-decoration:none; font-size:13px}
-.free-strip span{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
-.free-strip b{color:var(--brand); font-size:12px}
+.compact-row:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.row-marker{color:var(--brand); font-size:12px; font-weight:700; font-variant-numeric:tabular-nums}
+.cover-fallback{display:grid; place-items:center; position:relative; overflow:hidden; background:var(--raised); color:var(--ink-2); border-radius:6px; aspect-ratio:16/9}
+.cover-fallback img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover}
+.row-cover{width:96px; height:54px; font-size:18px}
+.row-copy{display:flex; flex-direction:column; gap:4px; min-width:0}
+.row-name{font-size:13px; font-weight:700; overflow-wrap:anywhere; line-height:1.35}
+.row-meta{font-size:11px; color:var(--ink-2); line-height:1.5; overflow-wrap:anywhere}
+.row-copy .chips{margin:0; gap:4px}
+.row-copy .t{font-size:10px; padding:2px 4px}
+.row-detail{display:flex; flex-direction:column; align-items:flex-end; gap:5px; max-width:130px; font-size:12px; font-variant-numeric:tabular-nums; text-align:right; overflow-wrap:anywhere}
+.row-price{display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:4px}
+.row-price .price{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:3px 5px}
+.row-price .now{font-size:13px}
+.row-price .strike{font-size:10px}
+.row-off{font-size:11px; color:var(--deal); font-weight:700}
+.row-detail .price-note{max-width:120px; font-size:10px}
+/* 무료 배포: 현재 상세와 예정 목록을 분리하고 모든 설명을 표시 */
+.freebie-card{border:2px solid var(--store-c,var(--line)); box-shadow:none; grid-template-columns:120px minmax(0,1fr)}
+.freebie-card[hidden]{display:none}
+.freebie-card:hover{transform:none}
+.freebie-cta{grid-column:2; justify-self:start; font-size:12px; min-height:36px; padding:7px 10px; white-space:normal; text-align:center}
+.freebie-card[data-status="active"] .freebie-cta{background:var(--store-btn,var(--brand)); color:var(--store-ink,var(--brand-ink)); border-color:transparent}
+.freebie-desc{display:block; overflow:visible; -webkit-line-clamp:unset; margin:4px 0; overflow-wrap:anywhere}
+.freebie-meta{color:var(--ink-2); line-height:1.5}
+.freebie-price{margin:0; padding:0; gap:5px}
+.freebie-detail{grid-template-columns:minmax(140px,32%) minmax(0,1fr); align-items:start; gap:12px 18px; padding:18px}
+.freebie-detail .freebie-media{grid-row:1 / 3}
+.freebie-detail .freebie-title{font-size:21px}
+.freebie-detail .freebie-body{gap:8px}
+.freebie-detail .freebie-cta{font-size:13px; min-height:40px}
+.freebie-upcoming{grid-template-columns:96px minmax(0,1fr); gap:8px 12px}
+.freebie-upcoming .freebie-media{grid-row:1 / 3}
+.freebie-upcoming .freebie-title{font-size:15px}
+.freebie-upcoming .freebie-store{font-size:10px}
+.freebie-upcoming .freebie-cta{font-size:11px; min-height:32px}
+.freebie-home{grid-template-columns:88px minmax(0,1fr) auto; gap:8px 12px; padding:10px}
+.freebie-home .freebie-title{font-size:15px}
+.freebie-home .freebie-store{font-size:10px; flex-wrap:wrap}
+.freebie-home .freebie-deadline{font-size:11px}
+.freebie-home .freebie-cta{grid-column:auto; max-width:90px; font-size:11px; padding:7px 8px; word-break:keep-all}
+.freebie-home .freebie-price .now-free{font-size:15px}
+.freebie-home .freebie-price .strike{font-size:11px}
+.free-layout{display:grid; gap:24px; margin-top:22px; align-items:start}
+.free-page .free-layout>section{margin-top:0; min-width:0}
+.free-layout .freebie-grid{margin-top:12px}
+.anchor-alias{display:block; scroll-margin-top:120px}
+@media(min-width:1024px){
+ .home-intro.has-freebies{grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:28px}
+ .home-pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .home-pair>section:only-child{grid-column:1 / -1; max-width:700px}
+ .free-split{grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:24px}
+ .free-layout:not(.free-split) #freeActiveGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .free-layout:not(.free-split) #freeActiveGrid>.freebie-card:only-child{grid-column:1 / -1; max-width:760px}
+ .free-layout:not(.free-split) #freeUpcomingGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
 @media(max-width:560px){
  nav.jump{justify-content:space-between; overflow-x:visible}
  nav.jump a{font-size:11px; padding:7px 3px; min-height:40px; gap:2px}
  nav.jump a.util{margin-left:0; border-left:0}
- .compact-row{grid-template-columns:22px minmax(0,1fr); gap:4px 9px; padding:11px 4px}
- .row-name{font-size:14px}
- .row-detail{grid-column:2; font-size:11px}
- #soon .compact-row{grid-template-columns:95px minmax(0,1fr)}
- #soon .row-marker{font-size:11px}
+ .home-intro{margin-top:12px; gap:14px}
+ .home-intro #top h1{font-size:20px; margin:0 0 6px}
+ .home-intro #top h1 br{display:none}
+ #top .facts{font-size:11px; gap:8px; margin:6px 0}
+ #top .quick-actions{display:flex; margin-top:10px; gap:6px}
+ #top .quick-actions a{font-size:11px; padding:0 9px; min-height:32px}
+ .home-intro~#g-deals{margin-top:22px}
+ .home-pair{gap:26px}
+ .home-pair .sec-head h2{font-size:18px}
+ .compact-row{grid-template-columns:15px 72px minmax(0,1fr) minmax(62px,auto); gap:7px; padding:8px 0}
+ .row-cover{width:72px; height:40px}
+ .row-name{font-size:12px}
+ .row-meta{font-size:10px}
+ .row-detail{max-width:94px; font-size:11px}
+ .row-price .now{font-size:12px}
  .deal-shortcuts{gap:8px}
  .deal-shortcuts a{font-size:12px; padding:9px 10px}
- #top .quick-actions{display:none}
- #top{margin:12px 0 0}
- #top h1{font-size:20px; margin:0 0 6px}
- #top h1 br{display:none}
- #top .facts{font-size:11px; gap:8px; margin:6px 0}
- #g-deals{margin-top:18px}
- #g-deals #hot{margin-top:8px}
- .free-strip>a{padding:10px; gap:4px 8px}
- .free-strip span{display:none}
- .free-strip b{margin-left:auto}
+ .freebie-home{grid-template-columns:72px minmax(0,1fr) auto; gap:7px; padding:9px}
+ .freebie-home .freebie-title{font-size:14px}
+ .freebie-home .freebie-cta{max-width:74px; min-height:36px}
+ .freebie-detail{grid-template-columns:1fr; padding:14px; gap:12px}
+ .freebie-detail .freebie-media{grid-row:auto; max-width:100%}
+ .freebie-detail .freebie-cta{grid-column:1}
+ .freebie-detail .freebie-title{font-size:19px}
+ .freebie-upcoming{grid-template-columns:88px minmax(0,1fr)}
 }
 """

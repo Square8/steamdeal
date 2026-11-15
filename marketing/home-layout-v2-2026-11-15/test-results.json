@@ -1,0 +1,82 @@
+[
+  {
+    "test": "selftest.py",
+    "exit": 0,
+    "seconds": 12.0
+  },
+  {
+    "test": "tests/test_campaign_urls.py",
+    "exit": 0,
+    "seconds": 12.5
+  },
+  {
+    "test": "tests/test_display_accuracy.py",
+    "exit": 0,
+    "seconds": 0.1
+  },
+  {
+    "test": "tests/test_editorial_freshness.py",
+    "exit": 0,
+    "seconds": 0.0
+  },
+  {
+    "test": "tests/test_editorial_picks.py",
+    "exit": 0,
+    "seconds": 0.1
+  },
+  {
+    "test": "tests/test_home_free_games.py",
+    "exit": 0,
+    "seconds": 0.1
+  },
+  {
+    "test": "tests/test_home_ux.py",
+    "exit": 0,
+    "seconds": 0.1
+  },
+  {
+    "test": "tests/test_indie_games.py",
+    "exit": 0,
+    "seconds": 1.2
+  },
+  {
+    "test": "tests/test_navigation_sorting.py",
+    "exit": 0,
+    "seconds": 66.0
+  },
+  {
+    "test": "tests/test_player_freshness.py",
+    "exit": 0,
+    "seconds": 0.2
+  },
+  {
+    "test": "tests/test_price_refresh.py",
+    "exit": 0,
+    "seconds": 0.1
+  },
+  {
+    "test": "tests/test_recent_reviews.py",
+    "exit": 0,
+    "seconds": 0.1
+  },
+  {
+    "test": "tests/test_release_regressions.py",
+    "exit": 0,
+    "seconds": 26.1
+  },
+  {
+    "test": "tests/test_steam_click_tracking.py",
+    "exit": 0,
+    "seconds": 9.6
+  },
+  {
+    "test": "tests/test_wishlist_share.py",
+    "exit": 0,
+    "seconds": 26.4
+  },
+  {
+    "test": "tests/test_home_layout_v2.py",
+    "exit": 0,
+    "seconds": 14.2
+  }
+]
