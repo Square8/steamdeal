@@ -775,9 +775,9 @@ check("한국어 게임 우선 정렬", drops[0]["appid"] == 101 and drops[1]["a
 drop_a = next(d for d in drops if d["appid"] == 101)
 check("인하 금액, 인하율, 변경일 정확성", drop_a["recent_drop_amount"] == 3000 and drop_a["recent_drop_rate"] == 30 and drop_a["recent_drop_date"] == t_max)
 
-check("대상이 없으면 홈 섹션에 빈 상태 안내가 표시됨", "최근 가격이 내려간 게임이 없습니다." in build.build_index(drop_games, t_max, None, recent_drops=[]))
+check("대상이 없어도 최근 인하 목록 바로가기 유지", 'id="drop"><a href="recent-drops.html"' in build.build_index(drop_games, t_max, None, recent_drops=[]))
 idx_with_drops = build.build_index(drop_games, t_max, None, recent_drops=drops)
-check("대상이 있으면 홈 섹션 생성", "📉 최근 가격이 내려간 게임" in idx_with_drops)
+check("대상이 있어도 최근 인하 목록 바로가기 제공", 'id="drop"><a href="recent-drops.html"' in idx_with_drops)
 
 # recent-drops.html 생성 및 문구 검증
 os.environ["SITE_URL"] = "https://gamedil.com"
@@ -803,8 +803,9 @@ massive_drop_games = [
 massive_drops = build.get_recent_drops(massive_drop_games)
 
 idx_massive = build.build_index(massive_drop_games, t_max, None, recent_drops=massive_drops)
-drop_sec = idx_massive.split("📉 최근 가격이 내려간 게임")[1].split("</section>")[0]
-check("홈 최근 인하 섹션 카드가 정확히 8개인지 검증", drop_sec.count('<a class="card') == 8)
+drop_sec = idx_massive.split('<section id="drop">')[1].split("</section>")[0]
+check("홈 최근 인하는 카드 없이 목록 바로가기로 제공", drop_sec.count('<a class="card') == 0
+      and 'href="recent-drops.html"' in drop_sec)
 
 spec_rd = next(s for s in build.LANDINGS if s["slug"] == "recent-drops")
 rd_html_massive = build.build_landing(spec_rd, massive_drops[:120], t_max, None)
@@ -1676,10 +1677,10 @@ try:
     _fb_now_iso = _fb_now.isoformat(timespec="seconds")
     _expired_epic = dict(_epic_parsed[0], id="epic:expired", title="Expired Game",
                          end_at="2026-11-10T00:00:00+00:00")
-    store.replace_freebies_for_store(_fc, "epic", _epic_parsed + [_expired_epic])
-    store.replace_freebies_for_store(_fc, "gog", _gog_parsed)
+    store.replace_freebies_for_store(_fc, "epic", _epic_parsed + [_expired_epic], checked_at=_fb_now_iso)
+    store.replace_freebies_for_store(_fc, "gog", _gog_parsed, checked_at=_fb_now_iso)
     # Epic 재갱신 시에도 GOG 데이터 유지 확인
-    store.replace_freebies_for_store(_fc, "epic", _epic_parsed)
+    store.replace_freebies_for_store(_fc, "epic", _epic_parsed, checked_at=_fb_now_iso)
     _fc.commit()
     _loaded = store.load_freebies(_fc, now=_fb_now)
     check("load_freebies 만료 항목 제외 + 타 스토어 데이터 보존",

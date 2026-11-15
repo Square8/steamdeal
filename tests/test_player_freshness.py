@@ -241,14 +241,15 @@ class HomeRulesTest(unittest.TestCase):
         self.assertIn('data-wish="9"', sec(html, "hot"))
         self.assertNotIn('data-wish="9"', sec(html, "drop"))
 
-    def test_under_10k_quality(self):
+    def test_under_10k_shortcut(self):
         good = [self.game(10 + i, price_final=3000 + i, review_total=100, review_positive_pct=90)
                 for i in range(5)]
         junk = self.game(99, price_final=500, review_total=0, review_positive_pct=0, review_count=0)
         html = build.build_index(good + [junk], "2026-10-27", None, recent_drops=[])
         part = sec(html, "under-10000")
         self.assertNotIn('data-wish="99"', part)
-        self.assertIn('data-wish="10"', part)
+        self.assertNotIn('class="card', part)
+        self.assertIn('href="under-10000.html"', part)
 
 
 if __name__ == "__main__":

@@ -300,16 +300,15 @@ def regression_checks(browser, base):
     errors, dialogs = [], []
     page = new_page(ctx, errors, dialogs)
     set_storage(page, base, [])
-    page.goto(f"{base}/index.html")
-    btn = page.query_selector("[data-wish-id='720001']")
-    if not btn:
-        skip("홈 카드 찜 버튼 토글", "홈에 720001 찜 버튼 없음")
-    else:
-        btn.scroll_into_view_if_needed()
-        btn.click()
-        wish = json.loads(page.evaluate(f"localStorage.getItem('{WISH_KEY}')") or "[]")
-        check("홈 카드 ♡ 클릭 → 찜 저장(기존 동작 유지)", wish == ["720001"], str(wish))
-        set_storage(page, base, ["720001"])
+    # 홈 추천 축약 이후 특정 게임이 초기 24장 안에 있으리라고 가정하지 않는다.
+    # 실제 검색 결과 카드에서 기존 찜 동작을 검증한다.
+    from urllib.parse import quote
+    page.goto(f"{base}/index.html?q={quote('공유게임A')}")
+    btn = page.wait_for_selector("#list [data-wish-id='720001']", timeout=10000)
+    btn.scroll_into_view_if_needed()
+    btn.click()
+    wish = json.loads(page.evaluate(f"localStorage.getItem('{WISH_KEY}')") or "[]")
+    check("홈 카드 ♡ 클릭 → 찜 저장(기존 동작 유지)", wish == ["720001"], str(wish))
     page.goto(f"{base}/my-games.html")
     page.wait_for_selector(".my-card", timeout=5000)
     check("my-games 목표가 입력 UI 유지", page.query_selector("#myApp .target-input") is not None)

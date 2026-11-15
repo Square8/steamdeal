@@ -1235,3 +1235,81 @@ CSS += '''
   .freebie-grid{grid-template-columns:1fr; gap:12px}
 }
 '''
+
+CSS += """
+/* 무료 배포: 상태/기한/CTA 중심, 다른 게임 카드에는 영향 없음 */
+.free-page .lead{margin:12px 0 0}
+.free-page .lead h1{font-size:28px; margin:0 0 6px}
+.free-page .sub{font-size:14px; margin:0}
+.free-summary{font-weight:800; margin:10px 0}
+.free-summary a{color:var(--brand); text-underline-offset:3px}
+.free-summary a:hover{text-decoration:underline}
+.free-page #freeFilter{margin:8px 0; gap:6px; flex-wrap:wrap}
+.free-page .freebie-note-box{padding:0; margin:8px 0 0; background:none; border:0; font-size:12px}
+.free-checked{font-size:11px; color:var(--ink-3); margin:6px 0 0; overflow-wrap:anywhere}
+.free-page section{margin-top:22px}
+.free-page .sec-head h2{font-size:19px}
+.freebie-grid{grid-template-columns:1fr; gap:10px; margin-top:10px}
+.freebie-card{display:grid; grid-template-columns:112px minmax(0,1fr) auto; align-items:center;
+ gap:14px; padding:12px; border:1px solid var(--line); box-shadow:none}
+.freebie-media{aspect-ratio:16/9; border:0; border-radius:7px; width:100%}
+.freebie-body{padding:0; min-width:0; gap:4px}
+.freebie-store{display:flex; align-items:center; gap:5px; font-size:11px; color:var(--ink-2)}
+.freebie-tag{font-size:11px; padding:0; font-weight:500; background:none; backdrop-filter:none}
+.freebie-title{font-size:16px; overflow-wrap:anywhere}
+.freebie-deadline{background:none; border:0; padding:0; font-size:12px}
+.freebie-cta{font-size:13px; min-height:40px; white-space:nowrap}
+.freebie-empty{padding:0; margin:10px 0; background:none; border:0; text-align:left}
+.freebie-empty p{margin:0; font-size:13px}
+@media(max-width:560px){
+ .free-page .lead h1{font-size:23px}
+ .free-page .sub{font-size:12px}
+ .free-page #freeFilter .chip{padding:5px 9px; font-size:12px}
+ .freebie-card{grid-template-columns:72px minmax(0,1fr); gap:8px 10px; padding:10px}
+ .freebie-cta{grid-column:2; justify-self:start; padding:7px 10px; min-height:36px; font-size:12px}
+ .freebie-title{font-size:15px}
+ .freebie-store,.freebie-tag{font-size:10px}
+ .freebie-deadline{font-size:11px}
+}
+"""
+
+CSS += """
+/* 홈: 이미지 추천 4줄 + 전체 탐색, 순위와 날짜는 가벼운 목록 */
+.deal-shortcuts{display:flex; flex-wrap:wrap; gap:10px; margin:16px 0 0}
+.deal-shortcuts section{margin:0}
+.deal-shortcuts a{display:block; padding:10px 14px; background:var(--surface); border:1px solid var(--line); border-radius:10px; font-size:14px; color:var(--ink)}
+.compact-list{list-style:none; margin:0; padding:0; border-top:1px solid var(--line)}
+.compact-row{display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:12px; padding:13px 10px; border-bottom:1px solid var(--line); color:var(--ink); text-decoration:none}
+.compact-row:hover{background:var(--raised)}
+.compact-row:focus-visible,.free-strip a:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.row-marker{color:var(--brand); font-weight:700; font-variant-numeric:tabular-nums}
+.row-name{font-weight:650; overflow-wrap:anywhere; min-width:0}
+.row-detail{color:var(--ink-2); font-size:12px}
+#soon .compact-row{grid-template-columns:125px minmax(0,1fr) auto}
+.free-strip{margin:14px 0 0}
+.free-strip>a{display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; padding:12px 14px; border:1px solid var(--line); border-radius:10px; color:var(--ink); text-decoration:none; font-size:13px}
+.free-strip span{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+.free-strip b{color:var(--brand); font-size:12px}
+@media(max-width:560px){
+ nav.jump{justify-content:space-between; overflow-x:visible}
+ nav.jump a{font-size:11px; padding:7px 3px; min-height:40px; gap:2px}
+ nav.jump a.util{margin-left:0; border-left:0}
+ .compact-row{grid-template-columns:22px minmax(0,1fr); gap:4px 9px; padding:11px 4px}
+ .row-name{font-size:14px}
+ .row-detail{grid-column:2; font-size:11px}
+ #soon .compact-row{grid-template-columns:95px minmax(0,1fr)}
+ #soon .row-marker{font-size:11px}
+ .deal-shortcuts{gap:8px}
+ .deal-shortcuts a{font-size:12px; padding:9px 10px}
+ #top .quick-actions{display:none}
+ #top{margin:12px 0 0}
+ #top h1{font-size:20px; margin:0 0 6px}
+ #top h1 br{display:none}
+ #top .facts{font-size:11px; gap:8px; margin:6px 0}
+ #g-deals{margin-top:18px}
+ #g-deals #hot{margin-top:8px}
+ .free-strip>a{padding:10px; gap:4px 8px}
+ .free-strip span{display:none}
+ .free-strip b{margin-left:auto}
+}
+"""

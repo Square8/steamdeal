@@ -754,7 +754,7 @@ def replace_freebies_for_store(conn, store_name: str, items: list[dict],
                 it.get("steam_appid"),
                 it.get("start_at"),
                 it.get("end_at"),
-                it.get("checked_at") or stamp,
+                stamp,
             ),
         )
         count += 1
@@ -763,18 +763,28 @@ def replace_freebies_for_store(conn, store_name: str, items: list[dict],
     return count
 
 
-def load_freebies(conn, now: datetime | None = None) -> dict[str, list[dict]]:
+def load_freebies(conn, now: datetime | None = None) -> dict:
     """현재 진행 중('active')과 예정('upcoming') 무료 배포 목록을 반환한다.
     종료 시각이 이미 지난 항목은 자동 제외하고, 시작 시각이 지난 예정작은 active로 승격한다."""
     now_dt = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     active: list[dict] = []
     upcoming: list[dict] = []
+    checked = {name: get_meta(conn, f"freebies_{name}_checked_at")
+               for name in ("epic", "steam", "gog")}
     for r in conn.execute("SELECT * FROM freebies"):
         item = dict(r)
         start_dt = parse_utc(item.get("start_at"))
         end_dt = parse_utc(item.get("end_at"))
         if end_dt is not None and end_dt <= now_dt:
             continue
+        # 종료일 없는 배포는 같은 상점의 마지막 성공 스냅샷 + 24시간 이내 확인만 신뢰한다.
+        # 하루 두 번 수집이 실패하면 영구히 무료라고 노출하지 않고 읽기 단계에서 제외한다.
+        if end_dt is None:
+            last_success = parse_utc(checked.get(item.get("store")))
+            item_checked = parse_utc(item.get("checked_at"))
+            if (last_success is None or item_checked != last_success
+                    or not timedelta(0) <= now_dt - last_success <= timedelta(hours=24)):
+                continue
         status = item.get("status") or "active"
         if status == "upcoming":
             if start_dt is not None and start_dt <= now_dt:
@@ -803,7 +813,7 @@ def load_freebies(conn, now: datetime | None = None) -> dict[str, list[dict]]:
         store_order.get(x.get("store") or "", 9),
         (x.get("title") or "").lower(),
     ))
-    return {"active": active, "upcoming": upcoming}
+    return {"active": active, "upcoming": upcoming, "checked_at": checked}
 
 
 def steam_freebie_candidates_from_db(conn, today: date | None = None) -> list[dict]:
