@@ -33,3 +33,7 @@
 - Description: `홈 소개 옆에 무료 배포 카드를 배치하고 인기·판매 및 신작·출시예정에 작은 표지를 추가합니다. 무료 전용 페이지는 현재 배포와 예정을 분리해 설명·가격·마감 정보를 유지합니다. 기존 탐색·상태 복원과 24시간 신선도 규칙을 보존하고 네 화면 폭 및 전체 회귀 테스트를 검증했습니다.`
 - 이번 코드/테스트: build.py, theme.py, selftest.py, tests/test_home_ux.py, tests/test_home_free_games.py, tests/test_home_layout_v2.py.
 - 이번 문서: 본 보고서·동명 캡처 폴더·HANDOFF 추가 절. 기존 미커밋 HANDOFF 부분/다른 마케팅 문서는 별도 변경으로 보존하며 일괄 커밋 대상에 넣지 않는다.
+
+## 11/16 사용자 push 후 확인
+- 구현 커밋354dd76, 병합038bd2d 확인. [Actions 43748154987](https://github.com/Square8/steamdeal/actions/runs/43748154987)는 확인 시점 in_progress.
+- 공개 홈/무료는 아직 이전 CSS ce2ede99, 새 로컬 CSS28e5bae1과 불일치. 배포 완료·공개 반영 확인은 아직 아님. 이번 확인은 HTTP/Actions 조회이며 브라우저 재검증 없음.
