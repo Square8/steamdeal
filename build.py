@@ -3184,6 +3184,8 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
     r_pos_v = g.get("review_positive_pct")
     if r_tot_v > 0 and r_pos_v is not None:
         verdict_pills.append(f'<span class="dv-pill">👍 긍정 {r_pos_v}% ({r_tot_v:,}개)</span>')
+    elif r_tot_v > 0:
+        verdict_pills.append(f'<span class="dv-pill">💬 스팀 리뷰 {r_tot_v:,}개</span>')
     verdict_strip_html = (
         f'<div class="dhero-verdict" role="group" aria-label="핵심 구매 판단 요약">{"".join(verdict_pills)}</div>'
         if verdict_pills else ""
@@ -3724,7 +3726,7 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
       { key: 'Steam 리뷰', render: function(g, td) {
           if (!g.review_label) { td.textContent = '정보 없음'; return; }
           var text = g.review_label;
-          if (g.review_positive_pct !== '') text += ' (' + g.review_positive_pct + '%)';
+          if (g.review_positive_pct !== '' && g.review_positive_pct !== null && g.review_positive_pct !== undefined) text += ' (' + g.review_positive_pct + '%)';
           td.textContent = text;
       } },
       { key: '한국어', render: function(g, td) { td.textContent = g.korean ? '지원' : '미지원'; } },

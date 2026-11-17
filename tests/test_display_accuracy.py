@@ -78,6 +78,35 @@ class AccuracyTest(unittest.TestCase):
                     self.assertIn("가격 재확인 필요", html.split("</title>")[0])
                     self.assertIn("오래된 정보", html)
 
+    def test_missing_review_breakdown_not_zero_percent(self):
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(store.SCHEMA)
+        conn.execute(
+            "INSERT INTO games (appid, name, app_type, korean, coming_soon, adult, "
+            "review_count, review_positive, review_negative, first_seen, last_seen, checked_at) "
+            "VALUES (2868840, 'Slay the Spire 2', 'game', 1, 0, 0, 217546, 0, 0, '2026-10-24', '2026-10-24', '2026-10-24')"
+        )
+        # 빈 0/0 요약이 와도 기존 정상 집계를 지우지 않는다
+        conn.execute(
+            "INSERT INTO games (appid, name, app_type, korean, coming_soon, adult, "
+            "review_count, review_positive, review_negative, review_score, review_desc, first_seen, last_seen, checked_at) "
+            "VALUES (999, 'Keep Review', 'game', 1, 0, 0, 100, 95, 5, 9, 'Overwhelmingly Positive', '2026-10-24', '2026-10-24', '2026-10-24')"
+        )
+        store.save_review_summary(conn, 999, {"score": 0, "desc": "", "positive": 0, "negative": 0, "total": 0})
+        conn.commit()
+        by_id = {g["appid"]: g for g in store.all_games(conn)}
+        self.assertIsNone(by_id[2868840]["review_positive_pct"])
+        self.assertEqual(by_id[999]["review_positive_pct"], 95)
+
+        html = build.build_detail(by_id[2868840], [], "2026-10-24")
+        self.assertNotIn("긍정 0%", html)
+        self.assertIn("스팀 리뷰 217,546개", html)
+        schema = json.loads(re.search(
+            r'<script type="application/ld\+json">(.*?)</script>', html, re.S)[1])
+        self.assertNotIn("aggregateRating", schema)
+
 
 if __name__ == "__main__":
     unittest.main()

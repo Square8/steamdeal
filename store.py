@@ -508,12 +508,19 @@ def fresh_player_count(g: dict, now: datetime | None = None) -> tuple[int, str |
 
 def save_review_summary(conn, appid: int, summary: dict) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    pos = int(summary.get("positive") or 0)
+    neg = int(summary.get("negative") or 0)
+    score = int(summary.get("score") or 0)
+    desc = str(summary.get("desc") or "")
+    # Steam appreviews 가 빈 요약(0/0)을 돌려준 경우 기존 정상 집계를 0으로 덮어쓰지 않는다.
+    if pos + neg == 0 and score == 0 and not desc:
+        conn.execute("UPDATE games SET reviews_checked_at=? WHERE appid=?", (now, appid))
+        return
     conn.execute(
         """UPDATE games SET review_score=?, review_desc=?,
              review_positive=?, review_negative=?, reviews_checked_at=?
            WHERE appid=?""",
-        (summary.get("score", 0), summary.get("desc", ""),
-         summary.get("positive", 0), summary.get("negative", 0), now, appid))
+        (score, desc, pos, neg, now, appid))
 
 
 def recent_review_appids(conn, limit: int, now: datetime | None = None) -> list[int]:
@@ -620,7 +627,7 @@ def all_games(conn, now: datetime | None = None) -> list[dict]:
         pos = g.get("review_positive") or 0
         neg = g.get("review_negative") or 0
         g["review_total"] = pos + neg
-        g["review_positive_pct"] = round(pos * 100 / (pos + neg)) if pos + neg else 0
+        g["review_positive_pct"] = round(pos * 100 / (pos + neg)) if pos + neg else None
         # 오래되거나 미확인인 동접은 여기서 지운다. 이후 모든 화면은 이 값만 본다.
         players, players_at = fresh_player_count(g, now)
         g["players_current"] = players
