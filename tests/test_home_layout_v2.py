@@ -73,12 +73,18 @@ class LayoutTests(unittest.TestCase):
                                 boxes=page.locator('#g-trend .compact-section').evaluate_all('(els)=>els.map(e=>({x:e.getBoundingClientRect().x,y:e.getBoundingClientRect().y}))')
                                 self.assertEqual(abs(boxes[0]['y']-boxes[1]['y'])<2,width>=1024)
                             if name=='single':
+                                card = page.locator('#freeActiveGrid .freebie-card')
+                                button = card.locator('.freebie-cta').bounding_box()
+                                description = card.locator('.freebie-desc').bounding_box()
+                                self.assertLessEqual(button['y'] + button['height'], description['y'])
                                 page.get_by_role('button',name='Steam 0',exact=True).click()
                                 self.assertEqual(page.locator('#freeActiveGrid .freebie-card:visible').count(),0)
                                 self.assertTrue(page.locator('#freeActiveFilterEmpty').is_visible())
                                 self.assertEqual(page.locator('#freeUpcomingCnt').inner_text(),'0개')
+                                self.assertEqual(page.locator('.free-summary').inner_text(),'지금 받기 0 · 예정 0')
                                 page.get_by_role('button',name='전체 1',exact=True).click()
                                 self.assertEqual(page.locator('#freeUpcomingGrid .freebie-card:visible').count(),2)
+                                self.assertEqual(page.locator('.free-summary').inner_text(),'지금 받기 1 · 예정 2')
                     for name,count in (('single',1),('multi',2),('upcoming',1),('empty',0)):
                         page.goto(f'{origin}/home-{name}.html',wait_until='networkidle')
                         self.assertEqual(page.locator('#home-freebies article').count(),count)

@@ -497,7 +497,8 @@ check("합집합 섹션이 없다(중복의 원인이었다)", "오늘의 추천
 check("첫 화면 명제", "지금 가격으로 고르기" in h)
 check("명제 옆 숫자는 실제 값", 'class="facts"' in h and "<b>" in h)
 check("트렌드 중심 섹션", "지금 많이 하는 한국어 게임" in h and "지금 눈여겨볼 할인" in h)
-check("기대작 표현이 정직함", "출시 임박 기대작" in h and "위시리스트 순위는 사용하지 않습니다" in h)
+check("기대작에 출시일 기준과 일정 미정 경로 안내", "출시 임박 기대작" in h
+      and "오늘부터인 본편" in h and "일정 미정은 전체 목록에서" in h)
 check("무료 데모 섹션", "사기 전에 해보는 무료 데모" in h)
 check("거대한 오늘의 한 편 히어로 제거", 'class="hero"' not in h and "오늘의 한 편" not in h)
 check("상단 갱신 상태", "최신 가격" in h and 'class="live-dot"' in h)
@@ -1059,7 +1060,7 @@ check("네비 링크의 상대경로 정확성 (상세)", 'href="../my-games.htm
 check("기존 localStorage 키 재사용 (찜)", "steamdeal-wishlist-v1" in mg_html)
 check("기존 localStorage 키 재사용 (목표가)", "steamdeal-target-price-v1" in mg_html)
 
-check("JSON fetch가 my-games.html에만 존재", "assets/game-search-index.json" in mg_html)
+check("내 찜은 ID별 데이터 묶음만 로드", "assets/game-buckets/" in mg_html and "game-search-index.json" not in mg_html)
 # 자동완성 fetch는 초기 실행 코드가 아니라 input 이벤트 흐름 안에서만 시작되어야 함 (초기 즉시 fetch 없음)
 check("상세 페이지에 초기 즉시 fetch 없음", "getIndex()" not in detail_html and "loadIndex()" not in detail_html)
 landing_kd = open(os.path.join(config.SITE_DIR, "korean-games.html"), encoding="utf-8").read()
@@ -1125,8 +1126,9 @@ check("무료 게임은 계속 무료로 표시되는지", p_res["free"] == "무
 
 print("\n16) 상세 페이지 가격 판단 요약 (원화 가격 추이)")
 # 1. 짧은 관측 기간: 신뢰 부족 문구
+price_today = dt.datetime.now(dt.timezone.utc).date().isoformat()
 g_short = {"appid": 8101, "name": "ShortTrack", "price_final": 20000, "lowest_seen": 20000,
-           "days_tracked": 5, "price_last": "2026-09-01",
+           "days_tracked": 5, "price_last": price_today,
            "history": [{"on_date": "2026-09-01", "price_final": 20000, "price_initial": 20000, "discount_pct": 0}]}
 d_short = build.build_detail(g_short, [g_short], "2026-09-02", {})
 check("짧은 관측 기간에는 신뢰 부족 문구가 나오는지",
@@ -1136,7 +1138,7 @@ check("원화 가격 추이 패널 상단에 가격 판단 요약이 위치하�
 
 # 2. 충분한 관측 기간 + 현재가 = 관측 최저가
 g_low = {"appid": 8102, "name": "LowTrack", "price_final": 15000, "lowest_seen": 15000,
-         "days_tracked": 40, "price_last": "2026-09-01", "atl_trustworthy": False,
+         "days_tracked": 40, "price_last": price_today, "atl_trustworthy": False,
          "history": [{"on_date": "2026-08-01", "price_final": 20000, "price_initial": 20000, "discount_pct": 0},
                      {"on_date": "2026-09-01", "price_final": 15000, "price_initial": 20000, "discount_pct": 25}]}
 d_low = build.build_detail(g_low, [g_low], "2026-09-02", {})
@@ -1146,7 +1148,7 @@ check("atl_trustworthy 아닐 때는 역대 표현 미사용",
       "역대 최저가" not in d_low.split('aria-label="가격 판단 요약"')[1].split('</div>')[0])
 
 g_atl = {"appid": 8103, "name": "AtlTrack", "price_final": 10000, "lowest_seen": 10000,
-         "days_tracked": 70, "price_last": "2026-09-01", "atl_trustworthy": True,
+         "days_tracked": 70, "price_last": price_today, "atl_trustworthy": True,
          "history": [{"on_date": "2026-07-01", "price_final": 20000, "price_initial": 20000, "discount_pct": 0},
                      {"on_date": "2026-09-01", "price_final": 10000, "price_initial": 20000, "discount_pct": 50}]}
 d_atl = build.build_detail(g_atl, [g_atl], "2026-09-02", {})
@@ -1155,7 +1157,7 @@ check("atl_trustworthy 충족 시 역대 최저가 문구 사용",
 
 # 3. 현재가 > 관측 최저가일 때 금액/비율 차이
 g_high = {"appid": 8104, "name": "HighTrack", "price_final": 30000, "lowest_seen": 20000,
-          "days_tracked": 45, "price_last": "2026-09-01",
+          "days_tracked": 45, "price_last": price_today,
           "history": [{"on_date": "2026-08-01", "price_final": 20000, "price_initial": 30000, "discount_pct": 33},
                       {"on_date": "2026-09-01", "price_final": 30000, "price_initial": 30000, "discount_pct": 0}]}
 d_high = build.build_detail(g_high, [g_high], "2026-09-02", {})
@@ -1184,7 +1186,7 @@ check("기존 목표가 패널 유지", "target-panel" in d_with_drop and "내 �
 # 6. 상세 HTML에 모바일 CSS와 접근성 문구 확인
 check("접근성 role=region 및 aria-label 존재",
       'role="region" aria-label="가격 판단 요약"' in d_high)
-check("마지막 가격 관측일 표시", "마지막 관측: 2026-09-01" in d_high)
+check("마지막 가격 관측일 표시", f"마지막 관측: {price_today}" in d_high)
 css_text = open(os.path.join(config.SITE_DIR, "style.css"), encoding="utf-8").read()
 check("style.css에 가격 판단 모바일 레이아웃 CSS 존재",
       ".price-judge" in css_text and ".pj-tiles" in css_text and "@media" in css_text)
@@ -1232,7 +1234,7 @@ with open(ac_path, encoding="utf-8") as ac_file:
     ac_rows = json.load(ac_file)
 full_rows = json.loads(search_json)
 check("자동완성 인덱스는 비성인 게임의 검색 필드만 담음", ac_rows == [
-    [g["appid"], g["name"], g["price"], g["off"], g["soon"], g["free"], g["score"]]
+    [g["appid"], g["name"], g["price"], g["off"], g["soon"], g["free"], g["score"], g["pf"]]
     for g in full_rows if not g["adult"]
 ])
 check("자동완성 최대 6개 제한", ".slice(0, 6)" in idx_html or "matches.length >= 6" in idx_html or "matches.length>=6" in idx_html)

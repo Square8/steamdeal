@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 from urllib.parse import urlsplit
+from datetime import datetime, timezone
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -45,7 +46,7 @@ def skip(label, reason):
 BASE = [(720001, "공유게임A", 0, 12000), (720002, "공유게임B", 0, 8000),
         (720003, "공유게임C", 0, 30000), (720009, "성인게임X", 1, 9000)]
 BULK = [(721000 + i, f"대량게임{i:02d}", 0, 5000 + i) for i in range(35)]
-ALL = BASE + BULK
+ALL = BASE + BULK + [(722000+i, f"페이지{i}", 0, 40000+i) for i in range(20)]
 GHOST = "99999999"  # 인덱스에 없는 appid
 
 
@@ -66,6 +67,12 @@ def build_fixture():
         for d in ("2026-08-01", "2026-09-20"):
             conn.execute("INSERT INTO prices (appid,on_date,price_final,price_initial,discount_pct) "
                          "VALUES (?,?,?,?,?)", (appid, d, price, price, 0))
+    conn.execute("UPDATE games SET price_last=? WHERE appid=720002",
+                 (datetime.now(timezone.utc).date().isoformat(),))
+    today = datetime.now(timezone.utc).date().isoformat()
+    for appid, price in ((721000, 5000), (722000, 40000)):
+        conn.execute("INSERT INTO prices VALUES (?,?,?,?,?)", (appid, today, price, price * 2, 50))
+        conn.execute("UPDATE games SET price_last=? WHERE appid=?", (today, appid))
     # 홈 인기 섹션은 최근 성공 확인한 동접만 쓴다. 홈 카드 찜 회귀 검사를 위해 한 게임만 넣는다.
     store.save_player_count(conn, 720001, 1234)
     conn.commit()
@@ -124,7 +131,7 @@ def share_checks(browser, base):
     btn = page.query_selector("#shareBtn")
     check("찜 0개: 공유 버튼 숨김", btn is not None and not btn.is_visible())
 
-    wish = ["720002", "720001", "720003"]
+    wish = ["720002", "720009", "720001", "720003"]
     set_storage(page, base, wish)
     page.goto(f"{base}/my-games.html")
     page.wait_for_selector(".my-card", timeout=5000)
@@ -134,8 +141,8 @@ def share_checks(browser, base):
     btn.click()
     page.wait_for_timeout(400)
     clip = page.evaluate("navigator.clipboard.readText()")
-    exp = f"{origin}/shared-games.html#ids=720002,720001,720003"
-    check("클립보드 링크 = origin/shared-games.html#ids=(찜 순서 그대로)", clip == exp, clip)
+    exp = f"{origin}/shared-games.html#ids=720001,720002,720003"
+    check("클립보드 링크 = origin/shared-games.html#ids=(성인 숨김·화면 순서 그대로)", clip == exp, clip)
     check("복사 성공 안내 표시", any("복사" in m for _, m, _ in dialogs), str(dialogs))
 
     many = [str(a) for a, *_ in BULK]  # 35개
@@ -316,6 +323,58 @@ def regression_checks(browser, base):
     ctx.close()
 
 
+def price_and_page_checks(browser, base):
+    ctx = browser.new_context()
+    errors, dialogs, urls = [], [], []
+    page = new_page(ctx, errors, dialogs)
+    page.on("request", lambda req: urls.append(req.url))
+    set_storage(page, base, ["720001", "720002"], {"720001": 15000, "720002": 15000})
+    page.goto(f"{base}/my-games.html")
+    page.wait_for_selector(".my-card")
+    check("찜 2개가 같은 묶음이면 JSON 1개만 요청",
+          len([u for u in urls if "/game-buckets/" in u]) == 1
+          and not any("game-search-index" in u for u in urls))
+    hits = page.locator(".my-card.target-hit .my-card-title").all_text_contents()
+    check("같은 목표가에서 최근 가격만 도달 판정", hits == ["공유게임B"], str(hits))
+    page.goto(f"{base}/game/720001.html")
+    check("오래된 가격의 상세는 목표가 재확인 안내", "재확인 필요" in page.inner_text(".target-result")
+          and not page.locator(".target-result.hit").count())
+    page.goto(f"{base}/shared-games.html#ids=720009")
+    page.check("#myAdult")
+    check("성인 게임만 받은 공유 링크도 선택 후 표시", shared_cards(page) == ["성인게임X"])
+    page.goto(f"{base}/shared-games.html#ids=720003,720001")
+    page.wait_for_selector(".my-card")
+    check("받은 목록은 공유 순서로 시작", shared_cards(page) == ["공유게임C", "공유게임A"])
+
+    page.goto(f"{base}/korean-games.html?utm_source=test")
+    cards = page.locator("#top .grid .card")
+    check("대형 목록은 기본 48장·정렬 파일 지연 로드",
+          cards.count() == 48 and not any("korean-games-sort.json" in u for u in urls))
+    page.select_option("#lsort", "exp")
+    page.wait_for_function("document.querySelector('.grid .card').dataset.price === '40019'")
+    first = cards.evaluate_all("els => els.map(e => Number(e.dataset.wish))")
+    page.locator("a[rel=next]").click()
+    expected_prices = sorted((row[3] for row in ALL if not row[2]), reverse=True)
+    page.wait_for_function("p => Number(document.querySelector('.grid .card').dataset.price) === p",
+                           arg=expected_prices[48])
+    second = cards.evaluate_all("els => els.map(e => Number(e.dataset.wish))")
+    expected = [row[0] for row in sorted(ALL, key=lambda row: -row[3]) if not row[2]]
+    check("전체 정렬이 페이지 경계에서 유지되고 누락·중복 없음", first + second == expected)
+    check("다음 페이지 URL에 정렬과 캠페인 유지",
+          "sort=exp" in page.url and "utm_source=test" in page.url)
+    page.select_option("#lsort", "default")
+    page.wait_for_url("**/korean-games.html?utm_source=test")
+    check("정렬 해제 시 첫 페이지 복원", cards.count() == 48)
+    page.goto(f"{base}/hot-deals.html?budget=1&low=1")
+    check("할인 바로가기 직접 방문 시 예산과 최저가 조건을 함께 적용",
+          page.locator(".card:visible").evaluate_all("els => els.map(e => e.dataset.wish)") == ["721000"])
+    page.uncheck('[data-filter="budget"]')
+    check("예산 조건만 풀면 고가 최저가도 표시", page.locator(".card:visible").count() == 2
+          and "low=1" in page.url and "budget=1" not in page.url)
+    check("추가 흐름 JS 오류 없음", not errors, str(errors))
+    ctx.close()
+
+
 def main():
     build_fixture()
     static_checks()
@@ -328,7 +387,7 @@ def main():
     base = f"http://127.0.0.1:{port}"
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        for fn in (share_checks, shared_page_checks, merge_checks, regression_checks):
+        for fn in (share_checks, shared_page_checks, merge_checks, regression_checks, price_and_page_checks):
             try:
                 fn(browser, base)
             except Exception as e:  # 한 구역 실패가 나머지 검증을 막지 않게

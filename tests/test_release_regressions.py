@@ -78,7 +78,7 @@ def build_fixture_db(db_path):
     conn = sqlite3.connect(db_path)
     conn.executescript(store.SCHEMA)
 
-    today = dt.date(2026, 9, 14)
+    today = dt.datetime.now(dt.timezone.utc).date()
 
     def insert_game(appid, name, **kw):
         cols = dict(

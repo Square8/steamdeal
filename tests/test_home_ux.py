@@ -1,11 +1,13 @@
 """홈·카드 UX 규칙: 대표 장르, 칩 상한, 가격 확인 줄, 바로가기, 뒤로 가기 복원 코드."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sqlite3
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import build
+import store
 
 TODAY = datetime.now(timezone.utc).date().isoformat()
 
@@ -43,6 +45,42 @@ class CardTest(unittest.TestCase):
 
 
 class HomeTest(unittest.TestCase):
+    def test_upcoming_excludes_past_dates_and_distinguishes_unknown_schedule(self):
+        today = store.release_today()
+        games = [
+            game(1, coming_soon=1, release_date=(today - timedelta(days=1)).isoformat()),
+            game(2, coming_soon=1, release_date=today.isoformat()),
+            game(3, coming_soon=1),
+        ]
+        home = build.build_index(games, TODAY)
+        soon = home.split('<section id="soon"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('href="game/2.html"', soon)
+        self.assertNotIn('href="game/1.html"', soon)
+        self.assertNotIn('href="game/3.html"', soon)
+        spec = next(spec for spec in build.LANDINGS if spec["slug"] == "korean-soon")
+        landing = build.build_landing(spec, games, TODAY)
+        self.assertNotIn('href="game/1.html"', landing)
+        self.assertLess(landing.index('href="game/2.html"'), landing.index('href="game/3.html"'))
+        self.assertIn("출시 일정 · 미정", landing)
+
+    def test_refresh_prioritizes_overdue_games_within_existing_budget(self):
+        yesterday = (store.release_today() - timedelta(days=1)).isoformat()
+        checked_today = datetime.now(timezone.utc).date().isoformat()
+        with sqlite3.connect(":memory:") as conn:
+            conn.row_factory = sqlite3.Row
+            conn.executescript(store.SCHEMA)
+            conn.executemany(
+                """INSERT INTO games(appid, name, app_type, korean, coming_soon, release_date,
+                                     checked_at, first_seen, last_seen)
+                   VALUES (?, 'fixture', 'game', 1, ?, ?, ?, '2020-01-01', '2020-01-01')""",
+                [(i, 0, None, "2020-01-01") for i in range(1, 9)]
+                + [(9, 1, yesterday, "2021-01-01"), (10, 1, yesterday, checked_today)],
+            )
+            ids = store.stale_appids(conn, 4)
+            self.assertEqual(len(ids), 4)
+            self.assertEqual(ids[0], 9)
+            self.assertNotIn(10, ids)
+
     def test_shortcuts_and_restore(self):
         html = build.build_index([game(1, discount_pct=50, review_total=500)], TODAY, None,
                                  recent_drops=[])

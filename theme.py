@@ -1327,10 +1327,9 @@ CSS += """
 .freebie-meta{color:var(--ink-2); line-height:1.5}
 .freebie-price{margin:0; padding:0; gap:5px}
 .freebie-detail{grid-template-columns:minmax(140px,32%) minmax(0,1fr); align-items:start; gap:12px 18px; padding:18px}
-.freebie-detail .freebie-media{grid-row:1 / 3}
 .freebie-detail .freebie-title{font-size:21px}
 .freebie-detail .freebie-body{gap:8px}
-.freebie-detail .freebie-cta{font-size:13px; min-height:40px}
+.freebie-detail .freebie-cta{align-self:flex-start; font-size:13px; min-height:40px}
 .freebie-upcoming{grid-template-columns:96px minmax(0,1fr); gap:8px 12px}
 .freebie-upcoming .freebie-media{grid-row:1 / 3}
 .freebie-upcoming .freebie-title{font-size:15px}
@@ -1366,7 +1365,10 @@ CSS += """
  #top .facts{font-size:11px; gap:8px; margin:6px 0}
  #top .quick-actions{display:flex; margin-top:10px; gap:6px}
  #top .quick-actions a{font-size:11px; padding:0 9px; min-height:32px}
- .home-intro~#g-deals{margin-top:22px}
+ .home-intro~#g-deals{margin-top:10px}
+ #g-deals>.group-label{margin-bottom:6px}
+ #g-deals #hot .sec-head{margin-bottom:3px; column-gap:7px}
+ #g-deals #hot .sec-note{margin:0 0 5px; font-size:12px}
  .home-pair{gap:26px}
  .home-pair .sec-head h2{font-size:18px}
  .compact-row{grid-template-columns:15px 72px minmax(0,1fr) minmax(62px,auto); gap:7px; padding:8px 0}
@@ -1381,8 +1383,7 @@ CSS += """
  .freebie-home .freebie-title{font-size:14px}
  .freebie-home .freebie-cta{max-width:74px; min-height:36px}
  .freebie-detail{grid-template-columns:1fr; padding:14px; gap:12px}
- .freebie-detail .freebie-media{grid-row:auto; max-width:100%}
- .freebie-detail .freebie-cta{grid-column:1}
+ .freebie-detail .freebie-media{max-width:100%}
  .freebie-detail .freebie-title{font-size:19px}
  .freebie-upcoming{grid-template-columns:88px minmax(0,1fr)}
 }

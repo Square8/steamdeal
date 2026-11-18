@@ -207,8 +207,8 @@ class HomeRulesTest(unittest.TestCase):
             self.game(1, discount_pct=55, review_total=500, review_positive_pct=90),   # 1단계
             self.game(2, discount_pct=80, review_total=1000, review_positive_pct=97),  # 1단계
             self.game(3, discount_pct=55, review_positive_pct=60),                     # 평가 미달 → 제외
-            self.game(4, coming_soon=1, app_type="demo", name="곧 나올 데모"),
-            self.game(5, coming_soon=1, name="곧 나올 게임"),
+            self.game(4, coming_soon=1, release_date=store.release_today().isoformat(), app_type="demo", name="곧 나올 데모"),
+            self.game(5, coming_soon=1, release_date=store.release_today().isoformat(), name="곧 나올 게임"),
             self.game(6, discount_pct=90, price_last="2026-09-01"),                    # 오래된 가격 → 제외
         ]
         html = build.build_index(games, "2026-10-27", None, recent_drops=[])

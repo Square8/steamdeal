@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
 import config
+import editorial
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (
@@ -333,11 +334,42 @@ def max_game_appid(conn) -> int:
     return int(conn.execute("SELECT COALESCE(MAX(appid),0) FROM games").fetchone()[0] or 0)
 
 
+def release_today() -> date:
+    """한국 상점에 표시하는 출시일의 기준 날짜."""
+    return datetime.now(timezone(timedelta(hours=9))).date()
+
+
+def upcoming_release_date(g: dict) -> date | None:
+    try:
+        return date.fromisoformat(g.get("release_date") or "")
+    except (TypeError, ValueError):
+        return None
+
+
+def is_upcoming_release(g: dict, today: date | None = None) -> bool:
+    if not g.get("coming_soon"):
+        return False
+    scheduled = upcoming_release_date(g)
+    return scheduled is None or scheduled >= (today or release_today())
+
+
 def stale_appids(conn, limit: int) -> list[int]:
     """가장 오래 갱신 안 된 게임부터. 신규 발견이 목록을 다 차지해서
     기존 게임 이력이 얼어붙는 문제를 막는다."""
-    return [r["appid"] for r in conn.execute(
+    # 기존 갱신 몫 안에서 최대 1/4을 기한이 지난 한국어 본편의 상태 확인에 사용한다.
+    # Steam이 계속 출시예정을 반환하더라도 상세 확인일 기준으로 매일 반복 조회하지 않는다.
+    overdue_limit = max(1, limit // 4) if limit > 0 else 0
+    last_retry_day = (datetime.now(timezone.utc).date() - timedelta(days=2)).isoformat()
+    overdue = [r["appid"] for r in conn.execute(
+        """SELECT appid FROM games
+           WHERE coming_soon=1 AND korean=1 AND COALESCE(adult,0)=0 AND app_type='game'
+             AND release_date < ? AND date(release_date, '+0 days') = release_date
+             AND COALESCE(checked_at,'') <= ?
+           ORDER BY COALESCE(checked_at,'') ASC, appid LIMIT ?""",
+        (release_today().isoformat(), last_retry_day, overdue_limit))]
+    oldest = [r["appid"] for r in conn.execute(
         "SELECT appid FROM games ORDER BY COALESCE(checked_at,'') ASC LIMIT ?", (limit,))]
+    return list(dict.fromkeys(overdue + oldest))[:limit]
 
 
 def _current_price_join() -> str:
@@ -633,7 +665,9 @@ def all_games(conn, now: datetime | None = None) -> list[dict]:
         g["players_current"] = players
         g["players_at"] = players_at
         g["player_delta"] = (players - (g.get("players_previous") or 0)) if players_at else 0
-        g["score"], g["why"] = score_broadcast(g)
+        checked = g.get("checked_at") if g.get("is_free") else g.get("price_last")
+        g["score"], g["why"] = score_broadcast(
+            g, include_price=editorial.fresh_observation(checked, now.date()))
         out.append(g)
     return out
 
@@ -650,7 +684,7 @@ def is_new_release(g: dict, today: date | None = None) -> bool:
     return 0 <= (today - released).days <= config.NEW_RELEASE_DAYS
 
 
-def score_broadcast(g: dict) -> tuple[int, list[str]]:
+def score_broadcast(g: dict, *, include_price: bool = True) -> tuple[int, list[str]]:
     """추천 적합도 점수(0~100)와 그 근거.
 
     일부러 '역대 최저가와의 거리' 는 넣지 않았다. 그 지표는 수집 60일이 넘어야
@@ -674,8 +708,8 @@ def score_broadcast(g: dict) -> tuple[int, list[str]]:
         pts += 12
         why.append("최근 출시된 신작")
 
-    price = g.get("price_final") or 0
-    if g.get("is_free"):
+    price = (g.get("price_final") or 0) if include_price else 0
+    if include_price and g.get("is_free"):
         pts += 14
         why.append("무료")
     elif not price:
@@ -688,7 +722,7 @@ def score_broadcast(g: dict) -> tuple[int, list[str]]:
     elif price <= 40000:
         pts += 5
 
-    off = g.get("discount_pct") or 0
+    off = (g.get("discount_pct") or 0) if include_price else 0
     if off:
         pts += min(round(off * 0.14), 14)     # 50% → 7점, 90% → 13점
         why.append(f"{off}% 할인 중")

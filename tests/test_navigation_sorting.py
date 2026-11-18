@@ -30,7 +30,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, parse_qs
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -89,9 +89,10 @@ g(710302, "신작B", korean=1, tag="신작", release_date="2026-08-01", review_t
 # TypeError로 크래시해서 우회용으로 release_date를 비웠었다. Codex R2에서
 # Gemini가 원본 로직(release_date or '9999', name or '')으로 복원했다고 보고했으므로
 # 이번 R2 검증에서는 release_date를 되살려 실제 build.main()이 성공하는지 직접 확인한다.
-g(710401, "출시예정A", korean=1, coming_soon=1, release_date="2026-10-01", no_price_row=True,
+FUTURE_DATE = datetime.now(timezone.utc).date() + timedelta(days=10)
+g(710401, "출시예정A", korean=1, coming_soon=1, release_date=FUTURE_DATE.isoformat(), no_price_row=True,
   review_total=0, review_pos_pct=0)
-g(710402, "출시예정B", korean=1, coming_soon=1, release_date="2026-11-01", no_price_row=True,
+g(710402, "출시예정B", korean=1, coming_soon=1, release_date=(FUTURE_DATE + timedelta(days=1)).isoformat(), no_price_row=True,
   review_total=0, review_pos_pct=0)
 
 # 데모(korean-demo): 본편+데모칩 게임 1개, 단독 데모앱 1개(본편 가격 추정 금지 확인용)
@@ -233,7 +234,8 @@ def run_korean_soon_build_crash_regression():
         "INSERT INTO games (appid,name,app_type,korean,coming_soon,adult,is_free,has_demo,"
         "release_date,review_positive,review_negative,review_count,first_seen,last_seen,checked_at,"
         "price_first,price_last) VALUES (730001,'출시예정단독','game',1,1,0,0,0,"
-        "'2026-12-25',0,0,0,'2026-08-01','2026-09-16','2026-09-16','2026-08-01','2026-09-16')")
+        "?,0,0,0,'2026-08-01','2026-09-16','2026-09-16','2026-08-01','2026-09-16')",
+        (FUTURE_DATE.isoformat(),))
     conn.commit()
     conn.close()
     import config

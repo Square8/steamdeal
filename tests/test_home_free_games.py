@@ -75,7 +75,8 @@ class PresentationTests(unittest.TestCase):
                     checked_at={s:NOW.isoformat() for s in ("epic","steam","gog")})
     def test_counts_actions_and_check_times(self):
         html=build.build_free_games(self.freebies(),set(),"now",{})
-        self.assertIn('지금 받기 1</a> · <a href="#upcoming-free">예정 2',html)
+        self.assertIn('<span id="freeActiveSummary">1</span>', html)
+        self.assertIn('<span id="freeUpcomingSummary">2</span>', html)
         self.assertIn('에픽게임즈 1</button>',html)
         self.assertIn('Steam 0</button>',html)
         active=html.split('<section id="active-free">')[1].split('</section>')[0]
@@ -86,7 +87,15 @@ class PresentationTests(unittest.TestCase):
         checked=re.search(r'<p class="free-checked">(.*?)</p>',html).group(1)
         self.assertEqual(checked.count('title="2026-11-15 09:00 KST"'),3)
         self.assertEqual(checked.count('<time datetime='),3)
+        self.assertEqual(checked.count('>11/15 09:00</time>'),3)
         self.assertNotIn('오염',html)
+    def test_today_also_shows_date_on_static_page(self):
+        freebies = self.freebies()
+        now = datetime.now(timezone.utc)
+        freebies["checked_at"] = {"steam": now.isoformat()}
+        html = build.build_free_games(freebies, set(), "now", {})
+        self.assertIn(f'>{now.astimezone(build.KST):%m/%d %H:%M}</time>', html)
+
     def test_home_has_three_image_sections_and_shortcuts(self):
         games=[game(i, discount_pct=60 if i<10 else 0, has_demo=i>20,
                     players_current=100+i, players_at=NOW.isoformat(),
