@@ -227,12 +227,13 @@ nav.jump a.util{margin-left:10px; border-left:1px solid var(--line); border-radi
 .btn{
   display:inline-flex; align-items:center; gap:6px; padding:9px 15px;
   border-radius:9px; font-size:13.5px; font-weight:700; border:1px solid transparent;
-  cursor:pointer; font-family:inherit;
+  cursor:pointer; font-family:inherit; word-break:keep-all;
 }
 .btn-p{background:var(--brand); color:var(--brand-ink)}
 .btn-p:hover{filter:brightness(1.08)}
 .btn-s{background:transparent; color:var(--ink-2); border-color:var(--line)}
 .btn-s:hover{border-color:var(--ink-3); color:var(--ink)}
+.btn-s.wish-btn.on{color:#fb7185; border-color:rgba(251,113,133,.55); background:rgba(251,113,133,.10)}
 .btn:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 
 /* ================= 프리셋 필터 ================= */
@@ -264,13 +265,14 @@ section{margin-top:4rem}
   font-family:"Inter",sans-serif; font-size:12px; font-weight:700; color:var(--ink-3);
 }
 .sec-head .more{margin-left:auto; font-size:12.5px; color:var(--brand); font-weight:600}
-.sec-note{margin:2px 0 16px; color:var(--ink-3); font-size:13px}
+.sec-note{margin:2px 0 16px; color:var(--ink-3); font-size:13px; word-break:keep-all}
+.lead .sub,.dhero .sub,.my-empty{word-break:keep-all}
 
-.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(214px,1fr)); gap:14px}
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px}
 /* 보조 섹션. 데스크톱에서는 그냥 그리드다 —
    가로 스크롤은 마우스 휠로 움직이지 않아서 잘린 카드가 그대로 안 보인 채 끝난다.
    손가락으로 밀 수 있는 좁은 화면에서만 레일이 된다. */
-.rail{display:grid; grid-template-columns:repeat(auto-fill,minmax(214px,1fr)); gap:14px}
+.rail{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px}
 
 /* ================= 카드 ================= */
 .card{
@@ -632,8 +634,11 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .rail .card-b{padding:10px 11px 11px; gap:6px}
   .rail .card-b .name{font-size:15px}
   .rail .tagline{font-size:10.5px}
+  .tagline{white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; line-height:1.35; word-break:keep-all}
   .rail .shot img, .rail .ph{aspect-ratio:16/9}
-  .rail .wish{top:43px}
+  .rail .ribbon{padding:2px 6px; font-size:11px}
+  .rail .player-badge{padding:2px 6px; font-size:10px}
+  .rail .wish{top:79px; right:8px; width:28px; height:28px; font-size:18px}
   section{margin-top:3.25rem}
   .lead{margin-top:16px}
   .lead h1{font-size:1.5rem; margin-bottom:6px}
@@ -648,6 +653,7 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-body h2{font-size:1.3rem}
   .hero-price .big{font-size:1.75rem}
   .buyrow .btn{flex:1; justify-content:center}
+  .detail-buy-info .buyrow .btn-p{flex:1 0 100%}
 }
 @media (max-width:700px){
   /* 모바일(700px 이하) 상단 nav: 한 줄 유지, 가로 스와이프, scrollbar 숨김, 충분한 탭 영역 */
@@ -694,8 +700,8 @@ CSS += '''
 .compare-container { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2rem; }
 .compare-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: center; }
 .compare-table th, .compare-table td { padding: 1rem; border: 1px solid var(--line); }
-.compare-table th { background: var(--surface); font-weight: bold; width: 18%; white-space: normal; overflow-wrap: anywhere; }
-.compare-table td { vertical-align: top; background: var(--surface-2); overflow-wrap: anywhere; }
+.compare-table th { background: var(--surface); font-weight: bold; width: 18%; white-space: normal; word-break: keep-all; overflow-wrap: break-word; }
+.compare-table td { vertical-align: top; background: var(--surface-2); word-break: keep-all; overflow-wrap: break-word; }
 .compare-table img { max-width: 100%; border-radius: 4px; display: block; margin: 0 auto 0.5rem; }
 .compare-table .del-btn { margin-top: 1rem; }
 .empty-state { text-align: center; padding: 4rem 1rem; color: var(--ink-2); }
@@ -992,6 +998,13 @@ CSS += '''
   gap: 6px;
   font-size: 12px;
 }
+.ac-p-row .ribbon {
+  position: static;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 5px;
+  line-height: 1.3;
+}
 .ac-price {
   color: var(--ink-2);
   font-weight: 700;
@@ -1035,15 +1048,15 @@ CSS += '''
 .status-alert strong { font-weight: 700; margin-right: 6px; }
 
 .status-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 28px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: 14px; margin-bottom: 28px;
 }
 .status-card {
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 16px; display: flex; flex-direction: column; justify-content: space-between;
 }
-.status-card .st-label { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+.status-card .st-label { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; word-break: keep-all; }
 .status-card .st-val { font-size: 1.55rem; font-weight: 800; color: var(--ink); margin: 6px 0 2px; }
-.status-card .st-sub { font-size: 12px; color: var(--ink-2); }
+.status-card .st-sub { font-size: 12px; color: var(--ink-2); word-break: keep-all; }
 
 .status-disclaimer {
   font-size: 12px; color: var(--ink-3); line-height: 1.6; padding: 14px 16px;
@@ -1349,6 +1362,8 @@ CSS += """
 @media(min-width:1024px){
  .home-intro.has-freebies{grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:28px}
  .home-pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .home-pair .compact-section{display:flex; flex-direction:column}
+ .home-pair .compact-section>.sec-note{min-height:2.7em}
  .home-pair>section:only-child{grid-column:1 / -1; max-width:700px}
  .free-split{grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:24px}
  .free-layout:not(.free-split) #freeActiveGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -1387,4 +1402,14 @@ CSS += """
  .freebie-detail .freebie-title{font-size:19px}
  .freebie-upcoming{grid-template-columns:88px minmax(0,1fr)}
 }
+.to-top{
+  position:fixed; right:18px; bottom:20px; z-index:40;
+  width:42px; height:42px; border-radius:999px;
+  border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  font-size:18px; font-weight:800; line-height:1; cursor:pointer;
+  box-shadow:var(--shadow); display:grid; place-items:center;
+  transition:transform .15s, border-color .15s, background .15s;
+}
+.to-top:hover{border-color:var(--brand); background:var(--raised); transform:translateY(-2px)}
+.to-top:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 """

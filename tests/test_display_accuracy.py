@@ -103,9 +103,34 @@ class AccuracyTest(unittest.TestCase):
         html = build.build_detail(by_id[2868840], [], "2026-10-24")
         self.assertNotIn("긍정 0%", html)
         self.assertIn("스팀 리뷰 217,546개", html)
+        self.assertIn('data-wish-id="2868840" data-wish-text="1"', html)
+        self.assertIn('&quot;review_count&quot;: 217546', html)
         schema = json.loads(re.search(
             r'<script type="application/ld\+json">(.*?)</script>', html, re.S)[1])
         self.assertNotIn("aggregateRating", schema)
+
+    def test_status_warning_excludes_upcoming_and_free_games(self):
+        games = [
+            game(appid=1, coming_soon=0, is_free=0, history=[{"price_final": 5000}], media_checked_at="2026-10-24"),
+            game(appid=2, coming_soon=0, is_free=0, history=[{"price_final": 9000}], media_checked_at="2026-10-24"),
+            game(appid=3, coming_soon=1, is_free=0, history=[], media_checked_at="2026-10-24"),
+            game(appid=4, coming_soon=1, is_free=0, history=[], media_checked_at="2026-10-24"),
+            game(appid=5, coming_soon=0, is_free=1, history=[], media_checked_at="2026-10-24"),
+            game(appid=6, coming_soon=0, is_free=1, history=[], media_checked_at="2026-10-24"),
+        ]
+        html = build.build_status(games, "2026-10-24 12:00", {"label": "최신 가격", "class": "ok", "display": "10-24 12:00"})
+        self.assertNotIn("가격 이력 미수집 비율 높음", html)
+        self.assertIn("정상 운영", html)
+
+    def test_ui_audit_css_and_markup_fixes(self):
+        import theme
+        self.assertIn(".ac-p-row .ribbon", theme.CSS)
+        self.assertIn("position: static;", theme.CSS)
+        self.assertIn("minmax(250px,1fr)", theme.CSS)
+        self.assertIn(".to-top{", theme.CSS)
+        self.assertIn("word-break: keep-all;", theme.CSS)
+        lead_html = build.lead([], [])
+        self.assertIn("한국어 스팀 게임, <br>지금 가격으로 고르기.", lead_html)
 
 
 if __name__ == "__main__":

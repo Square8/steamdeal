@@ -321,7 +321,11 @@ WISHLIST_JS = """<script>
       btn.classList.toggle('on',on);
       btn.setAttribute('aria-pressed',String(on));
       btn.setAttribute('aria-label',on?'찜 목록에서 삭제':'찜 목록에 추가');
-      btn.textContent=on?'♥':'♡';
+      if(btn.dataset.wishText){
+        btn.textContent=on?'♥ 찜함':'♡ 찜하기';
+      } else {
+        btn.textContent=on?'♥':'♡';
+      }
     });
     document.querySelectorAll('.wish-count').forEach(function(el){ el.textContent=saved.size; });
     paintTargetHits();
@@ -452,6 +456,7 @@ COMPARE_JS = '''<script>
           has_demo: !!g.has_demo,
           review_label: typeof g.review_label === 'string' ? g.review_label : '',
           review_positive_pct: typeof g.review_positive_pct === 'number' || typeof g.review_positive_pct === 'string' ? g.review_positive_pct : '',
+          review_count: Math.max(0, Number(g.review_count) || 0),
           players_current: Math.max(0, Number(g.players_current) || 0),
           release_text: typeof g.release_text === 'string' ? g.release_text : '',
           adult: false
@@ -936,6 +941,19 @@ def page(title: str, body: str, updated: str, nav: bool = True,
       }}
     }}
   }});
+  function initToTop() {{
+    var tt = document.getElementById('toTopBtn');
+    if (!tt) return;
+    function sync() {{ tt.hidden = window.scrollY < 560; }}
+    window.addEventListener('scroll', sync, {{ passive: true }});
+    tt.addEventListener('click', function() {{
+      var red = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      window.scrollTo({{ top: 0, behavior: red ? 'auto' : 'smooth' }});
+    }});
+    sync();
+  }}
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initToTop);
+  else initToTop();
 }})();
 </script>
 <div class="wrap">
@@ -947,6 +965,7 @@ def page(title: str, body: str, updated: str, nav: bool = True,
   <p>성적 콘텐츠가 포함된 게임은 기본 화면에서 숨겨집니다.</p>
 </footer>
 </div>
+<button type="button" class="to-top" id="toTopBtn" aria-label="맨 위로 이동" hidden>↑</button>
 </body>
 </html>"""
 
@@ -1351,7 +1370,8 @@ def compact_section(sid: str, title: str, note: str, items: list[dict],
         if g.get("developer") and not total:
             meta.append(g["developer"])
         at = store.parse_utc(g.get(stamp_key))
-        if at and now - at > timedelta(hours=24):
+        max_age = timedelta(hours=24) if sid == "popular" else timedelta(days=7)
+        if at and now - at > max_age:
             meta.append(f"확인 {at.astimezone(KST):%m/%d %H:%M} KST · 재확인 필요")
         price = ""
         if sid == "new" or (g.get("discount_pct") or 0) > 0:
@@ -1393,7 +1413,7 @@ def lead(games: list[dict], safe: list[dict]) -> str:
              ("under-10000.html", "💰 1만원 이하"), ("korean-demo.html", "🎮 무료 데모")]
     qa = "".join(f'<a href="{h}">{t}</a>' for h, t in links)
     return f"""<section class="lead" id="top">
-  <h1>한국어 스팀 게임,<br>지금 가격으로 고르기.</h1>
+  <h1>한국어 스팀 게임, <br>지금 가격으로 고르기.</h1>
   <p class="facts">{fh}</p>
   <nav class="quick-actions" aria-label="목적별 바로가기">{qa}</nav>
 </section>"""
@@ -2134,7 +2154,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
          "최근 확인한 동접 정보가 없습니다. 다음 수집 후 다시 표시됩니다.",
          "popular-games.html", "인기 게임 전체")}
 {compact_section("selling", "🛒 Steam 한국 판매 상위",
-         f"Steam 한국 판매 순위 · {selling_stamp} 기준 (KST) · 동접과 다른 지표",
+         f"Steam 한국 판매 원순위 · {selling_stamp} 기준 (KST) · 성인 제외",
          selling, "", "#all", "전체에서 더 보기",
          ranks={int(appid): i for i, appid in enumerate((top_sellers or {}).get("appids", []), 1)}) if selling else ""}
 </div>
@@ -2156,7 +2176,7 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 {compact_section("new", "✨ 방금 나온 한국어 신작", "최근 출시일 순", fresh,
          "한국어 신작 목록이 아직 비어 있습니다.", "korean-new.html", "신작 전체")}
 {compact_section("soon", "🚀 출시 임박 기대작",
-         "Steam에 공개된 출시일이 오늘부터인 본편을 표시합니다. 일정 미정은 전체 목록에서 볼 수 있습니다.",
+         "출시일이 오늘부터인 본편 · 일정 미정은 전체 목록에서 확인",
          soon, "확인한 출시일이 있는 예정작이 없습니다.", "korean-soon.html", "출시예정 전체")}
 </div>
 </div>
@@ -2987,6 +3007,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             "has_demo": bool(g.get("has_demo") or g.get("demo_appid")),
             "review_label": review_label(g),
             "review_positive_pct": g.get("review_positive_pct"),
+            "review_count": g.get("review_total") or g.get("review_count") or 0,
             "players_current": (g.get("players_current") or 0) if g.get("players_at") else 0,
             "release_text": g.get("release_text") or "",
             "adult": bool(g.get("adult"))
@@ -3242,6 +3263,7 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
       <a class="btn btn-p" href="https://store.steampowered.com/app/{g['appid']}/?cc=kr"
          target="_blank" rel="noopener">스팀 상점에서 보기</a>
       {demo_btn}
+      <button class="btn btn-s wish-btn" type="button" data-wish-id="{g['appid']}" data-wish-text="1" aria-pressed="false" aria-label="찜 목록에 추가">♡ 찜하기</button>
       <button class="btn btn-s share-btn" id="shareBtn" type="button" aria-label="공유">공유</button>
       {compare_btn}
     </div>
@@ -3821,13 +3843,20 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
           td.textContent = g.lowest_seen ? g.lowest_seen.toLocaleString('ko-KR') + '원' : '정보 없음';
       } },
       { key: 'Steam 리뷰', render: function(g, td) {
-          if (!g.review_label) { td.textContent = '정보 없음'; return; }
+          if (!g.review_label) {
+            td.textContent = g.review_count > 0 ? '스팀 리뷰 ' + g.review_count.toLocaleString('ko-KR') + '개' : '정보 없음';
+            return;
+          }
           var text = g.review_label;
           if (g.review_positive_pct !== '' && g.review_positive_pct !== null && g.review_positive_pct !== undefined) text += ' (' + g.review_positive_pct + '%)';
+          if (g.review_count > 0) text += ' · ' + g.review_count.toLocaleString('ko-KR') + '개';
           td.textContent = text;
       } },
       { key: '한국어', render: function(g, td) { td.textContent = g.korean ? '지원' : '미지원'; } },
-      { key: '가격 확인일 (저장 당시)', render: function(g, td) { td.textContent = g.price_note || '확인일 미확인 · Steam에서 확인하세요'; } },
+      { key: '가격 확인일 (저장 당시)', render: function(g, td) {
+          var note = (g.price_note || '').replace(/^가격 확인\\s+/, '');
+          td.textContent = note || '확인일 미확인 · Steam에서 확인하세요';
+      } },
       { key: '최근 인하', render: function(g, td) {
           if (g.recent_drop_amount) {
             var sp = el('span', '최근 ' + g.recent_drop_amount.toLocaleString('ko-KR') + '원 인하');
@@ -4956,14 +4985,19 @@ def build_status(games: list[dict], updated: str, freshness: dict,
             "text": f"데이터가 장시간 갱신되지 않았습니다 ({esc(updated_display)} 기준). GitHub Actions 실행 상태를 점검해주세요."
         })
 
+    paid_released = [g for g in games if not g.get("coming_soon") and not g.get("is_free")
+                     and g.get("app_type", "game") == "game"]
+    paid_total = len(paid_released)
+    paid_no_history = sum(1 for g in paid_released
+                          if not (g.get("history") or g.get("days_tracked", 0) > 0))
     warn_no_price = getattr(config, "STATUS_WARN_NO_PRICE_RATIO", 0.30)
-    no_history_ratio = (no_history_count / total_games) if total_games > 0 else 0
-    if total_games > 0 and no_history_ratio > warn_no_price:
+    no_history_ratio = (paid_no_history / paid_total) if paid_total > 0 else 0
+    if paid_total > 0 and no_history_ratio > warn_no_price:
         pct = round(no_history_ratio * 100, 1)
         alerts.append({
             "type": "warn",
             "title": "가격 이력 미수집 비율 높음",
-            "text": f"전체 {total_games:,}개 중 {pct}%({no_history_count:,}개)의 가격 이력이 아직 없습니다. 신규 추가된 게임의 가격 수집이 진행 중일 수 있습니다."
+            "text": f"유료 출시 게임 {paid_total:,}개 중 {pct}%({paid_no_history:,}개)의 가격 이력이 아직 없습니다. 신규 추가된 게임의 가격 수집이 진행 중일 수 있습니다."
         })
 
     warn_unchecked = getattr(config, "STATUS_WARN_UNCHECKED_MEDIA_RATIO", 0.40)
