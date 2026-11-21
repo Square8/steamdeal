@@ -672,6 +672,29 @@ def all_games(conn, now: datetime | None = None) -> list[dict]:
     return out
 
 
+# Steam 은 영상·음악 편집 도구도 app_type='game' 으로 준다. 장르로 소프트웨어를 가려낸다.
+SOFTWARE_GENRES = {
+    "유틸리티", "오디오 제작", "동영상 제작", "사진 편집", "디자인과 일러스트레이션",
+    "애니메이션과 모델링", "웹 퍼블리싱", "게임 개발", "소프트웨어 교육", "회계", "회계 업무",
+    "Utilities", "Audio Production", "Video Production", "Photo Editing",
+    "Design & Illustration", "Animation & Modeling", "Web Publishing",
+    "Game Development", "Software Training", "Accounting",
+}
+PLAY_GENRES = {
+    "액션", "어드벤처", "RPG", "전략", "레이싱", "스포츠", "시뮬레이션", "대규모 멀티플레이어",
+    "Action", "Adventure", "Strategy", "Racing", "Sports", "Simulation", "Massively Multiplayer",
+}
+
+
+def is_software(g: dict) -> bool:
+    """게임 장르 없이 소프트웨어 장르만 있거나, 소프트웨어 장르가 3개 이상이면 소프트웨어."""
+    genres = {s.strip() for s in (g.get("genres") or "").split(",") if s.strip()}
+    sw = genres & SOFTWARE_GENRES
+    if not sw:
+        return False
+    return not (genres & PLAY_GENRES) or len(sw) >= 3
+
+
 def is_new_release(g: dict, today: date | None = None) -> bool:
     """출시일 기준 최근 30일 이내. 발견 당시 태그와 구분한다."""
     if g.get("coming_soon") or g.get("app_type", "game") != "game":

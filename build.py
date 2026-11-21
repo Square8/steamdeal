@@ -1681,13 +1681,20 @@ def _freebie_time_info(iso_raw: str | None) -> tuple[str, int]:
     return dt.astimezone(KST).strftime("%m/%d %H:%M"), int(dt.timestamp() * 1000)
 
 
+def epic_sized(url: str, width: int) -> str:
+    """에픽 CDN 원본(2560px PNG, 약 1MB)을 표시 크기 JPEG 로 받는다. 다른 주소는 그대로."""
+    if not url.startswith("https://cdn1.epicgames.com/") or "?" in url:
+        return url
+    return f"{url}?h={width * 9 // 16}&quality=medium&resize=1&w={width}"
+
+
 def freebie_card(it: dict, game_ids: set[int], variant: str = "detail", priority: bool = False) -> str:
     """홈 요약·현재 상세·예정 목록을 같은 상태/가격 규칙으로 표시한다."""
     st = str(it.get("store") or "")
     meta = _FREEBIE_STORES.get(st, {"label": st.upper(), "cls": ""})
     status = "upcoming" if it.get("status") == "upcoming" else "active"
     title = str(it.get("title") or "")
-    img = str(it.get("image_url") or "")
+    img = epic_sized(str(it.get("image_url") or ""), 960 if variant == "detail" and status == "active" else 320)
     media = small_cover(img, title, "freebie-media", priority)
     start_kst, start_ms = _freebie_time_info(it.get("start_at"))
     end_kst, end_ms = _freebie_time_info(it.get("end_at"))
@@ -1822,7 +1829,7 @@ def build_free_games(freebies: dict, game_ids: set[int], updated: str, freshness
     _schema_json = (json.dumps(schema, ensure_ascii=False, indent=2)
                     .replace("<", "\\u003c").replace(">", "\\u003e"))
     extra_head = f'<script type="application/ld+json">\n{_schema_json}\n</script>'
-    og_img = next((x.get("image_url") for x in (active + upcoming) if x.get("image_url")), "")
+    og_img = epic_sized(next((x.get("image_url") for x in (active + upcoming) if x.get("image_url")), ""), 1200)
 
     checked_parts = []
     for name, label in (("epic", "에픽"), ("steam", "Steam"), ("gog", "GOG")):
@@ -5099,6 +5106,9 @@ def main() -> int:
 
     conn = store.connect()
     games = store.all_games(conn)
+    # 소프트웨어는 목록·검색·사이트맵에서 빼고, 이미 알려진 상세 주소만 유지한다.
+    software = [g for g in games if store.is_software(g)]
+    games = [g for g in games if not store.is_software(g)]
     top_sellers = store.load_top_sellers(conn)
     freebies = store.load_freebies(conn)
     last_collection = store.get_meta(conn, "last_collection_at")
@@ -5219,6 +5229,10 @@ def main() -> int:
         write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, games, updated, freshness, recent_drop=rd))
         if not g.get("adult"):
             paths.append(f"game/{g['appid']}.html")
+    for g in software:
+        html = build_detail(g, games, updated, freshness)
+        write(os.path.join("game", f"{g['appid']}.html"),
+              html.replace("<head>", '<head>\n<meta name="robots" content="noindex,follow">', 1))
 
     write("sitemap.xml", build_sitemap(paths, updated))
     write("robots.txt", build_robots())
@@ -5234,9 +5248,9 @@ def main() -> int:
                     "(로컬 테스트면 정상, Actions 면 환경변수 확인)")
     write("assets/editorial-picks.json", editorial.generate_picks(games, config.SITE_URL))
 
-    log.info("생성 완료 — 게임 %d개(성인 %d 숨김), 추천후보 %d, 데모 %d, "
+    log.info("생성 완료 — 게임 %d개(성인 %d 숨김, 소프트웨어 %d 제외), 추천후보 %d, 데모 %d, "
              "랜딩 %d, 사이트맵 %d개 URL → %s",
-             len(games), adult, cands, demos, len(LANDINGS), len(paths), config.SITE_DIR)
+             len(games), adult, len(software), cands, demos, len(LANDINGS), len(paths), config.SITE_DIR)
     return 0
 
 

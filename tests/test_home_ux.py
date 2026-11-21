@@ -44,6 +44,15 @@ class CardTest(unittest.TestCase):
         self.assertIn("오래된 정보", stale)
 
 
+class FreebieImageTest(unittest.TestCase):
+    def test_epic_images_are_resized(self):
+        src = "https://cdn1.epicgames.com/spt-assets/x/cover.png"
+        self.assertEqual(build.epic_sized(src, 320), src + "?h=180&quality=medium&resize=1&w=320")
+        self.assertEqual(build.epic_sized(src + "?w=1", 320), src + "?w=1")     # 이미 조정된 주소
+        steam = "https://cdn.akamai.steamstatic.com/steam/apps/1/header.jpg"
+        self.assertEqual(build.epic_sized(steam, 320), steam)
+
+
 class HomeTest(unittest.TestCase):
     def test_upcoming_excludes_past_dates_and_distinguishes_unknown_schedule(self):
         today = store.release_today()
