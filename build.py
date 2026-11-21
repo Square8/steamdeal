@@ -2375,7 +2375,9 @@ def build_index(games: list[dict], updated: str, freshness: dict | None = None, 
 
     if(vis.length === 0){{
       msg.innerHTML = '';
+      msg.removeAttribute('data-ta-no-results');
       if (qVal) {{
+        msg.setAttribute('data-ta-no-results', '');  // 통합 분석: 결과 없는 검색어로 기록
         var p = document.createElement('p');
         p.textContent = '‘' + qVal + '’와 일치하는 게임을 찾지 못했습니다.';
         msg.appendChild(p);
