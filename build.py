@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 from datetime import date, datetime, timezone, timedelta
 
@@ -3941,6 +3942,40 @@ def build_compare(games: list[dict], updated: str, freshness: dict, recent_drops
     return page("게임 비교 - GameDil", html, updated, depth=0, freshness=freshness, desc="최대 3개의 게임을 한눈에 비교합니다.", extra_head='<meta name="robots" content="noindex,follow">')
 
 
+# 상세 페이지 2만여 개가 같은 인라인 스크립트(약 27KB)를 반복하면 사이트가 GitHub Pages
+# 한도(1GB)를 넘는다. 여러 페이지에 반복되는 스크립트는 공용 파일로 빼서 한 번만 받게 한다.
+# 같은 자리에서 동기 실행되므로 동작 순서는 인라인과 같다.
+SHARED_SCRIPT_MIN_PAGES = 50
+SHARED_SCRIPT_MIN_CHARS = 400
+_INLINE_SCRIPT_RE = re.compile(r"<script>(.*?)</script>", re.S)
+
+
+class SharedScripts:
+    def __init__(self, site_dir: str):
+        self.site_dir = site_dir
+        self.seen: dict[str, int] = {}
+        self.files: dict[str, str] = {}
+
+    def apply(self, text: str, prefix: str = "../") -> str:
+        def repl(m):
+            body = m.group(1)
+            if len(body) < SHARED_SCRIPT_MIN_CHARS or "var pts" in body:
+                return m.group(0)
+            key = hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
+            self.seen[key] = self.seen.get(key, 0) + 1
+            if self.seen[key] < SHARED_SCRIPT_MIN_PAGES:
+                return m.group(0)
+            rel = self.files.get(key)
+            if rel is None:
+                rel = f"assets/js/{key}.js"
+                os.makedirs(os.path.join(self.site_dir, "assets", "js"), exist_ok=True)
+                with open(os.path.join(self.site_dir, rel), "w", encoding="utf-8") as f:
+                    f.write(body)
+                self.files[key] = rel
+            return f'<script src="{prefix}{rel}"></script>'
+        return _INLINE_SCRIPT_RE.sub(repl, text)
+
+
 GAME_BUCKET_COUNT = 128
 GAME_LOOKUP_JS = """<script>
 async function loadGameRows(ids) {
@@ -5226,15 +5261,17 @@ def main() -> int:
             paths.append(path)
 
     # 성인 게임 상세는 만들되 사이트맵에 넣지 않는다 (검색에 내보내지 않음)
+    shared = SharedScripts(config.SITE_DIR)
     for g in games:
         rd = recent_drops_map.get(g["appid"])
-        write(os.path.join("game", f"{g['appid']}.html"), build_detail(g, games, updated, freshness, recent_drop=rd))
+        write(os.path.join("game", f"{g['appid']}.html"),
+              shared.apply(build_detail(g, games, updated, freshness, recent_drop=rd)))
         if not g.get("adult"):
             paths.append(f"game/{g['appid']}.html")
     for g in software:
-        html = build_detail(g, games, updated, freshness)
+        text = shared.apply(build_detail(g, games, updated, freshness))
         write(os.path.join("game", f"{g['appid']}.html"),
-              html.replace("<head>", '<head>\n<meta name="robots" content="noindex,follow">', 1))
+              text.replace("<head>", '<head>\n<meta name="robots" content="noindex,follow">', 1))
 
     write("sitemap.xml", build_sitemap(paths, updated))
     write("robots.txt", build_robots())
