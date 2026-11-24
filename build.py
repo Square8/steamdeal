@@ -3259,12 +3259,15 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         if verdict_pills else ""
     )
 
+    # 모바일은 구매 정보가 미디어보다 위라 첫 화면에 게임 그림이 없다. 제목 옆 작은 표지로 보완한다.
+    head_thumb = (f'<img class="dhead-thumb" src="{esc(g["header_image"])}" alt="" '
+                  f'width="460" height="215" decoding="async">' if g.get("header_image") else "")
     body = f"""
 <a class="back" data-list-return href="./../index.html">← 목록으로</a>
 {LIST_RETURN_DETAIL_JS}
 <div class="dhero detail-hero">
   <div class="detail-buy-info">
-    <h1>{esc(g['name'])}</h1>
+    <div class="dhead">{head_thumb}<h1>{esc(g['name'])}</h1></div>
     {chips_for(g)}
     <div class="price-now">{price_block}</div>
     <p class="price-note sec-note">{esc(price_note(g))}</p>
@@ -3309,6 +3312,17 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
             pt += f' ({g["discount_pct"]}% 할인)'
     else:
         pt = f'{g["name"]} — 출시예정' if g.get("coming_soon") else g["name"]
+    # 네이버 유입 대부분이 게임 이름 검색으로 들어온 신작·출시예정 상세다.
+    # 검색자가 찾는 출시일·한국어·데모 여부를 제목에서 바로 보이게 한다.
+    rel = str(g.get("release_text") or "").strip()
+    rel_fact = (f"출시일 {rel}" if any(ch.isdigit() for ch in rel) else "출시 예정") if g.get("coming_soon") else ""
+    if rel_fact:
+        pt = f'{g["name"]} — {rel_fact}'
+    title_facts = [x for x in (
+        "한국어 지원" if g.get("korean") else "",
+        "데모" if (g.get("has_demo") or g.get("app_type") == "demo") else "") if x]
+    if title_facts:
+        pt += (" · " if " — " in pt else " — ") + " · ".join(title_facts)
 
     bits = []
     if price_is_fresh(g) and g.get("price_final") and not g.get("is_free"):
@@ -3324,9 +3338,17 @@ def build_detail(g: dict, all_games: list[dict], updated: str, freshness: dict |
         bits.append("한국어 지원")
     if g.get("has_demo") or g.get("app_type") == "demo":
         bits.append("데모 있음")
-    if g.get("release_text"):
-        bits.append(f'{g["release_text"]} 출시')
-    d = f'{g["name"]} 스팀 원화 가격과 변동 이력.' + (" " + " · ".join(bits) if bits else "")
+    if rel_fact:
+        bits.append(rel_fact)
+    elif rel:
+        bits.append(f'{rel} 출시')
+    genre = main_genre(g)
+    if genre:
+        bits.append(genre)
+    about = " ".join(str(g.get("description") or "").split())
+    if len(about) > 90:
+        about = about[:89].rstrip() + "…"
+    d = (f'{g["name"]}: {about} ' if about else f'{g["name"]} ') + " · ".join(bits + ["스팀 원화 가격·할인 이력"])
 
     schema = {
         "@context": "https://schema.org",

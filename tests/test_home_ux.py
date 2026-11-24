@@ -44,6 +44,20 @@ class CardTest(unittest.TestCase):
         self.assertIn("오래된 정보", stale)
 
 
+class DetailSearchTextTest(unittest.TestCase):
+    def test_upcoming_title_and_description(self):
+        g = game(1, coming_soon=1, price_final=0, price_initial=0, release_text="2026년 12월 3일",
+                 has_demo=1, description="재료를 옮기고 요리하는 협동 게임", header_image="h.jpg")
+        html = build.build_detail(g, [g], TODAY)
+        self.assertIn("<title>G1 — 출시일 2026년 12월 3일 · 한국어 지원 · 데모", html)
+        self.assertIn('content="G1: 재료를 옮기고 요리하는 협동 게임 ', html)
+        self.assertIn('class="dhead-thumb" src="h.jpg"', html)
+
+    def test_released_title_keeps_price(self):
+        html = build.build_detail(game(1, discount_pct=50, price_final=10000), [], TODAY)
+        self.assertIn("<title>G1 — 10,000원 (50% 할인) · 한국어 지원", html)
+
+
 class FreebieImageTest(unittest.TestCase):
     def test_epic_images_are_resized(self):
         src = "https://cdn1.epicgames.com/spt-assets/x/cover.png"

@@ -117,7 +117,8 @@ header.top{
   width:7px; height:7px; border-radius:50%; flex:none; background:var(--deal);
   box-shadow:0 0 0 4px var(--deal-soft);
 }
-nav.jump{display:flex; gap:2px; flex-wrap:wrap}
+/* 메뉴는 항상 둘째 줄. 웹폰트가 늦게 적용되며 첫 줄에서 밀려 내려가면 화면 전체가 밀린다(CLS). */
+nav.jump{display:flex; gap:2px; flex-wrap:wrap; flex-basis:100%}
 nav.jump a{
   padding:6px 11px; border-radius:8px; font-size:13px; font-weight:500;
   color:var(--ink-2);
@@ -541,6 +542,9 @@ dialog.dmedia-lightbox::backdrop{background:rgba(6,10,18,.84); backdrop-filter:b
   .detail-hero .dmedia{grid-area:1 / 1}
 }
 .detail-buy-info .price-now{margin-top:8px}
+.dhead{display:flex; align-items:center; gap:12px}
+.dhead h1{min-width:0}
+.dhead-thumb{display:none}
 .dhero .shot{border-radius:12px; overflow:hidden; border:1px solid var(--line)}
 .dhero h1{
   font-family:"Inter","Gothic A1",sans-serif; font-weight:800; font-size:1.65rem;
@@ -654,6 +658,8 @@ summary:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
   .hero-price .big{font-size:1.75rem}
   .buyrow .btn{flex:1; justify-content:center}
   .detail-buy-info .buyrow .btn-p{flex:1 0 100%}
+  .dhead-thumb{display:block; flex:none; width:104px; height:auto; aspect-ratio:460/215;
+    object-fit:cover; border-radius:8px; background:var(--raised)}
 }
 @media (max-width:700px){
   /* 모바일(700px 이하) 상단 nav: 한 줄 유지, 가로 스와이프, scrollbar 숨김, 충분한 탭 영역 */
